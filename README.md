@@ -13,11 +13,11 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 - **Rules end up in the wrong layer.** Business logic lives in a testable logic layer; UI screens only display state. The check fails when a screen fetches data directly or calls storage.
 - **Context gets lost between sessions.** A few plain files hold everything: the product brief, a decision log, the task queue and an architecture table. Each fact has one home, so any session picks up where the last one stopped.
 
-You've read this far, so App Director may be what you're looking for. It's free and open source, and if it helps you build your app, a tip on Ko-fi or a sponsorship on GitHub helps me keep building it. I greatly appreciate your support.
-
-<a href="https://ko-fi.com/Q6J027VJG1" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi5.png?v=6" alt="Support me on Ko-fi" height="36"></a> <a href="https://github.com/sponsors/Freakling" target="_blank"><img src="https://img.shields.io/badge/Sponsor-on%20GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge" alt="Sponsor me on GitHub" height="36"></a>
-
 ## Install
+
+> You've read this far, so App Director may be what you're looking for. It's free and open source, and if it helps you build your app, a tip on Ko-fi or a sponsorship on GitHub helps me keep building it. I greatly appreciate your support.
+>
+> <a href='https://ko-fi.com/Q6J027VJG1' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi5.png?v=6' border='0' alt='Support me on Ko-fi' /></a> <a href='https://github.com/sponsors/Freakling' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://img.shields.io/badge/Sponsor-on%20GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge' border='0' alt='Sponsor me on GitHub' /></a>
 
 Your app needs git (`git init` if it has none) and no uncommitted changes. You also need bash (on Windows it comes with Git for Windows).
 
