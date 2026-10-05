@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+.dart_tool/
+__pycache__/
+*.pyc
+.app-director/state/
+*.local
+.env
+*.adir-new

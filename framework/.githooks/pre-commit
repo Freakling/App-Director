@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# App Director pre-commit hook · framework-owned: replaced on upgrade.
+# `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
+#
+# Runs the project check when the commit includes source files. It checks the working
+# tree, so commit what you checked (partially staged files aren't checked separately).
+
+if [ -n "$(git ls-files -o -i --exclude-standard -- '*.adir-new' 2>/dev/null)" ]; then
+  echo "pre-commit: unmerged App Director upgrade files (*.adir-new) exist. Merge them, then delete them:"
+  git ls-files -o -i --exclude-standard -- '*.adir-new' | sed 's/^/  /'
+  exit 1
+fi
+
+[ -f tools/check.sh ] || exit 0
+
+if git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD | tr '\0' '\n' \
+    | grep -qE '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$'; then
+  echo "pre-commit: running the project check"
+  bash tools/check.sh --if-changed
+  status=$?
+  if [ "$status" -eq 3 ]; then
+    echo "pre-commit: the check couldn't run. Run 'bash tools/setup-clone.sh', or, if you accept an"
+    echo "            unverified commit, commit with --no-verify yourself."
+    exit 1
+  elif [ "$status" -ne 0 ]; then
+    echo "pre-commit: the check fails; commit blocked."
+    exit 1
+  fi
+fi
+exit 0

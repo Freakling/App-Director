@@ -1,0 +1,58 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash tools/check.sh*)",
+      "Bash(bash tools/setup-clone.sh*)",
+      "Bash(bash tools/stacks/*.sh*)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(pnpm *)",
+      "Bash(yarn *)",
+      "Bash(flutter *)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(git add *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git rev-parse *)",
+      "Bash(git commit *)",
+      "Bash(git tag *)",
+      "Bash(git stash *)",
+      "Bash(git worktree *)",
+      "Bash(git ls-files *)",
+      "Bash(git grep *)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-check.sh\"",
+            "timeout": 660000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-commands.sh\"",
+            "timeout": 10000
+          }
+        ]
+      }
+    ]
+  },
+  "bash": {
+    "timeout": 600000
+  }
+}
