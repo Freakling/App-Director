@@ -96,9 +96,29 @@ Fill in `tools/check.cfg`:
 
 ## 8. Ownership and project rules
 
-Walk the human through the defaults. Record only the differences, in AGENTS.md › Project rules.
-- The human owns product vision, design and priorities.
-- The agent owns code, tests and the records.
+### Work-area ownership interview
+For each area below, state the default and ask the human whether they want to own it. Record the result in AGENTS.md › Ownership (create that section now with a table). A human-owned area means the agent uses placeholders when it needs something from there — it never makes the real thing.
+
+| Area | Default | Agent placeholder when human owns it |
+|---|---|---|
+| **Frontend / UI code** | agent | minimal functional component, commented for redesign |
+| **Business logic / services** | agent | stub service returning hard-coded data with `// PLACEHOLDER` comment |
+| **Backend / API** | agent | stub endpoint returning mock data, documented |
+| **Database schema / migrations** | agent | schema with `// PLACEHOLDER` on new fields; migration stub |
+| **Visual design / assets** | human | `<img src="placeholder.svg" alt="[PLACEHOLDER: describe asset]" />` or equivalent |
+| **Copy / user-facing text** | agent | `"[PLACEHOLDER: describe the text]"` string constant |
+| **Testing** | agent | tests written for every `(test)` outcome |
+| **Infrastructure / deployment** | human | config stub with `# PLACEHOLDER` on values the human must set |
+
+### Protected workspace
+If the human owns any area — or wants a space the agent will never touch — offer to create `director/`. The agent reads files there for context (mockups, brand assets, reference images, notes, third-party API specs) but never creates, modifies or deletes anything inside it.
+
+If they want it:
+1. Create `director/` and `director/README.md` explaining what it is and that the agent won't touch it.
+2. Ask whether to gitignore it (for large binary assets) or commit it (for design docs and notes). Update `.gitignore` accordingly.
+3. Add a row to AGENTS.md › Ownership: `director/ — human's workspace, read-only for the agent`.
+
+### Workflow defaults
 - Commits: the agent proposes and the human approves.
 - Model sizing (Claude Code only): **ask the human, and recommend on.** When on, the `builder` subagent uses Haiku for `XS` and `S` items and the session model for everything else.
 - Reviews: by default after `L` and `XL` items, and after `M` items that change stored data schemas or public API contracts.

@@ -19,6 +19,9 @@ In Claude Code these are also slash commands, and builds and reviews run as the 
 - Never answer an Open Question in `product/brief.md` yourself. Work that depends on one gets a placeholder that names the question.
 - Something that seems to contradict a stated goal is flagged, never reinterpreted.
 
+## Protected space
+`director/` is the human's personal workspace — mockups, brand assets, reference images, notes, third-party API specs. Read files there for context when an item needs them, but never create, modify or delete anything inside it. If work depends on an asset the human owns, use the placeholder policy in AGENTS.md › Ownership instead of generating the real thing.
+
 ## Each fact lives in one place
 | Fact | Only in |
 |---|---|

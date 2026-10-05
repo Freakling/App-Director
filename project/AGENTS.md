@@ -27,10 +27,18 @@ One row per significant system: what it owns and where its boundary is.
 | System | Owns | Where | Talks to |
 |---|---|---|---|
 
+## Ownership
+<!-- Filled in during onboarding. One row per work area where ownership matters.
+Owner: agent | human | shared. For human-owned areas, the agent uses the placeholder described. -->
+| Area | Owner | Placeholder |
+|---|---|---|
+<!-- | Visual design / assets      | human | `<img src="placeholder.svg" alt="[PLACEHOLDER]" />`  | -->
+<!-- | Infrastructure / deployment | human | config stub with # PLACEHOLDER on values to set       | -->
+<!-- | director/                   | human | read-only for the agent                               | -->
+
 ## Project rules
 <!-- Only where this project differs from App Director defaults, as agreed with the human.
 Examples:
 - Model sizing: on (recommended on; Claude Code only)
 - No git remote: never push.
-- The agent may generate copy and placeholder images; all other assets stay human-made.
 -->
