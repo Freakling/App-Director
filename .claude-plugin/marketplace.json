@@ -1,0 +1,12 @@
+{
+  "name": "app-director",
+  "description": "The App Director workflow for apps.",
+  "owner": "Freakling",
+  "plugins": [
+    {
+      "name": "app-director",
+      "source": "./",
+      "description": "Installs and upgrades the App Director workflow in an app."
+    }
+  ]
+}

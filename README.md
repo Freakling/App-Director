@@ -13,33 +13,38 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 - **Rules end up in the wrong layer.** Business logic lives in a testable logic layer; UI screens only display state. The check fails when a screen fetches data directly or calls storage.
 - **Context gets lost between sessions.** A few plain files hold everything: the product brief, a decision log, the task queue and an architecture table. Each fact has one home, so any session picks up where the last one stopped.
 
-## How to install
+## Install
 
-### Claude Code plugin (recommended)
+Your app needs git (`git init` if it has none) and no uncommitted changes. You also need bash (on Windows it comes with Git for Windows).
 
-Install from the Claude Code marketplace and open your app's folder:
+**Option 1: the skill.** In your app's folder, run:
 
 ```
-/plugin install app-director
+npx skills add Freakling/App-Director
 ```
 
-Then say: **"Set up App Director for this project."**
+That installs the `app-director` skill for your assistant (Claude Code, Cursor, Codex and many others; you pick in the prompt). Then ask your assistant to set up App Director, or in Claude Code run `/app-director`. The skill fetches App Director outside your app and runs onboarding.
 
-To upgrade later: update the plugin and say the same thing — onboarding detects an upgrade automatically.
+**Option 2: the Claude Code plugin.** In Claude Code:
 
-### Standalone skill
+```
+/plugin marketplace add Freakling/App-Director
+/plugin install app-director@app-director
+```
 
-Copy `SKILL.md` into `~/.claude/skills/app-director/SKILL.md`, then open your app and say the same prompt. The skill fetches App Director from GitHub if it isn't already present.
+Then open a new Claude Code session in your app's folder (or run `/reload-plugins`), and run `/app-director:app-director`.
 
-### Manual install
+**Option 3: manual install.** Clone this repository next to your app as `App-Director/`:
 
-Clone this repository next to your app as `App-Director/`, then ask your assistant:
+```
+git clone https://github.com/Freakling/App-Director.git App-Director
+```
+
+Then ask your assistant:
 
 > Read App-Director/ONBOARDING.md and follow it to install App Director into this project.
 
----
-
-Onboarding works out whether this is a new app, an existing app or an upgrade. It then:
+Either way, onboarding works out whether this is a new app, an existing app or an upgrade. It then:
 1. installs the files and sets up the toolchain;
 2. interviews you (new app) or reads the existing code;
 3. agrees with you who owns what;
@@ -159,6 +164,10 @@ It exits 0 on pass, 1 on fail, and 3 when it can't run. It caches the last passi
 | `project/` | seeds for the app's own files, copied only when missing |
 | `CHANGELOG.md` | what changed, and the upgrade steps for apps |
 | `CLAUDE.md` | instructions for an assistant working on App Director itself |
+
+## Support
+
+[![Support me on Ko-fi](https://storage.ko-fi.com/cdn/kofi5.png?v=6)](https://ko-fi.com/Q6J027VJG1) [![Sponsor me on GitHub](https://img.shields.io/badge/Sponsor-on%20GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/Freakling)
 
 ## License
 
