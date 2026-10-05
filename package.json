@@ -1,0 +1,24 @@
+{
+  "name": "@freakling/app-director",
+  "version": "1.0.0",
+  "description": "Make the app you designed, with AI doing the building and you staying the director.",
+  "keywords": ["claude", "claude-code", "plugin", "workflow", "project-management"],
+  "author": "Freakling",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Freakling/App-Director.git"
+  },
+  "homepage": "https://github.com/Freakling/App-Director",
+  "files": [
+    ".claude-plugin/",
+    "skills/",
+    "framework/",
+    "project/",
+    "ONBOARDING.md",
+    "install.sh",
+    "CHANGELOG.md",
+    "VERSION",
+    "SKILL.md"
+  ]
+}

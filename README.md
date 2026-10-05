@@ -13,15 +13,31 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 - **Rules end up in the wrong layer.** Business logic lives in a testable logic layer; UI screens only display state. The check fails when a screen fetches data directly or calls storage.
 - **Context gets lost between sessions.** A few plain files hold everything: the product brief, a decision log, the task queue and an architecture table. Each fact has one home, so any session picks up where the last one stopped.
 
-## How to use it
+## How to install
 
-**With Claude Code (skill or plugin):** install the `app-director` skill or plugin, open the app's folder, and say:
+### Claude Code plugin (recommended)
 
-> Set up App Director for this project.
+Install from the Claude Code marketplace and open your app's folder:
 
-**Manual install:** put this repository next to your app as `App-Director/`, or anywhere you like, then ask your assistant:
+```
+/plugin install app-director
+```
+
+Then say: **"Set up App Director for this project."**
+
+To upgrade later: update the plugin and say the same thing — onboarding detects an upgrade automatically.
+
+### Standalone skill
+
+Copy `SKILL.md` into `~/.claude/skills/app-director/SKILL.md`, then open your app and say the same prompt. The skill fetches App Director from GitHub if it isn't already present.
+
+### Manual install
+
+Clone this repository next to your app as `App-Director/`, then ask your assistant:
 
 > Read App-Director/ONBOARDING.md and follow it to install App Director into this project.
+
+---
 
 Onboarding works out whether this is a new app, an existing app or an upgrade. It then:
 1. installs the files and sets up the toolchain;
