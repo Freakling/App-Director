@@ -70,7 +70,7 @@ bugs and design proposals ── you decide ── repeat
 ```
 your-app/
 │  yours: never overwritten
-├── AGENTS.md                   for every assistant: project facts, layout, architecture, project rules
+├── AGENTS.md                   for every assistant: project facts, layout, architecture, ownership, project rules
 ├── CLAUDE.md                   "@AGENTS.md", for Claude Code
 ├── TASKS.md                    milestones and the queue (tasks and bugs)
 ├── product/brief.md            what the app should be, and Open Questions
@@ -98,6 +98,7 @@ Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/
 ### The rules, briefly
 The full rules are in `.app-director/rules.md`, and the assistant reads them every session.
 - **You decide design.** The assistant offers options and a recommendation. It never picks values (new values are marked `PLACEHOLDER`), and never answers an open question itself.
+- **Areas you own are never generated.** Onboarding asks who owns visual design, assets, copy and infrastructure. Human-owned areas get a documented placeholder policy instead of generated content. `director/` is an optional protected workspace — the AI reads it for context but never creates, modifies or deletes anything inside it.
 - **Each fact lives in one place,** and is updated in the same change that makes it untrue.
 - **Logic lives in the logic layer, not the UI.** Screens display state and call services. They never fetch data directly or hold business logic. The check fails when they do.
 - **No secrets in source.** Credentials live in `.env` files (gitignored) and platform secrets. The check fails on anything that looks like a key or password in source.
