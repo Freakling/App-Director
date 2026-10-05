@@ -15,7 +15,11 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 
 ## How to use it
 
-**Manual install (for now):** put this repository next to your app as `App-Director/`, or anywhere you like, then ask your assistant:
+**With Claude Code (skill or plugin):** install the `app-director` skill or plugin, open the app's folder, and say:
+
+> Set up App Director for this project.
+
+**Manual install:** put this repository next to your app as `App-Director/`, or anywhere you like, then ask your assistant:
 
 > Read App-Director/ONBOARDING.md and follow it to install App Director into this project.
 
