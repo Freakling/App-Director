@@ -13,6 +13,10 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 - **Rules end up in the wrong layer.** Business logic lives in a testable logic layer; UI screens only display state. The check fails when a screen fetches data directly or calls storage.
 - **Context gets lost between sessions.** A few plain files hold everything: the product brief, a decision log, the task queue and an architecture table. Each fact has one home, so any session picks up where the last one stopped.
 
+You've read this far, so App Director may be what you're looking for. It's free and open source, and if it helps you build your app, a tip on Ko-fi or a sponsorship on GitHub helps me keep building it. I greatly appreciate your support.
+
+<a href="https://ko-fi.com/Q6J027VJG1" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi5.png?v=6" alt="Support me on Ko-fi" height="36"></a> <a href="https://github.com/sponsors/Freakling" target="_blank"><img src="https://img.shields.io/badge/Sponsor-on%20GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge" alt="Sponsor me on GitHub" height="36"></a>
+
 ## Install
 
 Your app needs git (`git init` if it has none) and no uncommitted changes. You also need bash (on Windows it comes with Git for Windows).
@@ -164,10 +168,6 @@ It exits 0 on pass, 1 on fail, and 3 when it can't run. It caches the last passi
 | `project/` | seeds for the app's own files, copied only when missing |
 | `CHANGELOG.md` | what changed, and the upgrade steps for apps |
 | `CLAUDE.md` | instructions for an assistant working on App Director itself |
-
-## Support
-
-[![Support me on Ko-fi](https://storage.ko-fi.com/cdn/kofi5.png?v=6)](https://ko-fi.com/Q6J027VJG1) [![Sponsor me on GitHub](https://img.shields.io/badge/Sponsor-on%20GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/Freakling)
 
 ## License
 
