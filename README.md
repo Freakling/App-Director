@@ -1,5 +1,7 @@
 # App Director
 
+<p align="center"><img src=".claude-plugin/icon.png" alt="App Director" width="160"></p>
+
 **Make the app you designed, with AI doing the building and you staying the director.**
 
 A workflow for small apps — web, mobile and desktop — new or already in development. You decide what the app does, how it should feel and what gets built next. The AI builds, tests and keeps the records. Built for Claude Code, and usable with any AI coding assistant that reads `AGENTS.md`. Everything lives in your app's own git repository.
