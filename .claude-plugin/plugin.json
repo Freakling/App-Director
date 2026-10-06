@@ -12,5 +12,9 @@
   "license": "MIT",
   "keywords": ["workflow", "project-management", "app-development", "director"],
   "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://github.com/Freakling/App-Director#readme",
+  "supportUrl": "https://github.com/Freakling/App-Director/issues",
+  "privacyPolicyUrl": "https://github.com/Freakling/App-Director/blob/main/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/Freakling/App-Director/blob/main/LICENSE",
   "skills": "./skills/"
 }
