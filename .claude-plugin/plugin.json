@@ -11,5 +11,6 @@
   "repository": "https://github.com/Freakling/App-Director",
   "license": "MIT",
   "keywords": ["workflow", "project-management", "app-development", "director"],
+  "icon": "./.claude-plugin/icon.png",
   "skills": "./skills/"
 }
