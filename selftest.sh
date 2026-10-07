@@ -165,6 +165,51 @@ cd "$app" || exit 1
 
 # --- check ----------------------------------------------------------------------------------------
 echo "check"
+
+# Add a selftest detection rule to .gitleaks.toml so the planted marker is caught regardless of
+# entropy. The marker string is assembled at test time and never stored in this file.
+_gl_rule_id="selftest-marker"
+_gl_marker_name="ADIR_SELFTEST_CRED"
+cat >> .gitleaks.toml << EOF
+
+[[rules]]
+id = "$_gl_rule_id"
+description = "App Director selftest marker — remove before production."
+regex = '''${_gl_marker_name}\\s*=\\s*['"]([A-Za-z0-9+/]{16,})['"]'''
+secretGroup = 1
+EOF
+
+# _cred_val assembled at test time from parts — no literal appears in this file and gitleaks
+# never sees it in source; it is written only to the temp working directory.
+_cv1="SelfTestFake"; _cv2="Key1234ABCD"
+_cred_val="${_cv1}${_cv2}"
+
+# Determine if a real gitleaks >= minimum is available.
+_gl_min_req="8.18.0"
+_gl_ok=0
+if command -v gitleaks >/dev/null 2>&1; then
+  _gl_raw="$(gitleaks version 2>/dev/null)"; _gl_ver="$(printf '%s' "$_gl_raw" | tr -d 'v \r\n')"
+  _gl_maj="${_gl_ver%%.*}"; _rest="${_gl_ver#*.}"; _gl_min_v="${_rest%%.*}"
+  _req_maj="${_gl_min_req%%.*}"; _rest="${_gl_min_req#*.}"; _req_min_v="${_rest%%.*}"
+  if [ "${_gl_maj:-0}" -gt "${_req_maj:-0}" ] || \
+     { [ "${_gl_maj:-0}" -eq "${_req_maj:-0}" ] && [ "${_gl_min_v:-0}" -ge "${_req_min_v:-0}" ]; }; then
+    _gl_ok=1
+  fi
+fi
+
+# Build a PATH that includes gitleaks — real if available, otherwise a passthrough fake that
+# always exits 0. Used everywhere except the "exits 3 when gitleaks is missing" test.
+_stop_path="$PATH"
+if [ "$_gl_ok" -eq 0 ]; then
+  _fake_gl="$work/fake-gl-pass"
+  mkdir -p "$_fake_gl"
+  printf '#!/usr/bin/env bash\ncase "$1" in version) printf "v8.18.0\\n";; esac; exit 0\n' \
+    > "$_fake_gl/gitleaks"
+  chmod +x "$_fake_gl/gitleaks"
+  _stop_path="$_fake_gl:$PATH"
+fi
+export PATH="$_stop_path"
+
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes on a fresh install of the example" 0 $? "$out"
 out="$(bash tools/check.sh --if-changed 2>&1)"
@@ -178,19 +223,51 @@ expect_status "fails on a UI file importing from the data layer" 1 $? "$out"
 expect_output "names the offending file" "TodoList" "$out"
 cp "$work/saved-ui" src/ui/TodoList.ts
 
-# Planted fake credential — value assembled at test time, file written only in temp dir, never committed.
-# _cred_val is 32 hex zeros: matches check.sh's hex-secret pattern, clearly not a real key.
-_cred_val="00000000000000000000000000000000"
-cp src/services/TodoService.ts "$work/saved-svc"
-{ printf '\n'; printf "const api_key = '%s';\n" "$_cred_val"; } >> src/services/TodoService.ts
-out="$(bash tools/check.sh 2>&1)"
-expect_status "fails on a planted secret" 1 $? "$out"
-expect_output "names the file with the secret" "TodoService" "$out"
-cp "$work/saved-svc" src/services/TodoService.ts
+if [ "$_gl_ok" -eq 1 ]; then
+  # Planted fake credential — written only to temp dir, never committed.
+  cp src/services/TodoService.ts "$work/saved-svc"
+  { printf '\n'; printf "%s = '%s';\n" "$_gl_marker_name" "$_cred_val"; } >> src/services/TodoService.ts
+  out="$(bash tools/check.sh 2>&1)"
+  expect_status "fails on a planted secret" 1 $? "$out"
+  expect_output "names the file with the secret" "TodoService" "$out"
+  # --redact must keep the secret value out of check output and the state report
+  expect_no_output "secret value not in check output" "$_cred_val" "$out"
+  state_json="$(cat .app-director/state/gitleaks.json 2>/dev/null || true)"
+  expect_no_output "secret value not in state file" "$_cred_val" "$state_json"
+
+  # Allowlisted fingerprint passes the check.
+  fingerprint="$(printf '%s' "$state_json" | grep -o '"Fingerprint":"[^"]*"' | head -1 | sed 's/"Fingerprint":"//;s/".*//')"
+  if [ -n "$fingerprint" ]; then
+    printf '%s\n' "$fingerprint" >> .gitleaksignore
+    out="$(bash tools/check.sh 2>&1)"
+    expect_status "allowlisted fingerprint passes" 0 $? "$out"
+    # Remove the test entry (restore .gitleaksignore to original state)
+    gl_lines="$(wc -l < .gitleaksignore)"; head -n "$((gl_lines - 1))" .gitleaksignore > "$work/gl-ignore-clean"
+    cp "$work/gl-ignore-clean" .gitleaksignore
+  else
+    bad "allowlisted fingerprint passes (could not extract fingerprint from report)" "$state_json"
+  fi
+
+  cp "$work/saved-svc" src/services/TodoService.ts
+else
+  echo "  skip  gitleaks secrets tests (gitleaks not found or below $_gl_min_req)"
+  echo "  skip  secret value not in check output"
+  echo "  skip  secret value not in state file"
+  echo "  skip  allowlisted fingerprint passes"
+fi
+
+# Exit 3 when gitleaks is absent: rebuild PATH stripping every directory that holds gitleaks
+# (including the fake one when we set it up, so this path contains neither).
+_no_gl_path=""
+for _gl_dir in $(printf '%s' "$PATH" | tr ':' '\n'); do
+  [ -x "$_gl_dir/gitleaks" ] || _no_gl_path="${_no_gl_path:+$_no_gl_path:}$_gl_dir"
+done
+out="$(PATH="$_no_gl_path" bash tools/check.sh 2>&1)"
+if [ $? -eq 3 ]; then ok "exits 3 when gitleaks is missing"; else bad "exits 3 when gitleaks is missing" "$out"; fi
 
 # Exit 3 when the configured stack script is missing.
 cp tools/check.cfg "$work/saved-cfg"
-printf '[project]\nstack = nonexistent\n' > tools/check.cfg
+printf '[project]\nstack = nonexistent\n[gitleaks]\nmin-version = 8.18.0\n' > tools/check.cfg
 out="$(bash tools/check.sh 2>&1)"
 expect_status "exits 3 when the stack script is missing" 3 $? "$out"
 cp "$work/saved-cfg" tools/check.cfg
@@ -224,7 +301,11 @@ for cmd in \
     'git checkout -- .' \
     'git restore .' \
     'git stash drop' \
-    'git branch -D topic'; do
+    'git branch -D topic' \
+    'cat .env' \
+    'head .env' \
+    'cat ./server.key' \
+    'cat certificates/cert.pem'; do
   guard 2 "$cmd"
 done
 for cmd in \
@@ -234,7 +315,8 @@ for cmd in \
     'git restore --staged src/ui/TodoList.ts' \
     'git checkout -b topic' \
     'git reset --soft HEAD~1' \
-    'git switch main'; do
+    'git switch main' \
+    'cat .env.example'; do
   guard 0 "$cmd"
 done
 
@@ -258,19 +340,23 @@ guard_write 0 "TASKS.md"
 
 # --- stop-check hook ------------------------------------------------------------------------------
 echo "stop-check hook"
+# PATH is already set to $_stop_path (includes gitleaks, real or fake) from the check section.
+
 git add -A && { git_q commit -qm "clean state for hook tests" >/dev/null 2>&1 || true; }
 
 stop_hook() {
-  printf '{}' | CLAUDE_PROJECT_DIR="$app" bash .claude/hooks/stop-check.sh 2>&1
+  printf '{}' | CLAUDE_PROJECT_DIR="$app" PATH="$_stop_path" bash .claude/hooks/stop-check.sh 2>&1
 }
 out="$(stop_hook)"; expect_status "does nothing when code is unchanged" 0 $? "$out"
 
 { printf '\n'; printf '// a harmless change\n'; } >> src/services/TodoService.ts
 out="$(stop_hook)"; expect_status "lets a passing change through" 0 $? "$out"
 
-cp src/services/TodoService.ts "$work/passing"
-{ printf '\n'; printf "const api_key = '%s';\n" "$_cred_val"; } >> src/services/TodoService.ts
-cp src/services/TodoService.ts "$work/failing"
+# Plant a UI purity violation as the failing state so the stop-check tests work with or without
+# gitleaks. (Secret detection in check.sh is exercised above in the check section.)
+cp src/ui/TodoList.ts "$work/stop-passing"
+{ printf '\n'; printf 'import { TodoStore } from '"'"'../store/TodoStore'"'"';\n'; } >> src/ui/TodoList.ts
+cp src/ui/TodoList.ts "$work/stop-failing"
 out="$(stop_hook)"; status=$?
 expect_status "blocks a failing change" 2 "$status" "$out"
 expect_output "gives Claude the check output" "check.sh fails" "$out"
@@ -286,11 +372,12 @@ out="$(stop_hook)"; expect_status "leaves a builder's half-built files alone" 0 
 rm -f .app-director/state/building
 
 out="$(stop_hook)"; expect_status "blocks again once the builder is done" 2 $? "$out"
-cp "$work/passing" src/services/TodoService.ts
+cp "$work/stop-passing" src/ui/TodoList.ts
 out="$(stop_hook)"; expect_status "lets the fixed state through" 0 $? "$out"
 
 # --- pre-commit hook ------------------------------------------------------------------------------
 echo "pre-commit hook"
+# PATH already includes gitleaks (real or fake) from the check section export above.
 bash tools/setup-clone.sh >/dev/null 2>&1
 grep -qs "App Director" "$(git rev-parse --git-path hooks)/pre-commit" \
   && ok "setup-clone installs the pre-commit hook" \

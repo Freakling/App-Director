@@ -1,0 +1,7 @@
+# App Director .gitleaksignore · project-owned: edit freely; never overwritten on upgrade.
+# Each line is a finding Fingerprint that has been reviewed and approved by the human.
+# Fingerprints appear in .app-director/state/gitleaks.json after a failed check.
+# Format: <rule-id>:<file>:<line>  (for dir/protect scans)
+#
+# IMPORTANT: Every allowlist entry must have a corresponding reason in product/decisions.md.
+# The AI may propose an entry; only the human approves it.

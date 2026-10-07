@@ -24,6 +24,14 @@
       "Bash(git worktree *)",
       "Bash(git ls-files *)",
       "Bash(git grep *)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(**/.env)",
+      "Read(*.pem)",
+      "Read(**/*.pem)",
+      "Read(*.key)",
+      "Read(**/*.key)"
     ]
   },
   "hooks": {

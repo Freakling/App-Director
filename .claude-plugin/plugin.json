@@ -1,7 +1,7 @@
 {
   "name": "app-director",
   "displayName": "App Director",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Make the app you designed, with AI doing the building and you staying the director. Installs a structured workflow into any app: design sessions, build-check-commit loop, acceptance checks.",
   "author": {
     "name": "Freakling",

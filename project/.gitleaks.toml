@@ -1,0 +1,29 @@
+# App Director gitleaks configuration · project-owned: edit freely; never overwritten on upgrade.
+# Extends the built-in gitleaks ruleset with project-specific rules and allowlists.
+#
+# To allowlist a finding:
+#   1. Add its Fingerprint to .gitleaksignore (one per line).
+#   2. Add a reason to product/decisions.md.
+#   3. Ask the human to approve both changes before committing.
+#
+# Reference: https://github.com/gitleaks/gitleaks#configuration
+
+title = "{{APP_NAME}}"
+
+[extend]
+# Inherit all built-in gitleaks detection rules.
+useDefault = true
+
+# [allowlist]
+# description = "Project-level path or commit allowlist."
+# paths = [
+#   '''(?i)\.env\.example$''',
+# ]
+# commits = []
+
+# Add project-specific detection rules here, e.g.:
+# [[rules]]
+# id = "my-internal-token"
+# description = "Internal API token"
+# regex = '''MY_INTERNAL_TOKEN\s*=\s*['"]([A-Za-z0-9+/=]{32,})['"]'''
+# secretGroup = 1

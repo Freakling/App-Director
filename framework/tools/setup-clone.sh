@@ -6,9 +6,10 @@
 #
 # Run it once in every new clone or worktree; running it again is harmless.
 # 1. Reads tools/check.cfg [project] stack and checks that the stack tool is available.
-# 2. Installs the pre-commit hook via a small shim in .git/hooks that runs .githooks/pre-commit.
+# 2. Verifies gitleaks >= minimum version (read from check.cfg [gitleaks] min-version).
+# 3. Installs the pre-commit hook via a small shim in .git/hooks that runs .githooks/pre-commit.
 #    An existing non-App-Director hook is never overwritten.
-# Exit codes: 0 = done · 3 = stack tool missing · 4 = done, but the hook needs your attention.
+# Exit codes: 0 = done · 3 = tool missing or version too old · 4 = done, but the hook needs your attention.
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -16,6 +17,8 @@ skip_hook=0
 for arg in "$@"; do
   case "$arg" in --skip-hook) skip_hook=1 ;; esac
 done
+
+GITLEAKS_MIN_DEFAULT="8.18.0"
 
 # Read an ini-style check.cfg value.
 cfg_get() {
@@ -35,7 +38,21 @@ cfg_get() {
   done < tools/check.cfg
 }
 
-# --- 1. Toolchain check ---------------------------------------------------------------------------
+# version_gte <installed> <minimum> → 0 if installed >= minimum
+version_gte() {
+  local inst="$1" min="$2" ia ib ic ma mb mc rest
+  ia="${inst%%.*}"; rest="${inst#*.}"; ib="${rest%%.*}"; ic="${rest#*.}"
+  ma="${min%%.*}"; rest="${min#*.}"; mb="${rest%%.*}"; mc="${rest#*.}"
+  ia="${ia:-0}"; ib="${ib:-0}"; ic="${ic:-0}"
+  ma="${ma:-0}"; mb="${mb:-0}"; mc="${mc:-0}"
+  [ "$ia" -gt "$ma" ] && return 0
+  [ "$ia" -lt "$ma" ] && return 1
+  [ "$ib" -gt "$mb" ] && return 0
+  [ "$ib" -lt "$mb" ] && return 1
+  [ "$ic" -ge "$mc" ]
+}
+
+# --- 1. Stack toolchain check ---------------------------------------------------------------------
 stack="$(cfg_get project stack)"
 exit_code=0
 
@@ -74,9 +91,32 @@ case "$stack" in
     ;;
 esac
 
+# --- 2. gitleaks version check --------------------------------------------------------------------
+gl_min="$(cfg_get gitleaks min-version)"
+gl_min="${gl_min:-$GITLEAKS_MIN_DEFAULT}"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "setup: gitleaks not found (need >= $gl_min)."
+  echo "       macOS:   brew install gitleaks"
+  echo "       Linux:   https://github.com/gitleaks/gitleaks/releases  (download binary to /usr/local/bin)"
+  echo "       Windows: winget install gitleaks  or  choco install gitleaks"
+  echo "       No curl-to-shell installs — download the binary directly."
+  exit_code=3
+else
+  gl_raw="$(gitleaks version 2>/dev/null)"
+  gl_ver="$(printf '%s' "$gl_raw" | tr -d 'v \r\n')"
+  if version_gte "$gl_ver" "$gl_min"; then
+    echo "setup: found gitleaks $gl_ver (>= $gl_min)"
+  else
+    echo "setup: gitleaks $gl_ver is below minimum $gl_min — upgrade it."
+    echo "       https://github.com/gitleaks/gitleaks/releases"
+    exit_code=3
+  fi
+fi
+
 [ "$exit_code" -ne 0 ] && exit "$exit_code"
 
-# --- 2. Pre-commit hook ---------------------------------------------------------------------------
+# --- 3. Pre-commit hook ---------------------------------------------------------------------------
 [ "$skip_hook" -eq 1 ] && exit 0
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "setup: not a git repository, so no pre-commit hook."

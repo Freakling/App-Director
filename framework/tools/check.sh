@@ -6,20 +6,22 @@
 #   bash tools/check.sh --if-changed       repeat the last result at once if these exact files were checked
 #   bash tools/check.sh --fingerprint      print the fingerprint of the current files (for hooks)
 #   bash tools/check.sh --architecture     run only the UI purity and secrets checks (fast, no build)
-# Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (stack tool missing)
+# Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (gitleaks missing/old, or stack tool missing)
 #
 # Steps:
 #   1. UI purity: scan UI-layer files for imports from data-layer folders.
-#   2. Secrets: scan source for patterns that look like keys, passwords or tokens.
+#   2. Secrets: run gitleaks dir --redact on the working tree.
 #   3. Stack check: source tools/stacks/<stack>.sh and run it.
 #   4. Custom: run tools/check.local.sh, if the project has one.
 #
 # Settings are in tools/check.cfg. State is cached in .app-director/state/.
+# gitleaks minimum version is read from check.cfg [gitleaks] min-version (default 8.18.0).
 
 set -u
 cd "$(dirname "$0")/.." || exit 3
 mode="${1:-}"
 state_dir=".app-director/state"
+GITLEAKS_MIN_DEFAULT="8.18.0"
 
 # Read an ini-style check.cfg value: cfg_get <section> <key>
 cfg_get() {
@@ -39,6 +41,20 @@ cfg_get() {
   done < tools/check.cfg
 }
 
+# version_gte <installed> <minimum> → 0 if installed >= minimum
+version_gte() {
+  local inst="$1" min="$2" ia ib ic ma mb mc rest
+  ia="${inst%%.*}"; rest="${inst#*.}"; ib="${rest%%.*}"; ic="${rest#*.}"
+  ma="${min%%.*}"; rest="${min#*.}"; mb="${rest%%.*}"; mc="${rest#*.}"
+  ia="${ia:-0}"; ib="${ib:-0}"; ic="${ic:-0}"
+  ma="${ma:-0}"; mb="${mb:-0}"; mc="${mc:-0}"
+  [ "$ia" -gt "$ma" ] && return 0
+  [ "$ia" -lt "$ma" ] && return 1
+  [ "$ib" -gt "$mb" ] && return 0
+  [ "$ib" -lt "$mb" ] && return 1
+  [ "$ic" -ge "$mc" ]
+}
+
 # Hash of every file that can change the result.
 fingerprint() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
@@ -46,7 +62,7 @@ fingerprint() {
   paths="$(git -c core.quotePath=false ls-files -z -c -o --exclude-standard 2>/dev/null \
     | tr '\0' '\n' \
     | grep -v -E '^(node_modules/|dist/|build/|\.dart_tool/|__pycache__/)' \
-    | grep -E '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$' \
+    | grep -E '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^\.gitleaks(\.toml|ignore)$' \
     | while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done)"
   [ -n "$paths" ] || return 0
   { printf '%s\n' "$paths"; printf '%s\n' "$paths" | git hash-object --no-filters --stdin-paths; } \
@@ -94,25 +110,6 @@ if [ -n "$ui_dirs" ] && [ -n "$data_dirs" ]; then
   done
 
   if [ -n "$data_pattern" ]; then
-    purity_fail=0
-    for ui_dir in $ui_dirs; do
-      [ -d "$ui_dir" ] || continue
-      find_args="-type f"
-      for sd in $skip_dirs; do
-        find_args="$find_args ! -path './$sd/*'"
-      done
-      # Find source files in this UI dir
-      eval '"$FIND"' "$ui_dir" $find_args \
-        '\( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.dart" -o -name "*.py" \)' \
-        2>/dev/null | while IFS= read -r f; do
-        if grep -qE "from ['\"]\.\..*($data_pattern)|import .*from ['\"]\.\..*($data_pattern)" "$f" 2>/dev/null \
-          || grep -qE "^import .*($data_pattern)" "$f" 2>/dev/null; then
-          echo "  GDIR-FAIL: $f imports from data layer directly"
-          purity_fail=1
-        fi
-      done
-    done
-    # Check if any violations were found via exit status trick
     violations="$("$FIND" $ui_dirs -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.dart" -o -name "*.py" \) 2>/dev/null \
       | while IFS= read -r f; do
           if grep -lE "from ['\"](\.\./)+.*($data_pattern)" "$f" 2>/dev/null; then
@@ -127,32 +124,38 @@ if [ -n "$ui_dirs" ] && [ -n "$data_dirs" ]; then
   fi
 fi
 
-# --- 2. Secrets check -----------------------------------------------------------------------------
+# --- 2. Secrets check (gitleaks) ------------------------------------------------------------------
 echo "check: secrets"
-FIND=find; [ -x /usr/bin/find ] && FIND=/usr/bin/find
-skip_pattern=".app-director .git node_modules dist build .dart_tool __pycache__ .venv"
-find_skip=""
-for sd in $skip_pattern $skip_dirs; do
-  find_skip="$find_skip -path './$sd' -prune -o"
-done
+gl_min="$(cfg_get gitleaks min-version)"
+gl_min="${gl_min:-$GITLEAKS_MIN_DEFAULT}"
 
-secret_hits=""
-secret_hits="$(eval '"$FIND"' . $find_skip \
-  '-type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.dart" -o -name "*.json" -o -name "*.yaml" -o -name "*.yml" \)' \
-  '-print' 2>/dev/null \
-  | grep -v '\.env\.' \
-  | while IFS= read -r f; do
-      if grep -qE \
-        "(password|passwd|api_key|apikey|secret_key|private_key|access_key|auth_token|bearer)\s*[:=]\s*['\"][^'\"]{8,}" \
-        "$f" 2>/dev/null \
-        || grep -qE "['\"][0-9a-fA-F]{32,}['\"]" "$f" 2>/dev/null; then
-        printf '%s\n' "$f"
-      fi
-    done)"
-if [ -n "$secret_hits" ]; then
-  echo "check: secrets FAIL — possible credentials in source files:"
-  printf '%s\n' "$secret_hits" | sed 's/^/  /'
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "check: secrets FAIL — gitleaks not found (need >= $gl_min)."
+  echo "       Install: https://github.com/gitleaks/gitleaks#installing"
+  echo "       macOS:   brew install gitleaks"
+  echo "       Linux:   https://github.com/gitleaks/gitleaks/releases"
+  echo "       Windows: winget install gitleaks  or  choco install gitleaks"
+  echo "       Then run: bash tools/setup-clone.sh"
+  exit 3
+fi
+
+gl_raw="$(gitleaks version 2>/dev/null)"
+gl_ver="$(printf '%s' "$gl_raw" | tr -d 'v \r\n')"
+if ! version_gte "$gl_ver" "$gl_min"; then
+  echo "check: secrets FAIL — gitleaks $gl_ver is below minimum $gl_min."
+  echo "       Upgrade: https://github.com/gitleaks/gitleaks#installing"
+  exit 3
+fi
+
+gl_report="$state_dir/gitleaks.json"
+if ! gitleaks dir --redact --report-path="$gl_report" . 2>/dev/null; then
+  echo "check: secrets FAIL — gitleaks found credentials in the working tree."
+  echo "       Report (secrets redacted): $gl_report"
+  echo "       To allowlist a finding: add its Fingerprint to .gitleaksignore and document"
+  echo "       the reason in product/decisions.md. Ask the human to approve both changes."
   failed=1
+else
+  rm -f "$gl_report"
 fi
 
 if [ "$arch_only" -eq 1 ]; then

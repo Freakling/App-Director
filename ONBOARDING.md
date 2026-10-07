@@ -41,7 +41,18 @@ Run `bash "$ADIR/install.sh" .`. Then read its report.
 
 ## 3. Toolchain check
 
-Run `bash tools/setup-clone.sh`. It checks that the configured stack tool is available (node, flutter, python) and installs the pre-commit hook. Report what it printed.
+Run `bash tools/setup-clone.sh`. It checks that the configured stack tool is available (node, flutter, python), verifies gitleaks is installed at the minimum version, and installs the pre-commit hook. Report what it printed. If gitleaks is missing, stop and tell the human which install command to use for their OS (macOS: `brew install gitleaks`; Linux: download binary from the releases page; Windows: `winget install gitleaks`).
+
+**For existing apps only — git history scan:** run a one-time full scan of the commit history:
+```
+gitleaks git --redact .
+```
+Report every finding to the human. For each finding, state:
+- Which rule matched, in which file, and at which commit.
+- That any committed secret is compromised and must be rotated — even if the commit was later removed from the branch, the data may have been cloned, cached, or mirrored.
+- That you will not rewrite history and will not rotate the credential. Both are the human's actions, outside this workflow.
+
+Do not open TASKS.md items for credential rotation.
 
 Then run `bash tools/check.sh` once and keep the result. An existing app often fails at first; that's information, not a blocker. The pre-commit hook is installed at the end (step 9), so the install commit isn't blocked.
 

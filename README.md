@@ -21,7 +21,7 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 >
 > <a href='https://ko-fi.com/Q6J027VJG1' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi5.png?v=6' border='0' alt='Support me on Ko-fi' /></a> <a href='https://github.com/sponsors/Freakling' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://img.shields.io/badge/Sponsor-on%20GitHub-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge' border='0' alt='Sponsor me on GitHub' /></a>
 
-Your app needs git (`git init` if it has none) and no uncommitted changes. You also need bash (on Windows it comes with Git for Windows).
+Your app needs git (`git init` if it has none) and no uncommitted changes. You also need bash (on Windows it comes with Git for Windows) and [gitleaks](https://github.com/gitleaks/gitleaks#installing) ≥ 8.18.0 (macOS: `brew install gitleaks`; Windows: `winget install gitleaks`).
 
 **Option 1: the skill.** In your app's folder, run:
 
@@ -134,7 +134,7 @@ The full rules are in `.app-director/rules.md`, and the assistant reads them eve
 - **Areas you own are never generated.** Onboarding asks who owns visual design, assets, copy and infrastructure. Human-owned areas get a documented placeholder policy instead of generated content. `director/` is an optional protected workspace — the AI reads it for context but never creates, modifies or deletes anything inside it.
 - **Each fact lives in one place,** and is updated in the same change that makes it untrue.
 - **Logic lives in the logic layer, not the UI.** Screens display state and call services. They never fetch data directly or hold business logic. The check fails when they do.
-- **No secrets in source.** Credentials live in `.env` files (gitignored) and platform secrets. The check fails on anything that looks like a key or password in source.
+- **No secrets in source.** Credentials live in `.env` files (gitignored) and platform secrets. The check (gitleaks) fails when a credential is found in the working tree; the pre-commit hook also scans staged changes. A false positive can be allowlisted with a fingerprint in `.gitleaksignore` and a reason in `product/decisions.md` — with the human's approval.
 - **Done means the check passes,** and the work is committed only with your approval.
 - **Guarded git:** in Claude Code, force-push, `reset --hard`, `--no-verify` and other work-destroying commands are blocked by a hook.
 
@@ -157,9 +157,11 @@ The orchestrator and the builder are deliberately separate contexts.
 ### The check
 `bash tools/check.sh` runs four steps:
 1. **UI purity:** scans UI-layer files for imports from data-layer folders. Fails if found.
-2. **Secrets:** scans all source for patterns that look like keys, passwords, or tokens. Fails if found.
+2. **Secrets (gitleaks):** runs `gitleaks dir --redact` on the working tree. Fails if a credential is found. Exit 3 if gitleaks is missing or below the minimum version in `tools/check.cfg [gitleaks] min-version` — never falls back to regex and never passes silently. Findings are written (redacted) to `.app-director/state/gitleaks.json`.
 3. **Stack check:** runs the appropriate `tools/stacks/<stack>.sh` (type check, lint, tests).
 4. **Custom:** runs `tools/check.local.sh`, if the app has one.
+
+The pre-commit hook also runs `gitleaks protect --staged --redact` on staged changes, so secrets are caught before they enter git history.
 
 It exits 0 on pass, 1 on fail, and 3 when it can't run. It caches the last passing state so hooks don't re-run it when nothing has changed.
 

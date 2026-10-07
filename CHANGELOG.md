@@ -2,6 +2,29 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## 1.2.0 (2026-10-07)
+
+- **Gitleaks replaces regex secrets scan.** `check.sh` step 2 now runs `gitleaks dir --redact` on the working tree. Findings are written (redacted) to `.app-director/state/gitleaks.json`. If gitleaks is missing or below the minimum version, the check exits 3 — it never falls back to regex and never passes silently.
+- **Staged-changes scan in pre-commit hook.** `.githooks/pre-commit` now also runs `gitleaks protect --staged --redact` on staged changes, so a secret is caught before it enters history.
+- **gitleaks version check in setup-clone.sh.** `bash tools/setup-clone.sh` now verifies gitleaks ≥ minimum version and stops with per-OS install instructions if it's missing.
+- **Minimum version pinned in check.cfg.** `tools/check.cfg [gitleaks] min-version = 8.18.0`. Raise it after testing with a newer release.
+- **Project-owned gitleaks config seeded.** `install.sh` seeds `.gitleaks.toml` (extends the default ruleset) and `.gitleaksignore` (empty allowlist with guidance) on first install. Both are project-owned and never overwritten on upgrade.
+- **Allowlist rule in rules.md.** The AI may propose a `.gitleaksignore` fingerprint entry and a `product/decisions.md` reason, but never adds either without the human's approval.
+- **Onboarding history scan for existing apps.** Step 3 now runs `gitleaks git --redact .` for existing apps and reports findings to the human, noting that any committed secret is compromised and must be rotated by the human.
+- **settings.json deny rules.** `Read(.env)`, `Read(**/.env)`, `Read(*.pem)`, `Read(**/*.pem)`, `Read(*.key)`, `Read(**/*.key)` are denied. `.env.example` is not denied.
+- **guard-commands.sh blocks .env reads.** Shell commands reading `.env`, `*.pem`, or `*.key` directly (`cat`, `head`, `tail`, `less`, `more`) are blocked. This is a guardrail, not a guarantee; indirect reads are not detected.
+- **selftest.sh updated.** Secrets tests now use gitleaks (conditional skip if gitleaks is absent). New tests: planted secret fails, secret value not in output or state, missing gitleaks exits 3, allowlisted fingerprint passes. Stop-check and pre-commit tests use a fake passthrough gitleaks when the real one is absent.
+
+**Upgrade steps:**
+1. Install gitleaks ≥ 8.18.0: macOS `brew install gitleaks`; Linux download binary from [releases](https://github.com/gitleaks/gitleaks/releases); Windows `winget install gitleaks`.
+2. Run `bash tools/setup-clone.sh` in every clone to verify the version and reinstall the pre-commit hook.
+3. In `tools/check.cfg`, add:
+   ```ini
+   [gitleaks]
+   min-version = 8.18.0
+   ```
+4. The new project-owned seeds (`.gitleaks.toml`, `.gitleaksignore`) will be created by `install.sh` if they don't exist yet.
+
 ## 1.1.1 (2026-10-07)
 
 - **Canonical assistant-support wording.** All claims about AI assistant support now follow one position: "Designed to work with any AI coding assistant that reads `AGENTS.md`. Built and tested on Claude Code; other assistants are untested." The hedge "in theory" and the names Cursor and Codex are removed.

@@ -2,8 +2,10 @@
 # App Director pre-commit hook · framework-owned: replaced on upgrade.
 # `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
 #
-# Runs the project check when the commit includes source files. It checks the working
-# tree, so commit what you checked (partially staged files aren't checked separately).
+# On every source-file commit:
+#   1. Runs the project check (working tree) with --if-changed caching.
+#   2. Runs gitleaks protect --staged --redact to catch secrets entering history.
+# Both steps block the commit on failure.
 
 if [ -n "$(git ls-files -o -i --exclude-standard -- '*.adir-new' 2>/dev/null)" ]; then
   echo "pre-commit: unmerged App Director upgrade files (*.adir-new) exist. Merge them, then delete them:"
@@ -13,8 +15,13 @@ fi
 
 [ -f tools/check.sh ] || exit 0
 
-if git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD | tr '\0' '\n' \
-    | grep -qE '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$'; then
+source_staged() {
+  git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD \
+    | tr '\0' '\n' \
+    | grep -qE '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^\.gitleaks(\.toml|ignore)$'
+}
+
+if source_staged; then
   echo "pre-commit: running the project check"
   bash tools/check.sh --if-changed
   status=$?
@@ -25,6 +32,17 @@ if git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD 
   elif [ "$status" -ne 0 ]; then
     echo "pre-commit: the check fails; commit blocked."
     exit 1
+  fi
+
+  # Staged-changes scan: catches secrets even when the working-tree check was cached.
+  if command -v gitleaks >/dev/null 2>&1; then
+    echo "pre-commit: scanning staged changes for secrets"
+    if ! gitleaks protect --staged --redact 2>/dev/null; then
+      echo "pre-commit: gitleaks found a secret in the staged changes; commit blocked."
+      echo "            To allowlist: add the Fingerprint to .gitleaksignore and document"
+      echo "            the reason in product/decisions.md. Ask the human to approve."
+      exit 1
+    fi
   fi
 fi
 exit 0
