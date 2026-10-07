@@ -4,7 +4,7 @@
 
 **Make the app you designed, with AI doing the building and you staying the director.**
 
-A workflow for small apps — web, mobile and desktop — new or already in development. You decide what the app does, how it should feel and what gets built next. The AI builds, tests and keeps the records. Built for Claude Code. In theory it works with any AI coding assistant that reads `AGENTS.md`, but this is untested outside Claude Code. Everything lives in your app's own git repository.
+A workflow for small apps — web, mobile and desktop — new or already in development. You decide what the app does, how it should feel and what gets built next. The AI builds, tests and keeps the records. Designed to work with any AI coding assistant that reads `AGENTS.md`. Built and tested on Claude Code; other assistants are untested. Everything lives in your app's own git repository.
 
 ## Why
 
@@ -29,7 +29,7 @@ Your app needs git (`git init` if it has none) and no uncommitted changes. You a
 npx skills add Freakling/App-Director
 ```
 
-That installs the `app-director` skill for your assistant (Claude Code, Cursor, Codex and many others; you pick in the prompt). Then ask your assistant to set up App Director, or in Claude Code run `/app-director`. The skill fetches App Director outside your app and runs onboarding.
+That installs the `app-director` skill for the assistant you choose in the prompt; in Claude Code it becomes the `/app-director` slash command. Ask your assistant to set up App Director. The skill fetches App Director outside your app and runs onboarding.
 
 **Option 2: the Claude Code plugin.** In Claude Code:
 
@@ -49,6 +49,8 @@ git clone https://github.com/Freakling/App-Director.git App-Director
 Then ask your assistant:
 
 > Read App-Director/ONBOARDING.md and follow it to install App Director into this project.
+
+The core is tool-neutral: rules, procedures, the check and the git pre-commit hook work the same everywhere. Fresh-context builds, the reviewer, model sizing and the hooks that block risky commands depend on your assistant supporting subagents and hooks.
 
 Either way, onboarding works out whether this is a new app, an existing app or an upgrade. It then:
 1. installs the files and sets up the toolchain;

@@ -2,6 +2,15 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## 1.1.1 (2026-10-07)
+
+- **Canonical assistant-support wording.** All claims about AI assistant support now follow one position: "Designed to work with any AI coding assistant that reads `AGENTS.md`. Built and tested on Claude Code; other assistants are untested." The hedge "in theory" and the names Cursor and Codex are removed.
+- **Capability note added to README.** Under the install options, a new paragraph states which features are tool-neutral (rules, procedures, check, pre-commit hook) and which require subagents and hooks (fresh-context builds, reviewer, model sizing, guard hooks).
+- **npx skill description updated.** Option 1 now states only what the command does: installs the skill for the assistant you choose in the prompt; in Claude Code it becomes the `/app-director` slash command.
+- **CLAUDE.md release rule updated.** The "How to install" section in releases must now open with the support position before listing install paths.
+
+**Upgrade steps:** None required for existing installs.
+
 ## 1.1.0 (2026-10-07)
 
 - **LICENSE.** Root `LICENSE` added (MIT, copyright 2026 Vikingur Saemundsson). `framework/.app-director/LICENSE` (the copy installed into apps) is identical; `selftest.sh` enforces this.
