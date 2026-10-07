@@ -138,19 +138,19 @@ The full rules are in `.app-director/rules.md`, and the assistant reads them eve
 
 ### Context and token use
 
-The director (main session) and the developer (builder subagent) are deliberately separate contexts.
+The orchestrator and the builder are deliberately separate contexts.
 
-**The main session — director and orchestrator**
+**The orchestrator**
 - **Small at the start.** A session starts with about 10 KB of instructions (AGENTS.md and the rules). Each procedure loads only when it's used.
-- **Stays small across items.** The main session picks items, records decisions, updates TASKS.md, and approves commits. It never reads the files being changed. After it hands an item to the builder and the report comes back, its context holds only that ~20-line report.
+- **Stays small across items.** The orchestrator picks items, records decisions, updates TASKS.md, and approves commits. It never reads the files being changed. After it hands an item to the builder and the report comes back, its context holds only that ~20-line report.
 - **Nothing to hand off between sessions.** TASKS.md, the commits, AGENTS.md and the brief hold everything. Once an item is committed, a new session (or `/clear` in Claude Code) loses nothing.
 - **Design sessions: clear after each commit.** Once a design session's commit lands, the conversation has no value left — every decision is in the brief and decisions.md. `/clear` before the next topic.
 
-**The builder subagent — developer with a fresh context**
+**The builder**
 - **Fresh context per item.** Each build runs as a separate `builder` subagent. It reads only what the item needs: the files in `Touches`, the relevant Architecture rows, and the brief sections the item names.
-- **The report is the only channel.** The builder's report fields give the main session exactly what it needs to update the records — no more.
+- **The report is the only channel.** The builder's report fields give the orchestrator exactly what it needs to update the records — no more.
 
-**Model sizing** (recommended on): `XS` and `S` items run the builder on a smaller model (Haiku in Claude Code); `M` through `XL` use the session model. Onboarding asks you to choose; record it in AGENTS.md › Project rules.
+**Model sizing** (recommended on): each task size (XS–XL) maps to its own model ID in AGENTS.md › Project rules. Defaults for Claude Code: Haiku for XS/S, Sonnet for M, Opus for L/XL. Onboarding sets this up; run `/refresh-model-sizing` to update it.
 
 ### The check
 `bash tools/check.sh` runs four steps:
