@@ -117,7 +117,7 @@ if [ -n "$ui_dirs" ] && [ -n "$data_dirs" ]; then
           fi
         done)"
     if [ -n "$violations" ]; then
-      echo "check: UI purity FAIL — data-layer imports in UI files:"
+      echo "check: UI purity FAIL: data-layer imports in UI files:"
       printf '%s\n' "$violations" | sed 's/^/  /'
       failed=1
     fi
@@ -130,7 +130,7 @@ gl_min="$(cfg_get gitleaks min-version)"
 gl_min="${gl_min:-$GITLEAKS_MIN_DEFAULT}"
 
 if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "check: secrets FAIL — gitleaks not found (need >= $gl_min)."
+  echo "check: secrets FAIL: gitleaks not found (need >= $gl_min)."
   echo "       Install: https://github.com/gitleaks/gitleaks#installing"
   echo "       macOS:   brew install gitleaks"
   echo "       Linux:   https://github.com/gitleaks/gitleaks/releases"
@@ -142,14 +142,14 @@ fi
 gl_raw="$(gitleaks version 2>/dev/null)"
 gl_ver="$(printf '%s' "$gl_raw" | tr -d 'v \r\n')"
 if ! version_gte "$gl_ver" "$gl_min"; then
-  echo "check: secrets FAIL — gitleaks $gl_ver is below minimum $gl_min."
+  echo "check: secrets FAIL: gitleaks $gl_ver is below minimum $gl_min."
   echo "       Upgrade: https://github.com/gitleaks/gitleaks#installing"
   exit 3
 fi
 
 gl_report="$state_dir/gitleaks.json"
 if ! gitleaks dir --redact --report-path="$gl_report" . 2>/dev/null; then
-  echo "check: secrets FAIL — gitleaks found credentials in the working tree."
+  echo "check: secrets FAIL: gitleaks found credentials in the working tree."
   echo "       Report (secrets redacted): $gl_report"
   echo "       To allowlist a finding: add its Fingerprint to .gitleaksignore and document"
   echo "       the reason in product/decisions.md. Ask the human to approve both changes."
@@ -167,11 +167,11 @@ fi
 # --- 3. Stack check -------------------------------------------------------------------------------
 stack="$(cfg_get project stack)"
 if [ -z "$stack" ]; then
-  echo "check: note: no stack set in tools/check.cfg [project] stack — only architecture checks ran"
+  echo "check: note: no stack set in tools/check.cfg [project] stack; only architecture checks ran"
 else
   stack_script="tools/stacks/$stack.sh"
   if [ ! -f "$stack_script" ]; then
-    echo "check: can't find $stack_script — run: bash tools/setup-clone.sh"
+    echo "check: can't find $stack_script; run: bash tools/setup-clone.sh"
     exit 3
   fi
   echo "check: stack ($stack)"

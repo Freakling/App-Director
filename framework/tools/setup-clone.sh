@@ -61,7 +61,7 @@ check_tool() {
   if command -v "$name" >/dev/null 2>&1; then
     echo "setup: found $name ($(command -v "$name"))"
   else
-    echo "setup: $name not found — install it and rerun."
+    echo "setup: $name not found; install it and rerun."
     exit_code=3
   fi
 }
@@ -77,7 +77,7 @@ case "$stack" in
   python)
     check_tool python
     if ! python -m pytest --version >/dev/null 2>&1; then
-      echo "setup: pytest not found — run: pip install pytest"
+      echo "setup: pytest not found; run: pip install pytest"
       exit_code=3
     fi
     ;;
@@ -100,7 +100,7 @@ if ! command -v gitleaks >/dev/null 2>&1; then
   echo "       macOS:   brew install gitleaks"
   echo "       Linux:   https://github.com/gitleaks/gitleaks/releases  (download binary to /usr/local/bin)"
   echo "       Windows: winget install gitleaks  or  choco install gitleaks"
-  echo "       No curl-to-shell installs — download the binary directly."
+  echo "       No curl-to-shell installs; download the binary directly."
   exit_code=3
 else
   gl_raw="$(gitleaks version 2>/dev/null)"
@@ -108,7 +108,7 @@ else
   if version_gte "$gl_ver" "$gl_min"; then
     echo "setup: found gitleaks $gl_ver (>= $gl_min)"
   else
-    echo "setup: gitleaks $gl_ver is below minimum $gl_min — upgrade it."
+    echo "setup: gitleaks $gl_ver is below minimum $gl_min; upgrade it."
     echo "       https://github.com/gitleaks/gitleaks/releases"
     exit_code=3
   fi

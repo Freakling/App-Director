@@ -8,7 +8,7 @@ Before writing anything, verify both:
 - You can spawn subagents (the `builder` agent definition exists in `.claude/agents/`).
 - You can pass a different `model:` per subagent call.
 
-If either is missing, tell the human and stop — do not write any block to the project rules.
+If either is missing, tell the human and stop; do not write any block to the project rules.
 
 ## 1. Propose defaults
 For Claude Code, propose:
@@ -22,7 +22,7 @@ For Claude Code, propose:
 ```
 (`claude-fable-5-1` is an alternative for `XL` when using Claude platform credits.)
 
-For other tools, apply the same tier logic — fast/cheap for XS and S, balanced for M, most capable for L and XL — using that tool's available model IDs.
+For other tools, apply the same tier logic (fast/cheap for XS and S, balanced for M, most capable for L and XL) using that tool's available model IDs.
 
 Show the proposed block and ask the human whether to accept or change any entry.
 

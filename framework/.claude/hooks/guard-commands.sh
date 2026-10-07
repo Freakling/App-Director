@@ -29,7 +29,7 @@ block() {
 }
 
 # --- Credential file reads ------------------------------------------------------------------------
-# Block direct shell reads of .env, *.pem, *.key — these files may hold live credentials.
+# Block direct shell reads of .env, *.pem, *.key: these files may hold live credentials.
 # Any credential read in a conversation context must be considered compromised and rotated.
 # This is a best-effort check on the command text; indirect reads are not detected.
 reads_cred_file() {

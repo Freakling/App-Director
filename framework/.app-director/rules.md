@@ -15,12 +15,12 @@ In Claude Code these are also slash commands, and builds and reviews run as the 
 
 ## The human decides
 - The human owns product vision, design and priorities. You build, keep the records, and propose.
-- A design call is a feature behaviour, a flow, or anything the user experiences that `product/brief.md` doesn't settle. For one, give 2–4 options with one recommendation and a one-line reason, then wait. Write down only what was chosen, following `design.md` › Record each decision. If you had to interpret the answer, say how you read it.
+- A design call is a feature behaviour, a flow, or anything the user experiences that `product/brief.md` doesn't settle. For one, give 2-4 options with one recommendation and a one-line reason, then wait. Write down only what was chosen, following `design.md` › Record each decision. If you had to interpret the answer, say how you read it.
 - Never answer an Open Question in `product/brief.md` yourself. Work that depends on one gets a placeholder that names the question.
 - Something that seems to contradict a stated goal is flagged, never reinterpreted.
 
 ## Protected space
-`director/` is the human's personal workspace — mockups, brand assets, reference images, notes, third-party API specs. Read files there for context when an item needs them, but never create, modify or delete anything inside it. If work depends on an asset the human owns, use the placeholder policy in AGENTS.md › Ownership instead of generating the real thing.
+`director/` is the human's personal workspace: mockups, brand assets, reference images, notes, third-party API specs. Read files there for context when an item needs them, but never create, modify or delete anything inside it. If work depends on an asset the human owns, use the placeholder policy in AGENTS.md › Ownership instead of generating the real thing.
 
 ## Each fact lives in one place
 | Fact | Only in |
@@ -40,7 +40,7 @@ Update the owning place in the same change that makes it untrue. Replace superse
 - **Data layer.** Repositories, API clients and storage modules handle network access and persistent storage only. No UI concerns.
 - **Folder configuration.** `tools/check.cfg` › `[ui] dirs` lists the UI-layer folders; `[data] dirs` lists the data-layer folders. Update them when folders move.
 - **New stored data fields.** When storage already holds data, a new required field needs a migration or a default. The check fails if it finds a new required field without one.
-- **Secrets.** Never in source code. Use `.env` files (gitignored) locally; platform secrets (e.g. environment variables set in the deploy environment) in production. The check runs gitleaks on the working tree; the pre-commit hook also scans staged changes. Both fail when a credential is found. To allowlist a false positive: propose adding its `Fingerprint` (from `.app-director/state/gitleaks.json`) to `.gitleaksignore` and a reason to `product/decisions.md` — never add either without the human's approval. Any committed credential is compromised regardless of whether the commit is later removed; rotating it is the human's action, never the agent's.
+- **Secrets.** Never in source code. Use `.env` files (gitignored) locally; platform secrets (e.g. environment variables set in the deploy environment) in production. The check runs gitleaks on the working tree; the pre-commit hook also scans staged changes. Both fail when a credential is found. To allowlist a false positive: propose adding its `Fingerprint` (from `.app-director/state/gitleaks.json`) to `.gitleaksignore` and a reason to `product/decisions.md`; never add either without the human's approval. Any committed credential is compromised regardless of whether the commit is later removed; rotating it is the human's action, never the agent's.
 - **No hard-coded IDs, user data or environment-specific values in source.** Use config or environment variables.
 - **Statically typed.** TypeScript `strict` mode, Flutter with sound null safety, Python with type annotations. The check fails on `any` casts that hide a type error or missing annotations on public API surfaces.
 

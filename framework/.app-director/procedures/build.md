@@ -8,7 +8,7 @@ Build one TASKS.md item that has already been claimed, and report back briefly. 
    - a missing value becomes a `PLACEHOLDER` default with a comment citing the question;
    - a missing behaviour stays as it is, behind a named constant or flag with a comment.
 3. **Stop and report `blocked` instead of guessing** when:
-   - you hit a design call the brief doesn't settle (give 2–4 options and a recommendation);
+   - you hit a design call the brief doesn't settle (give 2-4 options and a recommendation);
    - the item needs something it doesn't describe;
    - it would touch much more than its `Touches`.
 4. **Build** by `.app-director/rules.md` › Architecture defaults. Write a test for every `(test)` outcome, and a regression test for a bug when it can have one. Stay inside the item.

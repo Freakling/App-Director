@@ -1,7 +1,7 @@
 # Acceptance check
 
 <!-- Onboarding replaces {{FLOW_N}} sections with one section per core flow from the brief
-     (usually 3–5 flows). Keep the fixed descriptions' wording stable: changing it makes
+     (usually 3-5 flows). Keep the fixed descriptions' wording stable: changing it makes
      earlier results incomparable. Keep the sections after the flows as they are. -->
 
 - **Date:**

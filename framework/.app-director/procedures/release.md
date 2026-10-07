@@ -22,7 +22,7 @@ Or `pnpm build` / `yarn build` if the project uses those. Verify the output in `
 - iOS: `npx react-native build-ios --mode Release` (requires Xcode on macOS)
 - Android: `npx react-native build-android --mode release`
 
-Prepare the build; the human submits to the App Store or Play Store — store submission is a `human` item.
+Prepare the build; the human submits to the App Store or Play Store; store submission is a `human` item.
 
 ### Mobile (Flutter)
 - Android: `flutter build apk --release` or `flutter build appbundle --release`

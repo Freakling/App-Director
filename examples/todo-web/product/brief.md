@@ -2,7 +2,7 @@
 
 ## What it is
 A simple in-browser to-do list. Users can add tasks, mark them done, and remove them.
-No accounts, no sync — everything lives in the current session.
+No accounts, no sync; everything lives in the current session.
 
 ## Core flows
 1. **Add a task.** User types a title and clicks Add. The task appears in the list.

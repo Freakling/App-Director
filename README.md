@@ -4,13 +4,13 @@
 
 **Make the app you designed, with AI doing the building and you staying the director.**
 
-A workflow for small apps — web, mobile and desktop — new or already in development. You decide what the app does, how it should feel and what gets built next. The AI builds, tests and keeps the records. Designed to work with any AI coding assistant that reads `AGENTS.md`. Built and tested on Claude Code; other assistants are untested. Everything lives in your app's own git repository.
+A workflow for small apps (web, mobile and desktop), new or already in development. You decide what the app does, how it should feel and what gets built next. The AI builds, tests and keeps the records. Designed to work with any AI coding assistant that reads `AGENTS.md`. Built and tested on Claude Code; other assistants are untested. Everything lives in your app's own git repository.
 
 ## Why
 
 AI writes app code fast. Without structure, that speed goes wrong in familiar ways:
 
-- **The design drifts.** The AI quietly decides a flow or a behaviour you never agreed to. With App Director, design calls come to you as 2–4 options with a recommendation. Only your choice is written down, and anything undecided goes on an open-questions list instead of being guessed.
+- **The design drifts.** The AI quietly decides a flow or a behaviour you never agreed to. With App Director, design calls come to you as 2-4 options with a recommendation. Only your choice is written down, and anything undecided goes on an open-questions list instead of being guessed.
 - **"Done" means "it compiled".** One check defines "works": types pass, tests pass, and the architecture rules hold. It runs before every commit that touches code, and in Claude Code also before the AI ends its turn.
 - **Rules end up in the wrong layer.** Business logic lives in a testable logic layer; UI screens only display state. The check fails when a screen fetches data directly or calls storage.
 - **Context gets lost between sessions.** A few plain files hold everything: the product brief, a decision log, the task queue and an architecture table. Each fact has one home, so any session picks up where the last one stopped.
@@ -131,10 +131,10 @@ Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/
 ### The rules, briefly
 The full rules are in `.app-director/rules.md`, and the assistant reads them every session.
 - **You decide design.** The assistant offers options and a recommendation. It never picks values (new values are marked `PLACEHOLDER`), and never answers an open question itself.
-- **Areas you own are never generated.** Onboarding asks who owns visual design, assets, copy and infrastructure. Human-owned areas get a documented placeholder policy instead of generated content. `director/` is an optional protected workspace — the AI reads it for context but never creates, modifies or deletes anything inside it.
+- **Areas you own are never generated.** Onboarding asks who owns visual design, assets, copy and infrastructure. Human-owned areas get a documented placeholder policy instead of generated content. `director/` is an optional protected workspace: the AI reads it for context but never creates, modifies or deletes anything inside it.
 - **Each fact lives in one place,** and is updated in the same change that makes it untrue.
 - **Logic lives in the logic layer, not the UI.** Screens display state and call services. They never fetch data directly or hold business logic. The check fails when they do.
-- **No secrets in source.** Credentials live in `.env` files (gitignored) and platform secrets. The check (gitleaks) fails when a credential is found in the working tree; the pre-commit hook also scans staged changes. A false positive can be allowlisted with a fingerprint in `.gitleaksignore` and a reason in `product/decisions.md` — with the human's approval.
+- **No secrets in source.** Credentials live in `.env` files (gitignored) and platform secrets. The check (gitleaks) fails when a credential is found in the working tree; the pre-commit hook also scans staged changes. A false positive can be allowlisted with a fingerprint in `.gitleaksignore` and a reason in `product/decisions.md`, with the human's approval.
 - **Done means the check passes,** and the work is committed only with your approval.
 - **Guarded git:** in Claude Code, force-push, `reset --hard`, `--no-verify` and other work-destroying commands are blocked by a hook.
 
@@ -146,18 +146,18 @@ The orchestrator and the builder are deliberately separate contexts.
 - **Small at the start.** A session starts with about 10 KB of instructions (AGENTS.md and the rules). Each procedure loads only when it's used.
 - **Stays small across items.** The orchestrator picks items, records decisions, updates TASKS.md, and approves commits. It never reads the files being changed. After it hands an item to the builder and the report comes back, its context holds only that ~20-line report.
 - **Nothing to hand off between sessions.** TASKS.md, the commits, AGENTS.md and the brief hold everything. Once an item is committed, a new session (or `/clear` in Claude Code) loses nothing.
-- **Design sessions: clear after each commit.** Once a design session's commit lands, the conversation has no value left — every decision is in the brief and decisions.md. `/clear` before the next topic.
+- **Design sessions: clear after each commit.** Once a design session's commit lands, the conversation has no value left; every decision is in the brief and decisions.md. `/clear` before the next topic.
 
 **The builder**
 - **Fresh context per item.** Each build runs as a separate `builder` subagent. It reads only what the item needs: the files in `Touches`, the relevant Architecture rows, and the brief sections the item names.
-- **The report is the only channel.** The builder's report fields give the orchestrator exactly what it needs to update the records — no more.
+- **The report is the only channel.** The builder's report fields give the orchestrator exactly what it needs to update the records; no more.
 
 Model sizing (recommended on): each item size maps to its own build model in AGENTS.md › Project rules. Claude Code defaults: XS and S to Haiku, M to Sonnet, L and XL to Opus. A size without an entry uses the session model, and a failed build retries once on the next size's model. Onboarding writes the mapping; /refresh-model-sizing updates it, or tells you if your assistant can't choose a model per subagent.
 
 ### The check
 `bash tools/check.sh` runs four steps:
 1. **UI purity:** scans UI-layer files for imports from data-layer folders. Fails if found.
-2. **Secrets (gitleaks):** runs `gitleaks dir --redact` on the working tree. Fails if a credential is found. Exit 3 if gitleaks is missing or below the minimum version in `tools/check.cfg [gitleaks] min-version` — never falls back to regex and never passes silently. Findings are written (redacted) to `.app-director/state/gitleaks.json`.
+2. **Secrets (gitleaks):** runs `gitleaks dir --redact` on the working tree. Fails if a credential is found. Exit 3 if gitleaks is missing or below the minimum version in `tools/check.cfg [gitleaks] min-version`; it never falls back to regex and never passes silently. Findings are written (redacted) to `.app-director/state/gitleaks.json`.
 3. **Stack check:** runs the appropriate `tools/stacks/<stack>.sh` (type check, lint, tests).
 4. **Custom:** runs `tools/check.local.sh`, if the app has one.
 
@@ -174,7 +174,7 @@ It exits 0 on pass, 1 on fail, and 3 when it can't run. It caches the last passi
 | `project/` | seeds for the app's own files, copied only when missing |
 | `examples/todo-web/` | minimal worked example (no compiler required); used by `selftest.sh` |
 | `examples/scenarios.md` | prompts that verify workflow behaviour after framework changes |
-| `selftest.sh` | automated test: installer, check and hooks — run after every framework change |
+| `selftest.sh` | automated test: installer, check and hooks; run after every framework change |
 | `CHANGELOG.md` | what changed, and the upgrade steps for apps |
 | `CLAUDE.md` | instructions for an assistant working on App Director itself |
 

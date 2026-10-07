@@ -1,7 +1,7 @@
 # To-Do Web
 
 A minimal to-do list web app. Demonstrates the App Director workflow with the `none` stack (no
-compiler or test runner required — only UI purity and secrets checks run).
+compiler or test runner required; only UI purity and secrets checks run).
 
 ## Product brief
 See `product/brief.md`.
@@ -22,7 +22,7 @@ UI purity check.
 
 | Area | Owner | Placeholder policy |
 |---|---|---|
-| Code | agent | — |
+| Code | agent | - |
 | HTML / CSS | human | `<!-- PLACEHOLDER: apply visual design -->` |
 
 ## Project rules

@@ -74,6 +74,12 @@ done
   && ok "model IDs appear only in refresh-model-sizing procedure" \
   || bad "model IDs leaked outside refresh-model-sizing:$_model_id_leak"
 
+# No en dashes (U+2013) or em dashes (U+2014) in any tracked file.
+_dash_files="$(git -C "$src" grep -lP '[\x{2013}\x{2014}]' 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+[ -z "$_dash_files" ] \
+  && ok "no en or em dashes in tracked files" \
+  || bad "en/em dashes found in: $_dash_files"
+
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
 app="$work/todo-web"
@@ -105,7 +111,7 @@ adir_lines="$(grep -c '^# App Director$' .gitignore 2>/dev/null || true)"
   && ok "no duplicate .gitignore lines after reinstall" \
   || bad "no duplicate .gitignore lines after reinstall"
 
-# Local edit that this version doesn't touch — must be kept as-is.
+# Local edit that this version doesn't touch; must be kept as-is.
 echo "# my own note" >> .app-director/procedures/prune.md
 out="$(bash "$src/install.sh" . 2>&1)"
 if grep -q "my own note" .app-director/procedures/prune.md \
@@ -115,7 +121,7 @@ else
   bad "keeps a local edit when this version doesn't change the file" "$out"
 fi
 
-# Simulate both sides changed — installer must write .adir-new.
+# Simulate both sides changed; installer must write .adir-new.
 awk -F'\t' -v OFS='\t' \
   '$2 == ".app-director/procedures/prune.md" { $1 = "0000000000000000000000000000000000000000" } { print }' \
   .app-director/manifest > "$work/manifest" && cp "$work/manifest" .app-director/manifest
@@ -187,12 +193,12 @@ cat >> .gitleaks.toml << EOF
 
 [[rules]]
 id = "$_gl_rule_id"
-description = "App Director selftest marker — remove before production."
+description = "App Director selftest marker; remove before production."
 regex = '''${_gl_marker_name}\\s*=\\s*['"]([A-Za-z0-9+/]{16,})['"]'''
 secretGroup = 1
 EOF
 
-# _cred_val assembled at test time from parts — no literal appears in this file and gitleaks
+# _cred_val assembled at test time from parts; no literal appears in this file and gitleaks
 # never sees it in source; it is written only to the temp working directory.
 _cv1="SelfTestFake"; _cv2="Key1234ABCD"
 _cred_val="${_cv1}${_cv2}"
@@ -210,7 +216,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   fi
 fi
 
-# Build a PATH that includes gitleaks — real if available, otherwise a passthrough fake that
+# Build a PATH that includes gitleaks: real if available, otherwise a passthrough fake that
 # always exits 0. Used everywhere except the "exits 3 when gitleaks is missing" test.
 _stop_path="$PATH"
 if [ "$_gl_ok" -eq 0 ]; then
@@ -237,7 +243,7 @@ expect_output "names the offending file" "TodoList" "$out"
 cp "$work/saved-ui" src/ui/TodoList.ts
 
 if [ "$_gl_ok" -eq 1 ]; then
-  # Planted fake credential — written only to temp dir, never committed.
+  # Planted fake credential: written only to temp dir, never committed.
   cp src/services/TodoService.ts "$work/saved-svc"
   { printf '\n'; printf "%s = '%s';\n" "$_gl_marker_name" "$_cred_val"; } >> src/services/TodoService.ts
   out="$(bash tools/check.sh 2>&1)"

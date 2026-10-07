@@ -1,7 +1,7 @@
 # Product brief: {{APP_NAME}}
 
 <!-- What the app should be. The AI reads only the sections it needs; reference them by heading.
-     The AI never answers an Open Question itself — work that depends on one gets a placeholder. -->
+     The AI never answers an Open Question itself; work that depends on one gets a placeholder. -->
 
 ## Pitch
 
@@ -13,7 +13,7 @@
 
 ## Core Flows
 
-<!-- 3–5 things a user actually does, each with a clear outcome. Not screen names — actions. -->
+<!-- 3-5 things a user actually does, each with a clear outcome. Not screen names, but actions. -->
 
 ### {{FLOW_1}}
 {{FLOW_1_DESCRIPTION}}

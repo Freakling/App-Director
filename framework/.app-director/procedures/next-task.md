@@ -62,7 +62,7 @@ Only when `rules.md` › Reviews and model size calls for one, judged from the i
 - **After the commit,** the records hold everything about the item. A new item can start in a fresh session, or after `/clear` in Claude Code, without losing anything.
 
 ## Several items
-Repeat steps 1–7 for each item, skipping `human` items as step 1 does. Report one line per finished item, and don't re-read files you've already seen. Stop early when:
+Repeat steps 1-7 for each item, skipping `human` items as step 1 does. Report one line per finished item, and don't re-read files you've already seen. Stop early when:
 - an item is blocked on something only the human can answer;
 - a build fails;
 - the human declines a commit.

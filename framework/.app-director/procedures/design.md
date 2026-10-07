@@ -14,7 +14,7 @@ Brainstorm a topic, answer open design questions, or change how part of the app 
   Give a one-line reason for each position.
 
 ## For each question
-1. Offer 2–4 concrete options. For each: what the user experiences, what it would take to build (which systems in AGENTS.md › Architecture), and how it fits the product goals.
+1. Offer 2-4 concrete options. For each: what the user experiences, what it would take to build (which systems in AGENTS.md › Architecture), and how it fits the product goals.
 2. Recommend one, with a one-line reason.
 3. Wait for the human. If they answer only part, record only that part. If you had to interpret the answer, write down your reading and ask them to confirm it.
 

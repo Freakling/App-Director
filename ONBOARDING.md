@@ -4,7 +4,7 @@ Follow these steps to install App Director into an app project, or upgrade it. W
 
 The human makes every design and ownership decision; you gather, propose and write. Ask choices as multiple-choice questions when your tool supports them.
 
-`$ADIR` below is the App Director folder — the folder this file is in, usually `App-Director/` next to your app.
+`$ADIR` below is the App Director folder (the folder this file is in, usually `App-Director/` next to your app).
 
 ## 1. Preconditions and mode
 
@@ -19,11 +19,11 @@ The human makes every design and ownership decision; you gather, propose and wri
 
    > **Fast or full upgrade?**
    > - **Fast** (default for routine upgrades): applies the changelog steps, which cover both framework files and any app-owned file updates. Takes a few minutes.
-   > - **Full**: does everything fast does, then re-checks all project files against the current standards — same thoroughness as a fresh install. Choose this after many versions have accumulated, for a new machine or contributor, or when you want a complete review.
+   > - **Full**: does everything fast does, then re-checks all project files against the current standards (same thoroughness as a fresh install). Choose this after many versions have accumulated, for a new machine or contributor, or when you want a complete review.
 
    Then:
    1. Read the entries in `$ADIR/CHANGELOG.md` newer than the old version. Carry out each **Upgrade steps** section in order.
-   2. If full, carry out steps 3–8 below.
+   2. If full, carry out steps 3-8 below.
    3. Run step 2 only if `bash tools/check.sh` exits 3 (fast) or run it again now (full).
    4. Summarise what changed. Go to step 9.
 
@@ -43,13 +43,13 @@ Run `bash "$ADIR/install.sh" .`. Then read its report.
 
 Run `bash tools/setup-clone.sh`. It checks that the configured stack tool is available (node, flutter, python), verifies gitleaks is installed at the minimum version, and installs the pre-commit hook. Report what it printed. If gitleaks is missing, stop and tell the human which install command to use for their OS (macOS: `brew install gitleaks`; Linux: download binary from the releases page; Windows: `winget install gitleaks`).
 
-**For existing apps only — git history scan:** run a one-time full scan of the commit history:
+**For existing apps only (git history scan):** run a one-time full scan of the commit history:
 ```
 gitleaks git --redact .
 ```
 Report every finding to the human. For each finding, state:
 - Which rule matched, in which file, and at which commit.
-- That any committed secret is compromised and must be rotated — even if the commit was later removed from the branch, the data may have been cloned, cached, or mirrored.
+- That any committed secret is compromised and must be rotated, even if the commit was later removed from the branch, the data may have been cloned, cached, or mirrored.
 - That you will not rewrite history and will not rotate the credential. Both are the human's actions, outside this workflow.
 
 Do not open TASKS.md items for credential rotation.
@@ -70,14 +70,14 @@ Then run `bash tools/check.sh` once and keep the result. An existing app often f
 ### Fresh start
 1. **A short product interview**, in short rounds. For each question, give options with a recommendation and let the human pick:
    1. Pitch: what the app does, who it's for, and the feeling it should give.
-   2. Core flows: the 3–5 things a user actually does (not screens, but actions with an outcome).
+   2. Core flows: the 3-5 things a user actually does (not screens, but actions with an outcome).
    3. Platforms and constraints: web, mobile, desktop, or a mix; offline support; auth required.
 2. **Record it.** Write the answers into `product/brief.md` as the current design. Anything undecided becomes an Open Question.
 3. **Seed TASKS.md:** folder layout, first passing check, first working screen for the primary flow. Each item with Size, `Touches` and tagged `Done when`.
 
 ### Existing app
 1. **AGENTS.md › Architecture:** one row per significant system. Take "Owns" from public exports and module boundaries, not from guesses.
-2. **product/brief.md:** fill each section from the existing code and any docs. Mark anything inferred `(inferred — please confirm)`, and turn anything unknown into an Open Question.
+2. **product/brief.md:** fill each section from the existing code and any docs. Mark anything inferred `(inferred, please confirm)`, and turn anything unknown into an Open Question.
 3. **TASKS.md:** turn TODOs, known bugs and the human's priorities into items.
 4. **UI files that break the layer rule.** Set `tools/check.cfg` › `[ui] dirs` to the UI folders. Each file that imports from data-layer folders directly gets its own `M` item "Decouple: <file>".
 5. **Check failures** from step 3 become the first items. Crashes or data-loss bugs are `high`.
@@ -108,7 +108,7 @@ Fill in `tools/check.cfg`:
 ## 8. Ownership and project rules
 
 ### Work-area ownership interview
-For each area below, state the default and ask the human whether they want to own it. Record the result in AGENTS.md › Ownership (create that section now with a table). A human-owned area means the agent uses placeholders when it needs something from there — it never makes the real thing.
+For each area below, state the default and ask the human whether they want to own it. Record the result in AGENTS.md › Ownership (create that section now with a table). A human-owned area means the agent uses placeholders when it needs something from there; it never makes the real thing.
 
 | Area | Default | Agent placeholder when human owns it |
 |---|---|---|
@@ -122,12 +122,12 @@ For each area below, state the default and ask the human whether they want to ow
 | **Infrastructure / deployment** | human | config stub with `# PLACEHOLDER` on values the human must set |
 
 ### Protected workspace
-If the human owns any area — or wants a space the agent will never touch — offer to create `director/`. The agent reads files there for context (mockups, brand assets, reference images, notes, third-party API specs) but never creates, modifies or deletes anything inside it.
+If the human owns any area, or wants a space the agent will never touch: offer to create `director/`. The agent reads files there for context (mockups, brand assets, reference images, notes, third-party API specs) but never creates, modifies or deletes anything inside it.
 
 If they want it:
 1. Create `director/` and `director/README.md` explaining what it is and that the agent won't touch it.
 2. Ask whether to gitignore it (for large binary assets) or commit it (for design docs and notes). Update `.gitignore` accordingly.
-3. Add a row to AGENTS.md › Ownership: `director/ — human's workspace, read-only for the agent`.
+3. Add a row to AGENTS.md › Ownership: `director/ (human's workspace, read-only for the agent)`.
 
 ### Workflow defaults
 - Commits: the agent proposes and the human approves.
@@ -136,7 +136,7 @@ If they want it:
 
 ## 9. Validation template
 
-Fill `validation/TEMPLATE.md`: replace each `{{FLOW_N}}` with one section per core flow from the brief (usually 3–5 flows). Each section gets a fixed description, a Works/Broken checkbox pair, and a notes line. Keep the wording stable: changing it makes earlier results incomparable.
+Fill `validation/TEMPLATE.md`: replace each `{{FLOW_N}}` with one section per core flow from the brief (usually 3-5 flows). Each section gets a fixed description, a Works/Broken checkbox pair, and a notes line. Keep the wording stable: changing it makes earlier results incomparable.
 
 If the flows aren't decided yet, leave the placeholders and add an agent item "Fill the validation template's flow sections" that depends on the core-flow question.
 
