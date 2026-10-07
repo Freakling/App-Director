@@ -168,9 +168,14 @@ It exits 0 on pass, 1 on fail, and 3 when it can't run. It caches the last passi
 | `install.sh` | copies files deterministically, keeps your edits, writes a manifest |
 | `framework/` | installed into each app: the tool-neutral core, plus `.claude/` for Claude Code |
 | `project/` | seeds for the app's own files, copied only when missing |
+| `examples/todo-web/` | minimal worked example (no compiler required); used by `selftest.sh` |
+| `examples/scenarios.md` | prompts that verify workflow behaviour after framework changes |
+| `selftest.sh` | automated test: installer, check and hooks — run after every framework change |
 | `CHANGELOG.md` | what changed, and the upgrade steps for apps |
 | `CLAUDE.md` | instructions for an assistant working on App Director itself |
 
 ## License
 
-MIT © 2026 Vikingur Saemundsson. You may use, fork and change App Director, including in commercial apps, as long as the copyright notice and the license stay with it. Installed apps carry a copy in `.app-director/LICENSE`.
+Privacy: App Director runs on your machine and sends nothing anywhere; see [PRIVACY.md](PRIVACY.md).
+
+MIT © 2026 Vikingur Saemundsson: see [LICENSE](LICENSE). You may use, fork and change App Director, including in commercial apps, as long as the copyright notice and the license stay with it. Installed apps carry a copy in `.app-director/LICENSE`.

@@ -2,6 +2,17 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## 1.1.0 (2026-10-07)
+
+- **LICENSE.** Root `LICENSE` added (MIT, copyright 2026 Vikingur Saemundsson). `framework/.app-director/LICENSE` (the copy installed into apps) is identical; `selftest.sh` enforces this.
+- **README: Privacy and License.** License section now opens with a Privacy line linking `PRIVACY.md`, matching Godot-Director.
+- **`examples/todo-web/`.** Minimal worked example web app — AGENTS.md, TASKS.md, brief, decisions, source in `src/ui/`, `src/services/`, `src/store/`. Uses the `none` stack so no compiler or test runner is needed. Used by `selftest.sh`.
+- **`examples/scenarios.md`.** Nine prompts that verify workflow behaviour (options-not-guesses, autonomous commit, guard hook, secrets refusal) after framework changes.
+- **`selftest.sh`.** Automated self-test: framework consistency (version, LICENSE match, skills→procedures), installer (fresh install, idempotence, local-edit preservation, conflict file, retired-file removal), check (pass on clean example, fail on planted UI purity violation, fail on planted secret, exit 3 on missing stack), `guard-commands` hook, `guard-protected` hook, stop-check hook, pre-commit hook. No network access; no external tools.
+- **README "This repository" table** updated to include examples and selftest.
+
+**Upgrade steps:** None required for existing installs. The new files (`LICENSE`, `examples/`, `selftest.sh`) are in the App Director repository itself, not installed into apps.
+
 ## 1.0.3 (2026-10-07)
 
 - **Role terminology aligned.** "Main session", "director and orchestrator", and "developer (builder subagent)" replaced with canonical terms: orchestrator (main session), builder (builder subagent). Affected: README.md (Context and token use section), `framework/.claude/agents/builder.md` description, `framework/.claude/agents/reviewer.md` body.
