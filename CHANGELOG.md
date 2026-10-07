@@ -2,6 +2,25 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## 1.0.2 (2026-10-07)
+
+- **Five-tier model sizing.** The model sizing feature now maps each task size (XS, S, M, L, XL) to its own model ID stored in AGENTS.md › Project rules. Previously XS and S used Haiku while M, L and XL all used the session model — L and XL were never escalated to a stronger model. Defaults for Claude Code: Haiku for XS and S, Sonnet for M, Opus for L and XL.
+- **`/refresh-model-sizing` skill.** New procedure and Claude Code skill that does a capability check (subagents + per-call model), proposes defaults, and writes the five-entry block to AGENTS.md › Project rules. Run it after install or to update entries.
+
+**Upgrade steps:**
+1. In AGENTS.md › Project rules, replace `- Model sizing: on` (single line) with the five-entry block:
+   ```
+   - Model sizing: on
+     - XS: claude-haiku-4-5-20251001
+     - S:  claude-haiku-4-5-20251001
+     - M:  claude-sonnet-5-5
+     - L:  claude-opus-5-5
+     - XL: claude-opus-5-5
+   ```
+   (Or run `/refresh-model-sizing` — it will write the block interactively.)
+2. In `.app-director/procedures/next-task.md`, step 3.2, update to: read the model ID for the item's size from the AGENTS.md block and pass it as `model:`; fall back to the session model if no entry exists.
+3. In `.app-director/rules.md` › Reviews and model size, replace the two-row table with the five-entry block description.
+
 ## 1.0.1 (2026-10-06)
 
 - **Autonomous commit mode.** `next-task.md` step 7 no longer pauses for approval when the human has said to work autonomously ("do the next N tasks", "work through the queue"). Commits proceed without interruption and are listed in the final report instead.

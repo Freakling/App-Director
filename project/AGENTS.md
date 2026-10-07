@@ -39,6 +39,11 @@ Owner: agent | human | shared. For human-owned areas, the agent uses the placeho
 ## Project rules
 <!-- Only where this project differs from App Director defaults, as agreed with the human.
 Examples:
-- Model sizing: on (recommended on; Claude Code only)
+- Model sizing: on
+  - XS: claude-haiku-4-5-20251001
+  - S:  claude-haiku-4-5-20251001
+  - M:  claude-sonnet-5-5
+  - L:  claude-opus-5-5
+  - XL: claude-opus-5-5
 - No git remote: never push.
 -->

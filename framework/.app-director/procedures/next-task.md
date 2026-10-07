@@ -27,14 +27,14 @@ Set the item to `in-progress YYYY-MM-DD` (today).
 ## 3. Build
 - **In Claude Code,** give the `builder` subagent the item's ID and full text. Run it in the foreground (`run_in_background: false`), and never run two builders at once: they would edit, and check, each other's files.
   1. Before starting it, create the file `.app-director/state/building`. Delete it when the report arrives; while it exists, the Stop hook leaves the half-built files alone.
-  2. If AGENTS.md › Project rules turns on model sizing, pass `model: haiku` for an `XS` or `S` item. Use the session model for `M`, `L` and `XL`.
+  2. If AGENTS.md › Project rules has model sizing on, read the model ID for the item's size from that block (e.g. `- XS: claude-haiku-4-5-20251001`) and pass it as `model:`. If no entry exists for the size, use the session model.
 - **Other tools:** follow `build.md` yourself, or in a subagent if your tool has them.
 - **A rebuild** (after a failure, a blocked report or review findings) gets the previous report, anything the human said about the item, and word that the earlier attempt's edits are still in the tree to continue from.
 - **Report `blocked`:** the report brings the question with options and a recommendation. Put it to the human.
   - If the answer is a design decision, record it following `design.md` › Record each decision before rebuilding. It's committed with the item.
   - Then rebuild, including the answer.
 - **Report `failed`:**
-  - An `XS` or `S` item built on Haiku gets one rebuild on the session model, and becomes `M (escalated from S)`.
+  - An `XS` or `S` item built on a smaller model gets one rebuild using the `M` model entry (or the session model if none is set), and becomes `M (escalated from S)`.
   - Otherwise, add a `Note:` to the item and give the human the check output.
 - **Report `failed: pre-existing`:** the failure was there before the build. Tell the human.
 
