@@ -131,7 +131,7 @@ If they want it:
 
 ### Workflow defaults
 - Commits: the agent proposes and the human approves.
-- Model sizing (Claude Code only): **ask the human, and recommend on.** When on, each task size (XS–XL) maps to its own model ID stored in AGENTS.md › Project rules. Follow `refresh-model-sizing.md` to do the capability check and write the block; the defaults for Claude Code are Haiku for XS and S, Sonnet for M, Opus for L and XL. The human can run `/refresh-model-sizing` at any time to update the entries.
+- Model sizing: **recommend on.** Follow `refresh-model-sizing.md`: it checks whether the assistant supports per-subagent model selection, presents the defaults, asks the director to confirm or adjust, and writes the five-entry block. If the assistant can't select models per subagent, it says so and skips the block. The director can run `/refresh-model-sizing` at any time to update the entries.
 - Reviews: by default after `L` and `XL` items, and after `M` items that change stored data schemas or public API contracts.
 
 ## 9. Validation template

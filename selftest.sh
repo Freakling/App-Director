@@ -61,6 +61,19 @@ done
 [ -z "$missing" ] && ok "every Claude Code skill points to an existing procedure" \
   || bad "skills without procedures or mismatched names:$missing"
 
+# Model IDs must live only in the refresh-model-sizing procedure (single source of truth).
+_rms="$src/framework/.app-director/procedures/refresh-model-sizing.md"
+_rms_ids="$(grep -oE 'claude-[a-z0-9-]+' "$_rms" | sort -u | tr '\n' '|' | sed 's/|$//')"
+_model_id_leak=""
+for _f in "$src/README.md" "$src/ONBOARDING.md"; do
+  if [ -n "$_rms_ids" ] && grep -qE "$_rms_ids" "$_f" 2>/dev/null; then
+    _model_id_leak="$_model_id_leak $(basename "$_f")"
+  fi
+done
+[ -z "$_model_id_leak" ] \
+  && ok "model IDs appear only in refresh-model-sizing procedure" \
+  || bad "model IDs leaked outside refresh-model-sizing:$_model_id_leak"
+
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
 app="$work/todo-web"

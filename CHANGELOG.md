@@ -2,6 +2,17 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## 1.2.1 (2026-10-07)
+
+- **Canonical model sizing.** `rules.md` now defines the five tiers by capability (XS/S smallest capable, M balanced, L/XL most capable) so non-Claude assistants can map them to their own models. No model IDs in `rules.md`.
+- **Generalized escalation rule.** A failed build retries once on the next size's model (XS→S, S→M, M→L, L→XL). An XL failure stops and comes to the director. Previously only XS/S escalated to M. Added to both `next-task.md` and `rules.md`.
+- **Onboarding writes the model sizing block.** Step 7 now follows `refresh-model-sizing.md` directly — it checks capability, presents the five-entry defaults, asks the director to confirm or adjust, and writes the block. The "Claude Code only" qualifier is removed; any assistant that supports per-subagent model selection can use it.
+- **Single source of truth for model IDs.** Default model IDs (`claude-haiku-4-5-20251001`, `claude-sonnet-5-5`, `claude-opus-5-5`) live only in `refresh-model-sizing.md`. README and ONBOARDING use human-readable tier names (Haiku, Sonnet, Opus) and reference the procedure.
+- **README model sizing paragraph updated.** The verbatim paragraph in Context and token use now mentions escalation and the correct description of `/refresh-model-sizing`.
+- **selftest.sh** asserts that model IDs appear only in `refresh-model-sizing.md`.
+
+**Upgrade steps:** Run `/refresh-model-sizing` (or ask your assistant) to update the model sizing block in AGENTS.md › Project rules to the five-entry format.
+
 ## 1.2.0 (2026-10-07)
 
 - **Gitleaks replaces regex secrets scan.** `check.sh` step 2 now runs `gitleaks dir --redact` on the working tree. Findings are written (redacted) to `.app-director/state/gitleaks.json`. If gitleaks is missing or below the minimum version, the check exits 3 — it never falls back to regex and never passes silently.

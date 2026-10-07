@@ -69,7 +69,7 @@ Update the owning place in the same change that makes it untrue. Replace superse
 
 ## Reviews and model size
 - An `L` or `XL` item, or an `M` item that changes stored data schemas or public API contracts, gets an independent review (`review.md`) before its commit. Fix the findings that are in scope.
-- **Model sizing** (when on in Project rules): match the build to the item's size. The model ID for each size is stored in AGENTS.md › Project rules:
+- **Model sizing** (when on in Project rules): match the build to the item's size. Five tiers by capability: XS and S use the smallest capable model (fast, cheap), M uses a balanced model, L and XL use the most capable model. The model ID for each size is stored in AGENTS.md › Project rules:
   ```
   - Model sizing: on
     - XS: <model-id>
@@ -78,4 +78,5 @@ Update the owning place in the same change that makes it untrue. Replace superse
     - L:  <model-id>
     - XL: <model-id>
   ```
-  `next-task.md` reads the entry for the current item's size and passes it to the builder. Run `/refresh-model-sizing` to set or update these entries.
+  `next-task.md` reads the entry for the current item's size and passes it to the builder. A size without an entry uses the session model. Run `/refresh-model-sizing` to set or update these entries.
+- **Escalation:** a failed build retries once on the next size's model. An XL failure stops and comes to the director.

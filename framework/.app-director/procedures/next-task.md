@@ -34,8 +34,8 @@ Set the item to `in-progress YYYY-MM-DD` (today).
   - If the answer is a design decision, record it following `design.md` › Record each decision before rebuilding. It's committed with the item.
   - Then rebuild, including the answer.
 - **Report `failed`:**
-  - An `XS` or `S` item built on a smaller model gets one rebuild using the `M` model entry (or the session model if none is set), and becomes `M (escalated from S)`.
-  - Otherwise, add a `Note:` to the item and give the human the check output.
+  - If the item is not `XL` and has not already been escalated, retry once using the next size's model entry (XS→S, S→M, M→L, L→XL; or the session model if no entry exists). Update the item label to `<next-size> (escalated from <original-size>)`, e.g. `M (escalated from S)`.
+  - If the item is `XL`, or the retry also fails, add a `Note:` to the item and bring the check output to the human.
 - **Report `failed: pre-existing`:** the failure was there before the build. Tell the human.
 
 ## 4. Verify

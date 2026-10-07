@@ -152,7 +152,7 @@ The orchestrator and the builder are deliberately separate contexts.
 - **Fresh context per item.** Each build runs as a separate `builder` subagent. It reads only what the item needs: the files in `Touches`, the relevant Architecture rows, and the brief sections the item names.
 - **The report is the only channel.** The builder's report fields give the orchestrator exactly what it needs to update the records — no more.
 
-**Model sizing** (recommended on): each task size (XS–XL) maps to its own model ID in AGENTS.md › Project rules. Defaults for Claude Code: Haiku for XS/S, Sonnet for M, Opus for L/XL. Onboarding sets this up; run `/refresh-model-sizing` to update it.
+Model sizing (recommended on): each item size maps to its own build model in AGENTS.md › Project rules. Claude Code defaults: XS and S to Haiku, M to Sonnet, L and XL to Opus. A size without an entry uses the session model, and a failed build retries once on the next size's model. Onboarding writes the mapping; /refresh-model-sizing updates it, or tells you if your assistant can't choose a model per subagent.
 
 ### The check
 `bash tools/check.sh` runs four steps:
