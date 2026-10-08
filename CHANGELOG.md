@@ -2,6 +2,12 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## 1.2.3 (2026-10-09)
+
+- **Design sessions show context before options.** `design.md` › Prepare now has a step that surfaces the relevant brief sections and related `product/decisions.md` lines to the human director before any options are presented. The assistant quotes or paraphrases only the sections the topic touches; if neither file has anything relevant, it says so in one sentence.
+
+**Upgrade steps:** None required for existing installs.
+
 ## 1.2.2 (2026-10-07)
 
 - **No en or em dashes.** All en dashes (U+2013) and em dashes (U+2014) replaced across every tracked file: ranges use a hyphen, explanations use a colon, asides use commas or parentheses, and joined clauses use a semicolon or period. Affected files: README.md, ONBOARDING.md, CHANGELOG.md, CLAUDE.md, PRIVACY.md, SKILL.md, skills/, framework/ (rules, procedures, tasks, hooks, skills, check.sh, setup-clone.sh), project/ seeds, examples/.

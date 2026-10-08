@@ -12,6 +12,7 @@ Brainstorm a topic, answer open design questions, or change how part of the app 
   4. long-term questions.
 
   Give a one-line reason for each position.
+- **Show the context to the human before presenting options.** Quote or paraphrase the brief sections that the topic touches (keep it short; skip sections with no bearing). Then list the related lines from `product/decisions.md` verbatim. If there is nothing relevant in either file, say so in one sentence. This gives the director the existing state of play before any options appear.
 
 ## For each question
 1. Offer 2-4 concrete options. For each: what the user experiences, what it would take to build (which systems in AGENTS.md › Architecture), and how it fits the product goals.
