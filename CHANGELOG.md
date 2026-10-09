@@ -2,6 +2,17 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## 1.3.0 (2026-10-09)
+
+- **`/drift-reset`: the design drift reset.** A new procedure (`drift-reset.md`) and Claude Code skill for when a brief principle has been built more than one way and patching would make it worse. Only the human starts it; the skill is not model-invocable. Steps: analyse the app as built with read-only `reviewer` subagents, one per Architecture area, including logic sitting in UI files (`as-built.md`); map each principle's interpretations as consistent, divergent or contradictory (`interpretations.md`); raise a design call per divergent or contradictory principle and revise the brief, archiving the old one (`brief-before.md`), or write `brief-proposal.md` when the brief is human-owned or hook-protected; plan the rebuild as sized TASKS.md items with exact `Touches` (`rebuild.md`). `/drift-reset postmortem` checks the rebuilt app against the recorded failure modes (`postmortem.md`) and proposes new check rules as design calls. Everything lands in `product/resets/YYYY-MM-DD/`, which is never deleted. The reset writes no application code, uses no destructive git commands, and recommends its own branch.
+- **`/align` recommends a reset.** Align now names the conflicts it reports in its commit body, and recommends `/drift-reset` when a conflict comes back or one conflict involves several principles.
+- **Reviewer agent** also runs drift-reset area analyses, still read-only.
+- **rules.md routing** now lists `drift-reset.md` and the previously missing `refresh-model-sizing.md`. The one-place table gets a row for reset folders.
+- **README, ONBOARDING:** `/drift-reset` added next to `/align`: align often, reset when you have to.
+- **selftest.sh** checks that every procedure is routed in `rules.md`.
+
+**Upgrade steps:** None required. The new procedure, skill and reviewer change arrive with the framework files on upgrade. Restart Claude Code afterwards so `/drift-reset` loads.
+
 ## 1.2.3 (2026-10-09)
 
 - **Design sessions show context before options.** `design.md` › Prepare now has a step that surfaces the relevant brief sections and related `product/decisions.md` lines to the human director before any options are presented. The assistant quotes or paraphrases only the sections the topic touches; if neither file has anything relevant, it says so in one sentence.

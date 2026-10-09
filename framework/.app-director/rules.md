@@ -7,9 +7,11 @@ These rules apply to any AI assistant working in this project. For each of these
 - **design.md:** brainstorm, open design questions, change the design.
 - **acceptance.md:** prepare or process an acceptance check.
 - **align.md:** check the docs and tasks are aligned.
+- **drift-reset.md:** a design drift reset, or its postmortem. Only the human starts one; never run it on your own.
 - **prune.md:** prune the task list.
 - **review.md:** review a finished change.
 - **release.md:** release to an environment or platform.
+- **refresh-model-sizing.md:** set or update the model sizing block in AGENTS.md › Project rules.
 
 In Claude Code these are also slash commands, and builds and reviews run as the `builder` and `reviewer` subagents.
 
@@ -28,6 +30,7 @@ In Claude Code these are also slash commands, and builds and reviews run as the 
 | What the app should be | `product/brief.md`. List its sections with `grep -n "^#" product/brief.md` and read only the ones you need. |
 | What's undecided | brief › Open Questions |
 | Why a design decision was made | `product/decisions.md` (append-only) |
+| How the app was built before a design drift reset, and what drifted | `product/resets/YYYY-MM-DD/` (never deleted) |
 | Which systems exist and what each owns | `AGENTS.md` › Architecture |
 | Work, bugs, milestones | `TASKS.md` (format: `.app-director/tasks.md`; done items: `TASKS-archive.md`) |
 | Whether it works | `bash tools/check.sh` |

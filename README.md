@@ -70,6 +70,7 @@ Afterwards, restart Claude Code so the new commands load. Each new clone later n
 | "Let's design {topic}" (`/design {topic}`) | A design session. Your decisions become brief text, decision-log lines and task items. |
 | "Prepare an acceptance check", "Process the acceptance check" (`/acceptance`) | A checklist of what's been built since the last round and needs a human eye; you tick Works or Broken. |
 | "Check the docs are aligned" (`/align`) | A consistency pass. Drift gets fixed; gaps and conflicts come to you. |
+| "Run a design drift reset" (`/drift-reset`, later `/drift-reset postmortem`) | For when a principle has been built two ways: analyses the app as built, maps each principle's interpretations, has you rewrite the design, and plans the rebuild as tasks. Only you start it. Align often, reset when you have to. |
 | "Prune the task list" (`/prune`) | Moves done items to `TASKS-archive.md`. |
 | "Release to production" (`/release`) | Runs the check, builds for the target platform, and walks you through the deploy. |
 
@@ -114,7 +115,7 @@ your-app/
 │  App Director's, tool-neutral: updated on upgrade
 ├── .app-director/rules.md        the workflow rules, loaded through AGENTS.md
 ├── .app-director/tasks.md        the TASKS.md item format, read when items are written
-├── .app-director/procedures/     next-task · build · design · review · align · prune · release · acceptance
+├── .app-director/procedures/     next-task · build · design · review · align · drift-reset · prune · release · acceptance · refresh-model-sizing
 ├── tools/check.sh              the check (UI purity, secrets, stack, custom)
 ├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit hook
 ├── tools/stacks/               typescript.sh · flutter.sh · python.sh · none.sh

@@ -24,4 +24,5 @@ A consistency pass across the brief, decisions, TASKS.md, AGENTS.md and check co
 7. **Setup.**
    - `bash tools/check.sh` passes.
    - The `.gitignore` and `.gitattributes` lines that install.sh adds are still there.
-8. **Report.** Say what you fixed and what needs the human. Commit the fixes as `docs: align` after the human approves; during onboarding they go into the install commit instead.
+8. **Report.** Say what you fixed and what needs the human. Commit the fixes as `docs: align` after the human approves, naming the conflicts that need the human in the commit body so the next align can tell a repeat; during onboarding they go into the install commit instead.
+9. **Recommend a reset when patching won't hold.** If a conflict you report has come up before (an earlier `docs: align` commit body names it, or `product/decisions.md` already settled it), or one conflict involves several brief principles, recommend `/drift-reset` (`drift-reset.md`) in the report instead of a patch. Never start it yourself.

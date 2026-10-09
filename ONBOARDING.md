@@ -155,6 +155,7 @@ If the flows aren't decided yet, leave the placeholders and add an agent item "F
    - If the check fails, leave the hook off and add an item: "Install the pre-commit hook once the check passes (`bash tools/setup-clone.sh`)".
 7. **Tell the human:**
    - what needs their confirmation (inferred decisions, open questions);
-   - how to use it: "do the next task", "let's design…", "prepare an acceptance check", "check the docs are aligned" (in Claude Code also `/next-task`, `/design`, `/acceptance`, `/align`, `/prune`, `/release`);
+   - how to use it: "do the next task", "let's design…", "prepare an acceptance check", "check the docs are aligned" (in Claude Code also `/next-task`, `/design`, `/acceptance`, `/align`, `/drift-reset`, `/prune`, `/release`);
+   - align often, and reset when you have to: a drift reset ("run a design drift reset") is for when the same conflict keeps coming back, and only they start one;
    - with the Claude adapter: to restart Claude Code, because skills, hooks and permissions load at session start;
    - that every new clone needs `bash tools/setup-clone.sh`.

@@ -61,6 +61,16 @@ done
 [ -z "$missing" ] && ok "every Claude Code skill points to an existing procedure" \
   || bad "skills without procedures or mismatched names:$missing"
 
+unrouted=""
+for proc in "$src"/framework/.app-director/procedures/*.md; do
+  name="$(basename "$proc")"
+  grep -qF "**$name:**" "$src/framework/.app-director/rules.md" \
+    || grep -qF "\`$name\`" "$src/framework/.app-director/rules.md" \
+    || unrouted="$unrouted $name"
+done
+[ -z "$unrouted" ] && ok "every procedure is routed in rules.md" \
+  || bad "procedures missing from rules.md routing:$unrouted"
+
 # Model IDs must live only in the refresh-model-sizing procedure (single source of truth).
 _rms="$src/framework/.app-director/procedures/refresh-model-sizing.md"
 _rms_ids="$(grep -oE 'claude-[a-z0-9-]+' "$_rms" | sort -u | tr '\n' '|' | sed 's/|$//')"
@@ -74,8 +84,8 @@ done
   && ok "model IDs appear only in refresh-model-sizing procedure" \
   || bad "model IDs leaked outside refresh-model-sizing:$_model_id_leak"
 
-# No en dashes (U+2013) or em dashes (U+2014) in any tracked file.
-_dash_files="$(git -C "$src" grep -lP '[\x{2013}\x{2014}]' 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+# No en dashes (U+2013) or em dashes (U+2014) in any tracked or new file.
+_dash_files="$(git -C "$src" grep --untracked -lP '[\x{2013}\x{2014}]' 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 [ -z "$_dash_files" ] \
   && ok "no en or em dashes in tracked files" \
   || bad "en/em dashes found in: $_dash_files"
