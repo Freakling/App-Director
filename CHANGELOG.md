@@ -2,6 +2,12 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## 1.3.1 (2026-10-09)
+
+- **README: Part of Director-Driven Development.** A new section after the opening description links the Director-Driven Development article and the three frameworks built on it (Godot-Director, App-Director, SaaSAllTheThings).
+
+**Upgrade steps:** None required for existing installs.
+
 ## 1.3.0 (2026-10-09)
 
 - **`/drift-reset`: the design drift reset.** A new procedure (`drift-reset.md`) and Claude Code skill for when a brief principle has been built more than one way and patching would make it worse. Only the human starts it; the skill is not model-invocable. Steps: analyse the app as built with read-only `reviewer` subagents, one per Architecture area, including logic sitting in UI files (`as-built.md`); map each principle's interpretations as consistent, divergent or contradictory (`interpretations.md`); raise a design call per divergent or contradictory principle and revise the brief, archiving the old one (`brief-before.md`), or write `brief-proposal.md` when the brief is human-owned or hook-protected; plan the rebuild as sized TASKS.md items with exact `Touches` (`rebuild.md`). `/drift-reset postmortem` checks the rebuilt app against the recorded failure modes (`postmortem.md`) and proposes new check rules as design calls. Everything lands in `product/resets/YYYY-MM-DD/`, which is never deleted. The reset writes no application code, uses no destructive git commands, and recommends its own branch.

@@ -6,6 +6,14 @@
 
 A workflow for small apps (web, mobile and desktop), new or already in development. You decide what the app does, how it should feel and what gets built next. The AI builds, tests and keeps the records. Designed to work with any AI coding assistant that reads `AGENTS.md`. Built and tested on Claude Code; other assistants are untested. Everything lives in your app's own git repository.
 
+## Part of Director-Driven Development
+
+This is one of three frameworks built on [Director-Driven Development](https://saemundsson.se/2026/10/07/director-driven-development/), a way of working with AI coding agents: you direct the design, agents build in small, fresh contexts, and the build verifies every change. The same loop runs all three; only the rules the check enforces change.
+
+- [Godot-Director](https://github.com/Freakling/Godot-Director): games in Godot 4
+- [App-Director](https://github.com/Freakling/App-Director): small web, mobile and desktop apps (this one)
+- [SaaSAllTheThings](https://github.com/Freakling/SaaSAllTheThings): B2B SaaS on Azure
+
 ## Why
 
 AI writes app code fast. Without structure, that speed goes wrong in familiar ways:
