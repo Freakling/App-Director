@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.5.0 (2026-10-15)
 
 - **The manual install clones the latest release.** The README's manual option cloned `main`, the integration branch, so a manual install got unreleased changes. It now clones the release tag (`git clone --branch <tag> --depth 1`), and says the tag is `v` followed by the version and where the latest one is listed. The manual upgrade wording still holds: put the new folder in and ask for ONBOARDING.md again.
 - **The selftest expects setup-clone's refusal of gitleaks 8.19.0.** `tools/setup-clone.sh` refuses gitleaks 8.19.0 before it installs the pre-commit hook. The selftest's check for the installed hook now expects that refusal (exit 3, no hook) when the gitleaks on PATH is 8.19.0, and still expects the hook otherwise. A stand-in gitleaks 8.19.0 test proves the refusal in a fresh repository on any machine. The selftest's passthrough stand-in had hidden a real 8.19.0 from the check, so the check never reached the refusal.
