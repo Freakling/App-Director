@@ -2,6 +2,12 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## Unreleased
+
+- **A run can also be asked for as "grab tasks until you're blocked".** `next-task.md` (the request list and step 7), the `/next-task` skill description, the README's day-to-day table and the behaviour scenarios now name it next to "the next N tasks" and "work through the queue". Each task in a run commits without pausing; the run stops when an item is blocked on the human, a build fails, or the human declines a commit. A single `/next-task` still pauses for approval. `git commit` is already allowed in `settings.json`; pushing and deploying keep asking.
+
+**Upgrade steps:** None required for existing installs. The framework files arrive on upgrade; restart Claude Code so the changed skill description loads.
+
 ## 1.3.1 (2026-10-09)
 
 - **README: Part of Director-Driven Development.** A new section after the opening description links the Director-Driven Development article and the three frameworks built on it (Godot-Director, App-Director, SaaSAllTheThings).

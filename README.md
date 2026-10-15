@@ -73,7 +73,7 @@ Afterwards, restart Claude Code so the new commands load. Each new clone later n
 | Say | What happens |
 |---|---|
 | "Do the next task" (`/next-task`) | Builds the next ready item (high-severity bugs first), proves it with the check, updates the records, and asks you to approve the commit. |
-| "Do the next 3 tasks", "Work through the queue" | The same, item after item, until one needs you. |
+| "Do the next 3 tasks", "Work through the queue", "Grab tasks until you're blocked" | The same, item after item, committing each without pausing, until one needs you. |
 | "Which open questions block development?" (`/design questions`) | Ranks the open questions by what they unblock, with options and a recommendation for each. |
 | "Let's design {topic}" (`/design {topic}`) | A design session. Your decisions become brief text, decision-log lines and task items. |
 | "Prepare an acceptance check", "Process the acceptance check" (`/acceptance`) | A checklist of what's been built since the last round and needs a human eye; you tick Works or Broken. |
