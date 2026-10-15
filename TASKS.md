@@ -8,6 +8,11 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 
 ## Queue
 
+### B3 · The secrets check reports a scan that can't run as credentials found · done · S · agent · med
+- Touches: framework/tools/check.sh, selftest.sh
+- Repro: install gitleaks 8.19.0, then run `bash tools/check.sh` on a clean tree → expected: the check says gitleaks couldn't scan (exit 3) and hints at an upgrade / actual: "gitleaks found credentials in the working tree", because every scan command fails with "flag accessed but not defined: source" and the check reads that failure as a finding; its comment wrongly says 8.19.0 scans with `detect`, and the selftest's real-gitleaks checks run on 8.19.0 and fail
+- Found in: Director-Driven-Development T50
+
 ### B4 · The setup and the README accept gitleaks 8.19.0, which can't scan · done · XS · agent · low
 - Touches: framework/tools/setup-clone.sh, README.md
 - Repro: install gitleaks 8.19.0, then run `bash tools/setup-clone.sh` → expected: the setup says 8.19.0 can't scan, asks for 8.19.1 or later and exits 3 / actual: "found gitleaks 8.19.0 (>= 8.18.0)" and the pre-commit hook is installed; the README's requirement, ≥ 8.18.0 with no exception, doesn't warn about 8.19.0 either

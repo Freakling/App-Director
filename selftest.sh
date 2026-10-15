@@ -213,7 +213,8 @@ EOF
 _cv1="SelfTestFake"; _cv2="Key1234ABCD"
 _cred_val="${_cv1}${_cv2}"
 
-# Determine if a real gitleaks >= minimum is available.
+# Determine if a real gitleaks >= minimum is available. gitleaks 8.19.0 doesn't count: it can't scan
+# at all, so the real-gitleaks tests would fail on it (the check exits 3 there, by design).
 _gl_min_req="8.18.0"
 _gl_ok=0
 if command -v gitleaks >/dev/null 2>&1; then
@@ -223,6 +224,9 @@ if command -v gitleaks >/dev/null 2>&1; then
   if [ "${_gl_maj:-0}" -gt "${_req_maj:-0}" ] || \
      { [ "${_gl_maj:-0}" -eq "${_req_maj:-0}" ] && [ "${_gl_min_v:-0}" -ge "${_req_min_v:-0}" ]; }; then
     _gl_ok=1
+  fi
+  if [ "$_gl_ver" = "8.19.0" ]; then
+    _gl_ok=0
   fi
 fi
 
@@ -281,7 +285,7 @@ if [ "$_gl_ok" -eq 1 ]; then
 
   cp "$work/saved-svc" src/services/TodoService.ts
 else
-  echo "  skip  gitleaks secrets tests (gitleaks not found or below $_gl_min_req)"
+  echo "  skip  gitleaks secrets tests (gitleaks not found, below $_gl_min_req, or 8.19.0, which can't scan)"
   echo "  skip  secret value not in check output"
   echo "  skip  secret value not in state file"
   echo "  skip  allowlisted fingerprint passes"
@@ -315,6 +319,34 @@ for _v in 8.18.0 8.30.1; do
   expect_output "names the file in a finding with gitleaks $_v" "found in: src/services/TodoService.ts" "$out"
   expect_output "scans with $_scan on gitleaks $_v" "^$_want" "$(cat "$_scan_log")"
 done
+
+# A scan that fails with no finding in its report is "couldn't scan", not a finding: check.sh exits 3,
+# names no file and gives gitleaks' own error line. gitleaks 8.19.0 is the case that matters (every
+# command fails with the same flag error and writes no report). The 8.30.1 double shows the rule holds
+# for any scan error. A stale report from an earlier run must not be read as a finding either.
+_err_gl="$work/fake-gl-error"
+mkdir -p "$_err_gl"
+cat > "$_err_gl/gitleaks" << 'FAKE'
+#!/usr/bin/env bash
+case "$1" in
+  version) echo "v$FAKE_GL_VERSION" ;;
+  *) echo "FTL $FAKE_GL_ERROR" >&2; exit 1 ;;
+esac
+FAKE
+chmod +x "$_err_gl/gitleaks"
+
+out="$(FAKE_GL_VERSION=8.19.0 FAKE_GL_ERROR="flag accessed but not defined: source" PATH="$_err_gl:$PATH" bash tools/check.sh 2>&1)"
+expect_status "exits 3 when gitleaks 8.19.0 can't scan" 3 $? "$out"
+expect_output "says gitleaks couldn't scan, not that it found credentials" "secrets FAIL: gitleaks couldn't scan" "$out"
+expect_output "shows gitleaks' own error with 8.19.0" "gitleaks: .*flag accessed but not defined" "$out"
+expect_output "hints to upgrade gitleaks to 8.19.1 or later with 8.19.0" "Upgrade to 8.19.1 or later" "$out"
+expect_no_output "reports no finding with gitleaks 8.19.0" "found (in|credentials)" "$out"
+
+printf '[\n {\n  "File": "src/services/TodoService.ts"\n }\n]\n' > .app-director/state/gitleaks.json
+out="$(FAKE_GL_VERSION=8.30.1 FAKE_GL_ERROR="could not read the config" PATH="$_err_gl:$PATH" bash tools/check.sh 2>&1)"
+expect_status "exits 3 when a gitleaks 8.30.1 scan errors with no finding" 3 $? "$out"
+expect_no_output "a scan error with no finding is not a finding, and a stale report is ignored" "found (in|credentials)" "$out"
+rm -f .app-director/state/gitleaks.json
 
 # Exit 3 when gitleaks is absent: rebuild PATH stripping every directory that holds gitleaks
 # (including the fake one when we set it up, so this path contains neither).
