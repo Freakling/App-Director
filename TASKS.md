@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T2 · B3
+**Next IDs:** T3 · B3
 
 ## Queue
+
+### T2 · The pre-commit hook names the file with a secret · done · S · agent
+- Touches: framework/.githooks/pre-commit, selftest.sh
+- Done when: a staged secret blocks the commit, the hook names the file and doesn't print the secret (test) · a scan that gitleaks can't run (8.19.0) is reported as that, not as a finding (test) · `bash selftest.sh` passes (check)
+- Brief: -
+- Source: Director-Driven-Development T49
 
 ### B2 · The secrets check names the file and works with gitleaks 8.18 and 8.30 · done · S · agent · med
 - Touches: framework/tools/check.sh, selftest.sh

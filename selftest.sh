@@ -484,4 +484,58 @@ expect_status "a real upgrade file still blocks with a nested clone present" 1 $
 expect_no_output "names the upgrade file, not the nested clone" "clones/" "$out"
 rm -f tools/check.sh.adir-new
 
+# --- staged secret --------------------------------------------------------------------------------
+# The working copy stays clean and only the index holds the credential, so the check passes and the
+# hook's staged scan is the one that has to catch it.
+cp src/services/TodoService.ts "$work/saved-svc-staged"
+stage_secret() {
+  { printf '\n'; printf "%s = '%s';\n" "$_gl_marker_name" "$_cred_val"; } >> src/services/TodoService.ts
+  git add src/services/TodoService.ts
+  cp "$work/saved-svc-staged" src/services/TodoService.ts
+}
+
+# Stand-in for gitleaks: protect writes one finding, or exits 1 with no report (FAKE_GL_PROTECT=error),
+# as gitleaks 8.19.0 does for every scan. The check's dir and detect scans find nothing.
+_hook_gl="$work/fake-gl-hook"
+mkdir -p "$_hook_gl"
+cat > "$_hook_gl/gitleaks" << 'FAKE'
+#!/usr/bin/env bash
+case "$1" in
+  version) echo "v${FAKE_GL_VERSION:-8.18.0}" ;;
+  protect)
+    for a in "$@"; do case "$a" in --report-path=*) report="${a#--report-path=}" ;; esac; done
+    [ "${FAKE_GL_PROTECT:-finding}" = error ] && exit 1
+    printf '[\n {\n  "RuleID": "selftest-marker",\n  "Secret": "REDACTED",\n  "File": "src/services/TodoService.ts",\n  "Fingerprint": "src/services/TodoService.ts:selftest-marker:14"\n }\n]\n' > "$report"
+    exit 1 ;;
+  *) exit 0 ;;
+esac
+FAKE
+chmod +x "$_hook_gl/gitleaks"
+
+stage_secret
+out="$(export PATH="$_hook_gl:$PATH"; git_q commit -qm "staged secret" 2>&1)"
+expect_status "pre-commit blocks a staged secret (stand-in)" 1 $? "$out"
+expect_output "pre-commit names the file with a staged secret (stand-in)" "found in: src/services/TodoService.ts" "$out"
+expect_no_output "pre-commit doesn't print the staged secret (stand-in)" "$_cred_val" "$out"
+git reset -q -- src/services/TodoService.ts
+
+stage_secret
+out="$(export PATH="$_hook_gl:$PATH" FAKE_GL_VERSION=8.19.0 FAKE_GL_PROTECT=error; git_q commit -qm "cannot scan" 2>&1)"
+expect_status "pre-commit blocks when gitleaks can't scan (stand-in 8.19.0)" 1 $? "$out"
+expect_output "pre-commit says gitleaks couldn't scan, not that it found a secret" "couldn't scan" "$out"
+expect_no_output "pre-commit names no file when gitleaks can't scan" "found in:" "$out"
+git reset -q -- src/services/TodoService.ts
+
+if [ "$_gl_ok" -eq 1 ]; then
+  stage_secret
+  out="$(git_q commit -qm "real staged secret" 2>&1)"
+  expect_status "pre-commit blocks a secret staged for real gitleaks" 1 $? "$out"
+  expect_output "pre-commit names the staged file with real gitleaks" "found in: src/services/TodoService.ts" "$out"
+  expect_no_output "pre-commit doesn't print the secret with real gitleaks" "$_cred_val" "$out"
+  git reset -q -- src/services/TodoService.ts
+else
+  echo "  skip  real gitleaks staged-secret tests (gitleaks not found or below $_gl_min_req)"
+fi
+cp "$work/saved-svc-staged" src/services/TodoService.ts
+
 finish
