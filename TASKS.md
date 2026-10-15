@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T3 · B3
+**Next IDs:** T3 · B4
 
 ## Queue
+
+### B3 · The secrets check reports a scan that can't run as credentials found · done · S · agent · med
+- Touches: framework/tools/check.sh, selftest.sh
+- Repro: install gitleaks 8.19.0, then run `bash tools/check.sh` on a clean tree → expected: the check says gitleaks couldn't scan (exit 3) and hints at an upgrade / actual: "gitleaks found credentials in the working tree", because every scan command fails with "flag accessed but not defined: source" and the check reads that failure as a finding; its comment wrongly says 8.19.0 scans with `detect`, and the selftest's real-gitleaks checks run on 8.19.0 and fail
+- Found in: Director-Driven-Development T50
+- Brief: -
 
 ### T2 · The pre-commit hook names the file with a secret · done · S · agent
 - Touches: framework/.githooks/pre-commit, selftest.sh
