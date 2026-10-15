@@ -6,11 +6,12 @@
 #   bash tools/check.sh --if-changed       repeat the last result at once if these exact files were checked
 #   bash tools/check.sh --fingerprint      print the fingerprint of the current files (for hooks)
 #   bash tools/check.sh --architecture     run only the UI purity and secrets checks (fast, no build)
-# Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (gitleaks missing/old, or stack tool missing)
+# Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (gitleaks missing, old or unable to scan, or stack tool missing)
 #
 # Steps:
 #   1. UI purity: scan UI-layer files for imports from data-layer folders.
-#   2. Secrets: run gitleaks dir --redact on the working tree (detect --no-git before 8.19.1).
+#   2. Secrets: run gitleaks dir --redact on the working tree (detect --no-git before 8.19.1;
+#      8.19.0 can't scan at all, so the check exits 3).
 #   3. Stack check: source tools/stacks/<stack>.sh and run it.
 #   4. Custom: run tools/check.local.sh, if the project has one.
 #
@@ -148,16 +149,23 @@ if ! version_gte "$gl_ver" "$gl_min"; then
 fi
 
 gl_report="$state_dir/gitleaks.json"
-# gitleaks 8.19.1 is the first release whose `dir` command works; 8.18 and 8.19.0 scan the folder
-# with `detect --no-git`. Both write the same JSON report (a File and a Fingerprint per finding).
+# gitleaks 8.19.1 is the first release whose `dir` command works; 8.18 scans the folder with
+# `detect --no-git`. Both write the same JSON report (a File and a Fingerprint per finding).
+# gitleaks 8.19.0 can't scan at all: every command fails with "flag accessed but not defined: source"
+# and writes no report. So a failed scan that left no finding in the report is "couldn't scan"
+# (exit 3), never "credentials found". The scan's output is kept for that message.
 gl_scan() {
+  rm -f "$gl_report"
   if version_gte "$gl_ver" 8.19.1; then
-    gitleaks dir --redact --report-path="$gl_report" . 2>/dev/null
+    gitleaks dir --redact --report-path="$gl_report" . 2>&1
   else
-    gitleaks detect --no-git --redact --report-path="$gl_report" --source . 2>/dev/null
+    gitleaks detect --no-git --redact --report-path="$gl_report" --source . 2>&1
   fi
 }
-if ! gl_scan; then
+gl_out="$(gl_scan)"; gl_rc=$?
+if [ "$gl_rc" -eq 0 ]; then
+  rm -f "$gl_report"
+elif grep -qs '"File"' "$gl_report"; then
   echo "check: secrets FAIL: gitleaks found credentials in the working tree."
   # Name each file with a finding. Only paths are printed; the values stay redacted in the report.
   # awk keeps the first of repeated paths, so a file with several findings is listed once.
@@ -168,7 +176,15 @@ if ! gl_scan; then
   echo "       the reason in product/decisions.md. Ask the human to approve both changes."
   failed=1
 else
-  rm -f "$gl_report"
+  echo "check: secrets FAIL: gitleaks couldn't scan the working tree."
+  last_line="$(printf '%s\n' "$gl_out" | tr -d '\r' | tail -n 1)"
+  [ -n "$last_line" ] && echo "       gitleaks: $last_line"
+  if [ "$gl_ver" = "8.19.0" ]; then
+    echo "       gitleaks 8.19.0 can't scan (every command fails). Upgrade to 8.19.1 or later."
+  else
+    echo "       Check the error above. Upgrading gitleaks may help."
+  fi
+  exit 3
 fi
 
 if [ "$arch_only" -eq 1 ]; then
