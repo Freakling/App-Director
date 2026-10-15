@@ -3,7 +3,7 @@
 #
 # The single definition of "it works":
 #   bash tools/check.sh                    run the check
-#   bash tools/check.sh --if-changed       repeat the last result at once if these exact files were checked
+#   bash tools/check.sh --if-changed       repeat the last result at once if these exact files were checked with this gitleaks
 #   bash tools/check.sh --fingerprint      print the fingerprint of the current files (for hooks)
 #   bash tools/check.sh --architecture     run only the UI purity and secrets checks (fast, no build)
 # Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (gitleaks missing, old or unable to scan, or stack tool missing)
@@ -74,13 +74,26 @@ if [ "$mode" = "--fingerprint" ]; then fingerprint; exit 0; fi
 mkdir -p "$state_dir" || exit 3
 before="$(fingerprint)"
 
+# gitleaks's version, or "missing". Read once: the cached result depends on it (cache_key), and the
+# secrets step uses it, so a run calls `gitleaks version` at most once.
+gl_ver="missing"
+if command -v gitleaks >/dev/null 2>&1; then
+  gl_ver="$(gitleaks version 2>/dev/null | tr -d 'v \r\n')"
+fi
+
+# What a cached result stands for: the files' fingerprint and gitleaks's version. A removed or changed
+# gitleaks makes the cache miss, so --if-changed runs the secrets step again.
+cache_key() { printf '%s gitleaks=%s' "$1" "$gl_ver"; }
+
 reuse_last() {
   [ "$mode" = "--if-changed" ] && [ -n "$before" ] || return 0
-  if [ "$(cat "$state_dir/last-pass" 2>/dev/null)" = "$before" ]; then
+  local key
+  key="$(cache_key "$before")"
+  if [ "$(cat "$state_dir/last-pass" 2>/dev/null)" = "$key" ]; then
     echo "check: PASS (nothing changed since the last passing run)"
     exit 0
   fi
-  if [ "$(cat "$state_dir/last-fail" 2>/dev/null)" = "$before" ]; then
+  if [ "$(cat "$state_dir/last-fail" 2>/dev/null)" = "$key" ]; then
     echo "check: FAIL (nothing changed since the last failing run; run 'bash tools/check.sh' to see why)"
     exit 1
   fi
@@ -130,7 +143,7 @@ echo "check: secrets"
 gl_min="$(cfg_get gitleaks min-version)"
 gl_min="${gl_min:-$GITLEAKS_MIN_DEFAULT}"
 
-if ! command -v gitleaks >/dev/null 2>&1; then
+if [ "$gl_ver" = "missing" ]; then
   echo "check: secrets FAIL: gitleaks not found (need >= $gl_min)."
   echo "       Install: https://github.com/gitleaks/gitleaks#installing"
   echo "       macOS:   brew install gitleaks"
@@ -140,8 +153,6 @@ if ! command -v gitleaks >/dev/null 2>&1; then
   exit 3
 fi
 
-gl_raw="$(gitleaks version 2>/dev/null)"
-gl_ver="$(printf '%s' "$gl_raw" | tr -d 'v \r\n')"
 if ! version_gte "$gl_ver" "$gl_min"; then
   echo "check: secrets FAIL: gitleaks $gl_ver is below minimum $gl_min."
   echo "       Upgrade: https://github.com/gitleaks/gitleaks#installing"
@@ -228,7 +239,7 @@ fi
 if [ "$failed" -eq 0 ]; then
   after="$(fingerprint)"
   if [ -n "$before" ] && [ "$before" = "$after" ]; then
-    printf '%s' "$before" > "$state_dir/last-pass"
+    cache_key "$before" > "$state_dir/last-pass"
   elif [ -n "$before" ]; then
     echo "check: note: files changed while the check ran; run it again to cover the changes."
   fi
@@ -237,6 +248,6 @@ if [ "$failed" -eq 0 ]; then
   exit 0
 fi
 rm -f "$state_dir/last-pass"
-if [ -n "$before" ] && [ "$before" = "$(fingerprint)" ]; then printf '%s' "$before" > "$state_dir/last-fail"; fi
+if [ -n "$before" ] && [ "$before" = "$(fingerprint)" ]; then cache_key "$before" > "$state_dir/last-fail"; fi
 echo "check: FAIL (logs above)"
 exit 1

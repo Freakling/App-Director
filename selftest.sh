@@ -367,6 +367,63 @@ cp "$work/saved-cfg" tools/check.cfg
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes again after faults removed" 0 $? "$out"
 
+# --if-changed repeats a result only while gitleaks is the one it ran with. A changed version (even
+# the 8.19.0 that can't scan) or a removed gitleaks runs the secrets step again. The stand-in logs each
+# call, and a reused pass calls `gitleaks version` once and nothing else.
+_cache_gl="$work/fake-gl-cache"
+_cache_log="$work/fake-gl-cache.log"
+mkdir -p "$_cache_gl"
+cat > "$_cache_gl/gitleaks" << 'FAKE'
+#!/usr/bin/env bash
+[ -n "${FAKE_GL_LOG:-}" ] && echo "$1" >> "$FAKE_GL_LOG"
+case "$1" in
+  version) echo "v$FAKE_GL_VERSION" ;;
+  *) if [ -n "${FAKE_GL_SCAN_ERROR:-}" ]; then echo "FTL $FAKE_GL_SCAN_ERROR" >&2; exit 1; fi
+     exit 0 ;;
+esac
+FAKE
+chmod +x "$_cache_gl/gitleaks"
+
+: > "$_cache_log"
+out="$(PATH="$_cache_gl:$PATH" FAKE_GL_VERSION=8.30.1 FAKE_GL_LOG="$_cache_log" bash tools/check.sh 2>&1)"
+expect_status "passes with a stand-in gitleaks 8.30.1" 0 $? "$out"
+
+: > "$_cache_log"
+out="$(PATH="$_cache_gl:$PATH" FAKE_GL_VERSION=8.30.1 FAKE_GL_LOG="$_cache_log" bash tools/check.sh --if-changed 2>&1)"; status=$?
+expect_status "--if-changed reuses a pass when gitleaks is unchanged" 0 "$status" "$out"
+expect_output "says the pass is reused" "nothing changed" "$out"
+if [ "$(wc -l < "$_cache_log" | tr -d ' ')" -eq 1 ]; then ok "a reused pass calls gitleaks version once"; else bad "a reused pass calls gitleaks version once" "$(cat "$_cache_log")"; fi
+
+out="$(PATH="$_cache_gl:$PATH" FAKE_GL_VERSION=8.29.0 bash tools/check.sh --if-changed 2>&1)"; status=$?
+expect_status "--if-changed passes after gitleaks changed to 8.29.0" 0 "$status" "$out"
+expect_output "a changed gitleaks version runs the secrets step again" "^check: secrets$" "$out"
+
+out="$(PATH="$_cache_gl:$PATH" FAKE_GL_VERSION=8.19.0 FAKE_GL_SCAN_ERROR="flag accessed but not defined: source" bash tools/check.sh --if-changed 2>&1)"; status=$?
+expect_status "--if-changed exits 3 after gitleaks was downgraded to 8.19.0" 3 "$status" "$out"
+expect_output "the 8.19.0 downgrade runs the secrets step and says it can't scan" "secrets FAIL: gitleaks couldn't scan" "$out"
+
+out="$(PATH="$_no_gl_path" bash tools/check.sh --if-changed 2>&1)"; status=$?
+expect_status "--if-changed exits 3 after gitleaks was removed" 3 "$status" "$out"
+expect_output "a removed gitleaks runs the secrets step again" "^check: secrets FAIL: gitleaks not found" "$out"
+
+out="$(PATH="$_cache_gl:$PATH" FAKE_GL_VERSION=8.30.1 bash tools/check.sh --if-changed 2>&1)"; status=$?
+expect_status "--if-changed passes again once gitleaks is back" 0 "$status" "$out"
+
+# A failure is repeated the same way: nothing changed with the same gitleaks, a full run after a change.
+cp src/ui/TodoList.ts "$work/saved-ui-cache"
+{ printf '\n'; printf 'import { TodoStore } from '"'"'../store/TodoStore'"'"';\n'; } >> src/ui/TodoList.ts
+out="$(PATH="$_cache_gl:$PATH" FAKE_GL_VERSION=8.30.1 bash tools/check.sh 2>&1)"
+expect_status "fails with a planted UI violation (stand-in gitleaks 8.30.1)" 1 $? "$out"
+out="$(PATH="$_cache_gl:$PATH" FAKE_GL_VERSION=8.30.1 bash tools/check.sh --if-changed 2>&1)"; status=$?
+expect_status "--if-changed repeats the failure while gitleaks is unchanged" 1 "$status" "$out"
+expect_output "says the failure is unchanged" "nothing changed" "$out"
+out="$(PATH="$_cache_gl:$PATH" FAKE_GL_VERSION=8.29.0 bash tools/check.sh --if-changed 2>&1)"; status=$?
+expect_status "--if-changed reruns the failure after gitleaks changed" 1 "$status" "$out"
+expect_output "the rerun checks the UI files again" "check: UI purity FAIL" "$out"
+cp "$work/saved-ui-cache" src/ui/TodoList.ts
+out="$(bash tools/check.sh 2>&1)"
+expect_status "passes again once the UI violation is removed" 0 $? "$out"
+
 # --- guard-commands hook --------------------------------------------------------------------------
 echo "guard-commands hook"
 guard() { # guard <expected-exit> <command>
