@@ -217,8 +217,10 @@ _cred_val="${_cv1}${_cv2}"
 # at all, so the real-gitleaks tests would fail on it (the check exits 3 there, by design).
 _gl_min_req="8.18.0"
 _gl_ok=0
+_gl_path_ver=""  # the version of the gitleaks the machine has on PATH, before any stand-in is added
 if command -v gitleaks >/dev/null 2>&1; then
   _gl_raw="$(gitleaks version 2>/dev/null)"; _gl_ver="$(printf '%s' "$_gl_raw" | tr -d 'v \r\n')"
+  _gl_path_ver="$_gl_ver"
   _gl_maj="${_gl_ver%%.*}"; _rest="${_gl_ver#*.}"; _gl_min_v="${_rest%%.*}"
   _req_maj="${_gl_min_req%%.*}"; _rest="${_gl_min_req#*.}"; _req_min_v="${_rest%%.*}"
   if [ "${_gl_maj:-0}" -gt "${_req_maj:-0}" ] || \
@@ -232,6 +234,7 @@ fi
 
 # Build a PATH that includes gitleaks: real if available, otherwise a passthrough fake that
 # always exits 0. Used everywhere except the "exits 3 when gitleaks is missing" test.
+_real_path="$PATH"
 _stop_path="$PATH"
 if [ "$_gl_ok" -eq 0 ]; then
   _fake_gl="$work/fake-gl-pass"
@@ -527,10 +530,43 @@ out="$(stop_hook)"; expect_status "lets the fixed state through" 0 $? "$out"
 # --- pre-commit hook ------------------------------------------------------------------------------
 echo "pre-commit hook"
 # PATH already includes gitleaks (real or fake) from the check section export above.
-bash tools/setup-clone.sh >/dev/null 2>&1
-grep -qs "App Director" "$(git rev-parse --git-path hooks)/pre-commit" \
-  && ok "setup-clone installs the pre-commit hook" \
-  || bad "setup-clone installs the pre-commit hook"
+# setup-clone refuses gitleaks 8.19.0 before it installs the hook. With 8.19.0 on the machine's PATH the
+# check expects that refusal, run on the real PATH (the 8.18.0 stand-in would hide the 8.19.0). The hook
+# is then installed with the stand-in for the tests below. Otherwise the check expects the hook.
+_hook="$(git rev-parse --git-path hooks)/pre-commit"
+if [ "$_gl_path_ver" = "8.19.0" ]; then
+  out="$(PATH="$_real_path" bash tools/setup-clone.sh 2>&1)"
+  expect_status "setup-clone refuses the gitleaks 8.19.0 on PATH" 3 $? "$out"
+  expect_output "setup-clone says 8.19.0 can't scan and asks for 8.19.1" "8.19.0 can't scan.*8.19.1" "$out"
+  [ ! -f "$_hook" ] && ok "setup-clone installs no pre-commit hook for the gitleaks 8.19.0 on PATH" \
+    || bad "setup-clone installs no pre-commit hook for the gitleaks 8.19.0 on PATH"
+  bash tools/setup-clone.sh >/dev/null 2>&1
+else
+  bash tools/setup-clone.sh >/dev/null 2>&1
+  grep -qs "App Director" "$_hook" \
+    && ok "setup-clone installs the pre-commit hook" \
+    || bad "setup-clone installs the pre-commit hook"
+fi
+
+# Stand-in gitleaks 8.19.0 (every command fails, as the real one does) in a fresh repository: setup-clone
+# refuses it and installs no hook, whatever gitleaks the machine has.
+_refuse_gl="$work/fake-gl-refuse"
+mkdir -p "$_refuse_gl"
+cat > "$_refuse_gl/gitleaks" << 'FAKE'
+#!/usr/bin/env bash
+case "$1" in
+  version) echo "v8.19.0" ;;
+  *) echo "FTL flag accessed but not defined: source" >&2; exit 1 ;;
+esac
+FAKE
+chmod +x "$_refuse_gl/gitleaks"
+_refuse="$work/refuse-clone"; new_repo "$_refuse" && mkdir -p "$_refuse/tools" \
+  && cp "$src/framework/tools/setup-clone.sh" "$_refuse/tools/"
+out="$(PATH="$_refuse_gl:$PATH" bash "$_refuse/tools/setup-clone.sh" 2>&1)"
+expect_status "setup-clone refuses a stand-in gitleaks 8.19.0" 3 $? "$out"
+expect_output "stand-in 8.19.0: setup-clone says it can't scan and asks for 8.19.1" "8.19.0 can't scan.*8.19.1" "$out"
+[ ! -f "$_refuse/.git/hooks/pre-commit" ] && ok "stand-in 8.19.0: setup-clone installs no pre-commit hook" \
+  || bad "stand-in 8.19.0: setup-clone installs no pre-commit hook"
 
 git add -A && { git_q commit -qm "clean state for commit tests" >/dev/null 2>&1 || true; }
 

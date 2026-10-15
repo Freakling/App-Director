@@ -2,6 +2,12 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## Unreleased
+
+- **The selftest expects setup-clone's refusal of gitleaks 8.19.0.** `tools/setup-clone.sh` refuses gitleaks 8.19.0 before it installs the pre-commit hook. The selftest's check for the installed hook now expects that refusal (exit 3, no hook) when the gitleaks on PATH is 8.19.0, and still expects the hook otherwise. A stand-in gitleaks 8.19.0 test proves the refusal in a fresh repository on any machine. The selftest's passthrough stand-in had hidden a real 8.19.0 from the check, so the check never reached the refusal.
+
+**Upgrade steps:** None required for existing installs.
+
 ## 1.4.0 (2026-10-15)
 
 - **The fast check notices a removed or changed gitleaks.** `tools/check.sh --if-changed` repeated the last result while the files were unchanged, so a gitleaks that was removed, or changed (such as to 8.19.0, which can't scan), went unnoticed until a file changed. The cached result now records gitleaks's version, or that it's missing, and a change to either runs the secrets step again. The fast path still makes one `gitleaks version` call. `selftest.sh` checks a reused pass, a changed version, the 8.19.0 downgrade, a removed gitleaks and a repeated failure with a stand-in gitleaks.

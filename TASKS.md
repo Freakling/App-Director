@@ -4,7 +4,7 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T3 · B6
+**Next IDs:** T3 · B7
 
 ## Queue
 
@@ -23,6 +23,12 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 - Touches: framework/tools/check.sh, selftest.sh
 - Repro: pass `bash tools/check.sh`, then remove gitleaks (or downgrade it to 8.19.0) and run `bash tools/check.sh --if-changed` without changing a file → expected: the secrets step runs again, and the check exits 3 (gitleaks not found, or can't scan on 8.19.0) / actual: "check: PASS (nothing changed since the last passing run)" with exit 0, because the cached pass ignores gitleaks until a file changes
 - Found in: Director-Driven-Development T53
+- Brief: -
+
+### B6 · The selftest's pre-commit check doesn't expect setup-clone's 8.19.0 refusal · done · XS · agent · low
+- Touches: selftest.sh
+- Repro: put gitleaks 8.19.0 first on PATH, then run `bash selftest.sh` → expected: the "setup-clone installs the pre-commit hook" check expects setup-clone to refuse 8.19.0 (exit 3, no hook installed), and a stand-in 8.19.0 proves the refusal / actual: the check passes only because the selftest's 8.18.0 passthrough stand-in hides the 8.19.0, so setup-clone never sees it and no test runs its refusal
+- Found in: Director-Driven-Development T57
 - Brief: -
 
 ### T2 · The pre-commit hook names the file with a secret · done · S · agent
