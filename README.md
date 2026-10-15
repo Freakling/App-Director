@@ -76,6 +76,7 @@ Afterwards, restart Claude Code so the new commands load. Each new clone later n
 | "Do the next 3 tasks", "Work through the queue", "Grab tasks until you're blocked" | The same, item after item, committing each without pausing, until one needs you. |
 | "Which open questions block development?" (`/design questions`) | Ranks the open questions by what they unblock, with options and a recommendation for each. |
 | "Let's design {topic}" (`/design {topic}`) | A design session. Your decisions become brief text, decision-log lines and task items. |
+| "Research which library fits {topic}", "What licence does this library use?" (`/research {question}`) | A read-only researcher looks into one question in a fresh context and saves a dated note in `product/research/`: the conclusion, the options, the sources with a confidence, and a recommendation. It informs; you decide. A design session asks it for facts it doesn't have, and you can queue a research item (`R1`, `R2`, ...) for later. |
 | "Prepare an acceptance check", "Process the acceptance check" (`/acceptance`) | A checklist of what's been built since the last round and needs a human eye; you tick Works or Broken. |
 | "Check the docs are aligned" (`/align`) | A consistency pass. Drift gets fixed; gaps and conflicts come to you. |
 | "Run a design drift reset" (`/drift-reset`, later `/drift-reset postmortem`) | For when a principle has been built two ways: analyses the app as built, maps each principle's interpretations, has you rewrite the design, and plans the rebuild as tasks. Only you start it. Align often, reset when you have to. |
@@ -114,16 +115,18 @@ your-app/
 │  yours: never overwritten
 ├── AGENTS.md                   for every assistant: project facts, layout, architecture, ownership, project rules
 ├── CLAUDE.md                   "@AGENTS.md", for Claude Code
-├── TASKS.md                    milestones and the queue (tasks and bugs)
+├── TASKS.md                    milestones and the queue (tasks, bugs and research)
 ├── product/brief.md            what the app should be, and Open Questions
 ├── product/decisions.md        why: one line per design decision
+├── product/research/           dated research notes, one per topic; the decision line links to its note
 ├── tools/check.cfg             check settings: stack, UI and data folders
 ├── validation/TEMPLATE.md      acceptance check template, one section per core flow
 │
 │  App Director's, tool-neutral: updated on upgrade
 ├── .app-director/rules.md        the workflow rules, loaded through AGENTS.md
 ├── .app-director/tasks.md        the TASKS.md item format, read when items are written
-├── .app-director/procedures/     next-task · build · design · review · align · drift-reset · prune · release · acceptance · refresh-model-sizing
+├── .app-director/procedures/     next-task · build · design · research · review · align · drift-reset · prune · release · acceptance · refresh-model-sizing
+├── .app-director/research-domain.md  what the researcher adds for apps: stacks and libraries, licences, app-store and platform requirements
 ├── tools/check.sh              the check (UI purity, secrets, stack, custom)
 ├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit hook
 ├── tools/stacks/               typescript.sh · flutter.sh · python.sh · none.sh
@@ -131,7 +134,7 @@ your-app/
 │
 │  App Director's, Claude Code adapter: updated on upgrade
 ├── .claude/skills/             /next-task and the rest: each points to its procedure
-├── .claude/agents/             builder (builds each item in a fresh context) · reviewer (read-only)
+├── .claude/agents/             builder (builds each item in a fresh context) · reviewer and researcher (read-only)
 ├── .claude/hooks/              runs the check before a turn ends; blocks risky git commands
 └── .claude/settings.json       permissions, hooks, timeouts
 ```

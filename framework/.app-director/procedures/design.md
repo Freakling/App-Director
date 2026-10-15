@@ -5,6 +5,7 @@ Brainstorm a topic, answer open design questions, or change how part of the app 
 
 ## Prepare
 - Read brief › Open Questions and the brief sections the topic touches, and the related lines in `product/decisions.md`. Don't re-propose something decided against there without saying what has changed since.
+- List `product/research/` for notes on the topic. A note whose Verified as of date is recent enough for its claims is evidence you can use; research only what has changed since.
 - **Ranking the open questions** (no topic, or "which questions block development?"): order them by what they unblock in TASKS.md:
   1. a question blocking a ready item;
   2. one that would cause rework if answered later;
@@ -12,16 +13,20 @@ Brainstorm a topic, answer open design questions, or change how part of the app 
   4. long-term questions.
 
   Give a one-line reason for each position.
-- **Show the context to the human before presenting options.** Quote or paraphrase the brief sections that the topic touches (keep it short; skip sections with no bearing). Then list the related lines from `product/decisions.md` verbatim. If there is nothing relevant in either file, say so in one sentence. This gives the director the existing state of play before any options appear.
+- **Show the context to the human before presenting options.** Quote or paraphrase the brief sections that the topic touches (keep it short; skip sections with no bearing). Then list the related lines from `product/decisions.md` verbatim. Add the research on file for the topic: path, conclusion and Verified as of date. If there is nothing relevant in these files, say so in one sentence. This gives the director the existing state of play before any options appear.
 
 ## For each question
-1. Offer 2-4 concrete options. For each: what the user experiences, what it would take to build (which systems in AGENTS.md › Architecture), and how it fits the product goals.
-2. Recommend one, with a one-line reason.
-3. Wait for the human. If they answer only part, record only that part. If you had to interpret the answer, write down your reading and ask them to confirm it.
+1. **Research first when the options depend on facts you don't have,** or when the human asks for it, such as which library fits, what a licence allows, or what an app store requires.
+   - A single fact one source settles (a version, a licence, a limit) you may check yourself. Anything larger goes to the `researcher`, as `research.md` › Starting research describes, so this session's context stays small.
+   - The result is a note in `product/research/` and a done `R<n>` item. Tell the human where the researcher's assumptions are, since those are the first thing to check.
+   - The researcher's recommendation is one option, shown with its reason like any other. It informs; the human decides.
+2. Offer 2-4 concrete options. For each: what the user experiences, what it would take to build (which systems in AGENTS.md › Architecture), and how it fits the product goals.
+3. Recommend one, with a one-line reason.
+4. Wait for the human. If they answer only part, record only that part. If you had to interpret the answer, write down your reading and ask them to confirm it.
 
 ## Record each decision in one change
 1. **brief:** write the rule into its section as the current design, replacing any text it supersedes. A new area gets a new subsection.
-2. **`product/decisions.md`:** append one line in the format given at the top of that file.
+2. **`product/decisions.md`:** append one line in the format given at the top of that file. When the decision followed research, end the `why` with the note's path, as in `why (research: product/research/<note>.md)`, so later sessions reuse the evidence instead of redoing it.
 3. **brief › Open Questions:** delete the answered question. Follow-up questions become new open questions (bump the counter in the brief's Open Questions section).
 4. **TASKS.md:** add or change the items the decision creates, in the format in `.app-director/tasks.md`. Plan a big rework in stages.
    - Give each new item a Size, `Depends on`, `Touches`, `Done when` with tags, and a `Brief:` heading.
@@ -32,5 +37,5 @@ Brainstorm a topic, answer open design questions, or change how part of the app 
 
 ## Finish
 - Summarise what was decided, what's still open, and the next most useful question.
-- Commit the product files as `docs: <summary>`, with a body listing the decisions, after the human approves (see `rules.md` › Git). A design session doesn't edit source code.
+- Commit the product files as `docs: <summary>`, with a body listing the decisions, after the human approves (see `rules.md` › Git). The session's research notes and `R<n>` items go in the same commit. A design session doesn't edit source code.
 - After the commit, suggest `/clear` (or starting a fresh session) before the next topic. The brief, decisions.md and TASKS.md hold everything; the conversation history no longer adds value and only grows the context.

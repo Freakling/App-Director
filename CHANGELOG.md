@@ -2,6 +2,23 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## Unreleased
+
+- **New: `/research`, the research assistant** (`.app-director/procedures/research.md`). When a design question depends on facts nobody has checked, or you ask for research, a read-only `researcher` subagent looks into it in a fresh context and reports a note. It informs; you decide: its recommendation is one option shown with its reason, and it never records a decision, edits the brief or `product/decisions.md`, answers an Open Question, or asks you anything. It states its assumptions in the note instead.
+  - **Research is a task type.** Research items get their own IDs, `R<n>`, drawn from the `Next IDs` line like bugs. Instead of `Done when` they have `Question:` and, when they feed an open question, `Informs: Q<n>`. They are sized like any item, and the size picks the model. An item is done when its note exists.
+  - **Two ways to start.** On the fly: a design session delegates a complex question, or you run `/research <question>`, and the item is created and run at once. For later: queue the item, and list it under `Depends on` of the tasks that need its findings. A task that needs the decision stays gated by the open question itself.
+  - **The note.** One dated file per topic in `product/research/`, written by the orchestrator (the researcher writes no file): conclusion first, then options, a recommendation, sources with a tier and a confidence, and the date the claims were verified. A design session lists the notes on its topic before presenting options, and a decision that followed research ends its `product/decisions.md` line with the note's path.
+  - **`research-domain.md`** adds what the researcher needs for apps: stacks and libraries (how a library is judged), licences, and app-store and platform requirements.
+  - **`/next-task`** hands research items to the `researcher` instead of the builder. Research changes no code, so no check runs and no review follows; the note and the records are committed together. A run goes on after a research item and lists the questions now ready for a design call.
+  - **`/align`** checks the `R` counter, the fields of research items, and that every done research item has a note.
+  - **Web access applies to every session.** `settings.json` now allows `WebSearch` and `WebFetch`. Claude Code can't scope a permission to one subagent, so the allow covers every session in the app, not only the researcher; the researcher's own tool list (`Read, Grep, Glob, WebSearch, WebFetch`) is what keeps it read-only. The evidence rules keep confidential project text out of public search queries. To keep them asking, add both to the `ask` list in `.claude/settings.local.json`.
+  - **`product/research/README.md`** seeds the note folder. The README, ONBOARDING.md, the example and the behaviour scenarios list the command, and `selftest.sh` checks that the files exist, that the researcher has only its read, search and fetch tools, that settings allow web search and fetch, that the procedures are wired to it, and that a commit with only a note skips the project check.
+
+**Upgrade steps:**
+1. In `TASKS.md`, add an `R` counter to the `Next IDs` line: `**Next IDs:** T<n> · B<n> · R1`.
+2. Create `product/research/` with the seed `README.md` (the installer copies it when missing).
+3. Restart Claude Code so the `/research` skill, the `researcher` agent and the changed `settings.json` load.
+
 ## 1.5.0 (2026-10-15)
 
 - **The manual install clones the latest release.** The README's manual option cloned `main`, the integration branch, so a manual install got unreleased changes. It now clones the release tag (`git clone --branch <tag> --depth 1`), and says the tag is `v` followed by the version and where the latest one is listed. The manual upgrade wording still holds: put the new folder in and ask for ONBOARDING.md again.
