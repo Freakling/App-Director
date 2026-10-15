@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.4.0 (2026-10-15)
 
 - **The fast check notices a removed or changed gitleaks.** `tools/check.sh --if-changed` repeated the last result while the files were unchanged, so a gitleaks that was removed, or changed (such as to 8.19.0, which can't scan), went unnoticed until a file changed. The cached result now records gitleaks's version, or that it's missing, and a change to either runs the secrets step again. The fast path still makes one `gitleaks version` call. `selftest.sh` checks a reused pass, a changed version, the 8.19.0 downgrade, a removed gitleaks and a repeated failure with a stand-in gitleaks.
 - **The secrets check says when gitleaks can't scan.** gitleaks 8.19.0 fails every scan command, which the check read as credentials found on a clean tree. `tools/check.sh` now exits 3 and says that gitleaks couldn't scan, with its own error line, and asks for gitleaks 8.19.1 or later. Any scan that fails with no finding in its report is reported that way, never as a finding. The minimum stays 8.18.0. `selftest.sh` checks 8.19.0 and a scan error with stand-in gitleaks binaries, and skips its real-gitleaks checks on 8.19.0.
