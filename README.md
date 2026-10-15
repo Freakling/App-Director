@@ -48,10 +48,10 @@ That installs the `app-director` skill for the assistant you choose in the promp
 
 The plugin installs the latest release. Then open a new Claude Code session in your app's folder (or run `/reload-plugins`), and run `/app-director:app-director`.
 
-**Option 3: manual install.** Clone this repository next to your app as `App-Director/`:
+**Option 3: manual install.** Clone the latest release next to your app as `App-Director/`. The release's tag is `v` followed by its version number, and the [Releases page](https://github.com/Freakling/App-Director/releases) shows the latest one; replace `<tag>` in this command with it:
 
 ```
-git clone https://github.com/Freakling/App-Director.git App-Director
+git clone --branch <tag> --depth 1 https://github.com/Freakling/App-Director.git App-Director
 ```
 
 Then ask your assistant:

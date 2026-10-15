@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T4 · B7
+**Next IDs:** T5 · B7
 
 ## Queue
+
+### T4 · The manual install clones the latest release · done · XS · agent
+- Touches: README.md, CHANGELOG.md
+- Done when: the manual install option in README.md clones the release tag `v<version>` instead of `main`, with the tag left as a placeholder found on the Releases page (check) · the manual upgrade wording still holds (check)
+- Brief: -
+- Source: Director-Driven-Development T65
 
 ### T3 · The install paths get the latest release · done · M · agent
 - Touches: SKILL.md, skills/app-director/SKILL.md, package.json, scripts/fetch-app-director.sh, .claude-plugin/marketplace.json, CLAUDE.md, README.md, selftest.sh, CHANGELOG.md
