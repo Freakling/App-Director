@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.4.0 (2026-10-15)
 
 - **The secrets check says when gitleaks can't scan.** gitleaks 8.19.0 fails every scan command, which the check read as credentials found on a clean tree. `tools/check.sh` now exits 3 and says that gitleaks couldn't scan, with its own error line, and asks for gitleaks 8.19.1 or later. Any scan that fails with no finding in its report is reported that way, never as a finding. The minimum stays 8.18.0. `selftest.sh` checks 8.19.0 and a scan error with stand-in gitleaks binaries, and skips its real-gitleaks checks on 8.19.0.
 - **setup-clone.sh and the README no longer accept gitleaks 8.19.0.** gitleaks 8.19.0 is above the 8.18.0 minimum but can't scan at all (every command fails), so `setup-clone.sh` reported it as found and installed the pre-commit hook on it. It now exits 3 with the hint "gitleaks 8.19.0 can't scan (every command fails). Upgrade to 8.19.1 or later.", and the README's requirement names 8.19.0 as the exception. The minimum stays 8.18.0.
