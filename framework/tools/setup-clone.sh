@@ -6,10 +6,11 @@
 #
 # Run it once in every new clone or worktree; running it again is harmless.
 # 1. Reads tools/check.cfg [project] stack and checks that the stack tool is available.
-# 2. Verifies gitleaks >= minimum version (read from check.cfg [gitleaks] min-version).
+# 2. Verifies gitleaks >= minimum version (read from check.cfg [gitleaks] min-version), except
+#    8.19.0, which can't scan.
 # 3. Installs the pre-commit hook via a small shim in .git/hooks that runs .githooks/pre-commit.
 #    An existing non-App-Director hook is never overwritten.
-# Exit codes: 0 = done · 3 = tool missing or version too old · 4 = done, but the hook needs your attention.
+# Exit codes: 0 = done · 3 = tool missing, version too old or 8.19.0 · 4 = done, but the hook needs your attention.
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -105,7 +106,13 @@ if ! command -v gitleaks >/dev/null 2>&1; then
 else
   gl_raw="$(gitleaks version 2>/dev/null)"
   gl_ver="$(printf '%s' "$gl_raw" | tr -d 'v \r\n')"
-  if version_gte "$gl_ver" "$gl_min"; then
+  # 8.19.0 is above the minimum but can't scan: every gitleaks command fails with
+  # "flag accessed but not defined: source". 8.19.1 is the first release that works.
+  if [ "$gl_ver" = "8.19.0" ]; then
+    echo "setup: gitleaks 8.19.0 can't scan (every command fails). Upgrade to 8.19.1 or later."
+    echo "       https://github.com/gitleaks/gitleaks/releases"
+    exit_code=3
+  elif version_gte "$gl_ver" "$gl_min"; then
     echo "setup: found gitleaks $gl_ver (>= $gl_min)"
   else
     echo "setup: gitleaks $gl_ver is below minimum $gl_min; upgrade it."
