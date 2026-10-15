@@ -23,7 +23,9 @@
       "Bash(git stash *)",
       "Bash(git worktree *)",
       "Bash(git ls-files *)",
-      "Bash(git grep *)"
+      "Bash(git grep *)",
+      "WebSearch",
+      "WebFetch"
     ],
     "deny": [
       "Read(.env)",

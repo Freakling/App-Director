@@ -9,10 +9,11 @@ A consistency pass across the brief, decisions, TASKS.md, AGENTS.md and check co
    - In Claude Code, CLAUDE.md contains `@AGENTS.md`.
    - No `*.adir-new` files are left unmerged: `git ls-files -o -i --exclude-standard -- '*.adir-new' | grep '\.adir-new$'` (the grep drops nested clones, which `ls-files` lists as directories).
 3. **Items.**
-   - IDs are unique and below `Next IDs`, and every `Depends on` exists, in TASKS.md or the archive.
+   - IDs are unique and below `Next IDs`, which has a counter for each of `T`, `B` and `R` (add `· R1` to a line that lacks one), and every `Depends on` exists, in TASKS.md or the archive.
    - No `done` item depends on a `todo` one.
-   - Every `agent` item has a Size, `Touches`, tagged `Done when` outcomes (or a Repro, for bugs) and a `Brief:` value. That value is an existing heading, or `-` for items that aren't about the product design.
-   - Every open question an item names is still in brief › Open Questions. If it's been answered, update the item.
+   - Every `agent` item has a Size, `Touches`, tagged `Done when` outcomes (or a Repro, for bugs; a research item has a `Question:` and an `Informs:` instead of both) and a `Brief:` value. That value is an existing heading, or `-` for items that aren't about the product design.
+   - Every open question an item that isn't done names, in `Done when` or `Informs:`, is still in brief › Open Questions. If it's been answered, update the item.
+   - Every done research item has a note in `product/research/` whose second line starts with its ID (`grep -l "^R3 · " product/research/*.md`).
    - Items follow `.app-director/tasks.md`.
    - Report `in-progress` items claimed before today.
 4. **Coverage.** Every flow in the brief is either built (a done item), planned (a todo item), or reported to the human as a gap. Only report the gaps; the human decides which ones become items.

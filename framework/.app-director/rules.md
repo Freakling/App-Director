@@ -3,8 +3,9 @@ AGENTS.md › Project rules, and win over these defaults. -->
 # App Director workflow rules
 
 These rules apply to any AI assistant working in this project. For each of these requests, follow the procedure in `.app-director/procedures/`:
-- **next-task.md:** do the next task(s), or a named item (T12, B3). The build itself is `build.md`.
+- **next-task.md:** do the next task(s), or a named item (T12, B3, R2). The build itself is `build.md`.
 - **design.md:** brainstorm, open design questions, change the design.
+- **research.md:** research a question in a fresh context and save a dated note in `product/research/`, for a design call or a decision about stacks, libraries, licences or app-store requirements. It informs; the human decides. Domain reference: `.app-director/research-domain.md`.
 - **acceptance.md:** prepare or process an acceptance check.
 - **align.md:** check the docs and tasks are aligned.
 - **drift-reset.md:** a design drift reset, or its postmortem. Only the human starts one; never run it on your own.
@@ -13,13 +14,14 @@ These rules apply to any AI assistant working in this project. For each of these
 - **release.md:** release to an environment or platform.
 - **refresh-model-sizing.md:** set or update the model sizing block in AGENTS.md › Project rules.
 
-In Claude Code these are also slash commands, and builds and reviews run as the `builder` and `reviewer` subagents.
+In Claude Code these are also slash commands, and builds, reviews and research run as the `builder`, `reviewer` and `researcher` subagents.
 
 ## The human decides
 - The human owns product vision, design and priorities. You build, keep the records, and propose.
 - A design call is a feature behaviour, a flow, or anything the user experiences that `product/brief.md` doesn't settle. For one, give 2-4 options with one recommendation and a one-line reason, then wait. Write down only what was chosen, following `design.md` › Record each decision. If you had to interpret the answer, say how you read it.
 - Never answer an Open Question in `product/brief.md` yourself. Work that depends on one gets a placeholder that names the question.
 - Something that seems to contradict a stated goal is flagged, never reinterpreted.
+- Research informs a design call and never makes it. The `researcher` records no decision, never edits the brief or `product/decisions.md`, never answers an Open Question, and never asks the human; its recommendation is shown as one option with its reason.
 
 ## Protected space
 `director/` is the human's personal workspace: mockups, brand assets, reference images, notes, third-party API specs. Read files there for context when an item needs them, but never create, modify or delete anything inside it. If work depends on an asset the human owns, use the placeholder policy in AGENTS.md › Ownership instead of generating the real thing.
@@ -30,9 +32,10 @@ In Claude Code these are also slash commands, and builds and reviews run as the 
 | What the app should be | `product/brief.md`. List its sections with `grep -n "^#" product/brief.md` and read only the ones you need. |
 | What's undecided | brief › Open Questions |
 | Why a design decision was made | `product/decisions.md` (append-only) |
+| The evidence behind a design call | `product/research/`, one dated note per topic; the decision line links to it |
 | How the app was built before a design drift reset, and what drifted | `product/resets/YYYY-MM-DD/` (never deleted) |
 | Which systems exist and what each owns | `AGENTS.md` › Architecture |
-| Work, bugs, milestones | `TASKS.md` (format: `.app-director/tasks.md`; done items: `TASKS-archive.md`) |
+| Work, bugs, research, milestones | `TASKS.md` (format: `.app-director/tasks.md`; done items: `TASKS-archive.md`) |
 | Whether it works | `bash tools/check.sh` |
 
 Update the owning place in the same change that makes it untrue. Replace superseded text; never strike it through or keep two versions. Refer to brief sections by heading ("Brief: Authentication › Sign in"), never by number.
@@ -72,6 +75,7 @@ Update the owning place in the same change that makes it untrue. Replace superse
 
 ## Reviews and model size
 - An `L` or `XL` item, or an `M` item that changes stored data schemas or public API contracts, gets an independent review (`review.md`) before its commit. Fix the findings that are in scope.
+- A research item (`R<n>`) gets no check run and no review: it changes no code. Its size picks the `researcher`'s model the same way.
 - **Model sizing** (when on in Project rules): match the build to the item's size. Five tiers by capability: XS and S use the smallest capable model (fast, cheap), M uses a balanced model, L and XL use the most capable model. The model ID for each size is stored in AGENTS.md › Project rules:
   ```
   - Model sizing: on

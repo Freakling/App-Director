@@ -115,6 +115,36 @@ done
 [ -z "$missing" ] && ok "every Claude Code skill points to an existing procedure" \
   || bad "skills without procedures or mismatched names:$missing"
 
+# The research assistant: every piece exists and is wired in, and the researcher can read and search but not change anything.
+missing=""
+for file in framework/.app-director/procedures/research.md framework/.app-director/research-domain.md \
+    framework/.claude/agents/researcher.md framework/.claude/skills/research/SKILL.md \
+    project/product/research/README.md examples/todo-web/product/research/README.md; do
+  [ -f "$src/$file" ] || missing="$missing $file"
+done
+[ -z "$missing" ] && ok "the research assistant's files exist" || bad "research assistant files missing:$missing"
+researcher="$src/framework/.claude/agents/researcher.md"
+settings="$src/framework/.claude/settings.json"
+if [ "$(sed -n 's/^tools: //p' "$researcher" | tr -d '\r')" = "Read, Grep, Glob, WebSearch, WebFetch" ] \
+    && grep -q '^model: inherit' "$researcher" \
+    && grep -Eq '^ *"WebSearch",?[[:space:]]*$' "$settings" && grep -Eq '^ *"WebFetch",?[[:space:]]*$' "$settings"; then
+  ok "the researcher has read, search and fetch tools only, and settings.json allows web search and fetch"
+else
+  bad "researcher.md must have exactly the tools Read, Grep, Glob, WebSearch, WebFetch (no edit, write or shell), and settings.json must allow WebSearch and WebFetch"
+fi
+wired=""
+proc="$src/framework/.app-director"
+grep -q 'research-domain\.md' "$proc/procedures/research.md" || wired="$wired research.md>research-domain.md"
+grep -q 'researcher' "$proc/procedures/next-task.md" && grep -q 'Research items' "$proc/procedures/next-task.md" || wired="$wired next-task.md"
+grep -q 'research\.md' "$proc/procedures/design.md" && grep -q 'product/research/' "$proc/procedures/design.md" || wired="$wired design.md"
+grep -q 'R<n>' "$proc/tasks.md" && grep -q '^- \*\*Research\.\*\*' "$proc/tasks.md" || wired="$wired tasks.md"
+grep -q 'research' "$proc/procedures/align.md" || wired="$wired align.md"
+grep -q '/research' "$src/README.md" && grep -q '/research' "$src/ONBOARDING.md" || wired="$wired README.md/ONBOARDING.md"
+grep -q '^\*\*Next IDs:\*\* T[0-9]* · B[0-9]* · R[0-9]*$' "$src/project/TASKS.md" || wired="$wired project/TASKS.md(Next IDs)"
+grep -q '^T[0-9]* · B[0-9]* · R[0-9]*$' "$src/examples/todo-web/TASKS.md" || wired="$wired todo-web/TASKS.md(Next IDs)"
+[ -z "$wired" ] && ok "the research assistant is wired into the procedures, the item format, the seeds and the docs" \
+  || bad "the research assistant isn't wired into:$wired"
+
 unrouted=""
 for proc in "$src"/framework/.app-director/procedures/*.md; do
   name="$(basename "$proc")"
@@ -167,6 +197,12 @@ else
 fi
 grep -q "To-Do Web" AGENTS.md && ok "keeps the project's own AGENTS.md" \
   || bad "keeps the project's own AGENTS.md"
+if [ -f .app-director/procedures/research.md ] && [ -f .app-director/research-domain.md ] && [ -f .claude/agents/researcher.md ] \
+    && [ -f .claude/skills/research/SKILL.md ] && [ -f product/research/README.md ]; then
+  ok "installs the research assistant: procedure, domain file, researcher, skill and note folder"
+else
+  bad "installs the research assistant: procedure, domain file, researcher, skill and note folder" "$out"
+fi
 
 out="$(bash "$src/install.sh" . 2>&1)"
 expect_output "a second run changes nothing" "0 new, 0 updated" "$out"
@@ -642,6 +678,14 @@ printf '# note\n' > notes.md && git add notes.md
 out="$(git_q commit -qm "docs only" 2>&1)"
 expect_status "docs-only commit is allowed" 0 $? "$out"
 expect_no_output "doesn't run the check for docs-only" "running the project check" "$out"
+
+# A research item changes no code: its note and the records commit without the check.
+mkdir -p product/research
+printf '# Which date library fits\nR1 · Informs: - · Verified as of 2026-10-15 · Size: M\n' > product/research/2026-10-15-date-library.md
+git add product/research/2026-10-15-date-library.md
+out="$(git_q commit -qm "docs: research a date library (R1)" 2>&1)"; status=$?
+expect_status "allows a commit with only a research note" 0 "$status" "$out"
+expect_no_output "doesn't run the check for a research note" "running the project check" "$out"
 
 # Blocked while a .adir-new file is unmerged.
 printf 'x\n' > tools/check.sh.adir-new
