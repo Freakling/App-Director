@@ -4,6 +4,8 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
 
 ## Unreleased
 
+- **The upgrade-file check ignores nested clones.** `git ls-files` lists a nested repository in an ignored folder (such as a clone in `work/`) as a directory, which blocked every commit while no upgrade file existed. The pre-commit hook, the `/align` check and onboarding now keep only paths that end in `.adir-new`, so a real upgrade file still blocks the commit.
+- **selftest.sh** checks that a nested clone in an ignored folder doesn't block a commit, and that a real upgrade file still does.
 - **A run can also be asked for as "grab tasks until you're blocked".** `next-task.md` (the request list and step 7), the `/next-task` skill description, the README's day-to-day table and the behaviour scenarios now name it next to "the next N tasks" and "work through the queue". Each task in a run commits without pausing; the run stops when an item is blocked on the human, a build fails, or the human declines a commit. A single `/next-task` still pauses for approval. `git commit` is already allowed in `settings.json`; pushing and deploying keep asking.
 
 **Upgrade steps:** None required for existing installs. The framework files arrive on upgrade; restart Claude Code so the changed skill description loads.

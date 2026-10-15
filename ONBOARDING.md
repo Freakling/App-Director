@@ -143,7 +143,7 @@ If the flows aren't decided yet, leave the placeholders and add an agent item "F
 ## 10. Verify and commit
 
 1. Run `bash tools/check.sh` and report the result.
-2. Search for `{{` with `git grep -n "{{" -- '*.md'`. Only postponed template flows may remain, and only if an item exists for them. `git ls-files -o -i --exclude-standard -- '*.adir-new'` must print nothing.
+2. Search for `{{` with `git grep -n "{{" -- '*.md'`. Only postponed template flows may remain, and only if an item exists for them. `git ls-files -o -i --exclude-standard -- '*.adir-new' | grep '\.adir-new$'` must print nothing (the grep drops nested clones, which `ls-files` lists as directories).
 3. Walk through the checks in `.app-director/procedures/align.md`. Its fixes go into the install commit.
 4. List every file created, changed or deleted (`git status`).
 5. **Commit it all in one commit, after the human approves.**
