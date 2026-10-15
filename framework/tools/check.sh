@@ -10,7 +10,7 @@
 #
 # Steps:
 #   1. UI purity: scan UI-layer files for imports from data-layer folders.
-#   2. Secrets: run gitleaks dir --redact on the working tree.
+#   2. Secrets: run gitleaks dir --redact on the working tree (detect --no-git before 8.19.1).
 #   3. Stack check: source tools/stacks/<stack>.sh and run it.
 #   4. Custom: run tools/check.local.sh, if the project has one.
 #
@@ -148,8 +148,21 @@ if ! version_gte "$gl_ver" "$gl_min"; then
 fi
 
 gl_report="$state_dir/gitleaks.json"
-if ! gitleaks dir --redact --report-path="$gl_report" . 2>/dev/null; then
+# gitleaks 8.19.1 is the first release whose `dir` command works; 8.18 and 8.19.0 scan the folder
+# with `detect --no-git`. Both write the same JSON report (a File and a Fingerprint per finding).
+gl_scan() {
+  if version_gte "$gl_ver" 8.19.1; then
+    gitleaks dir --redact --report-path="$gl_report" . 2>/dev/null
+  else
+    gitleaks detect --no-git --redact --report-path="$gl_report" --source . 2>/dev/null
+  fi
+}
+if ! gl_scan; then
   echo "check: secrets FAIL: gitleaks found credentials in the working tree."
+  # Name each file with a finding. Only paths are printed; the values stay redacted in the report.
+  # awk keeps the first of repeated paths, so a file with several findings is listed once.
+  sed -n 's/.*"File"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p' "$gl_report" 2>/dev/null \
+    | sed 's/\\\\/\\/g' | awk '!seen[$0]++' | sed 's/^/       found in: /'
   echo "       Report (secrets redacted): $gl_report"
   echo "       To allowlist a finding: add its Fingerprint to .gitleaksignore and document"
   echo "       the reason in product/decisions.md. Ask the human to approve both changes."

@@ -265,7 +265,9 @@ if [ "$_gl_ok" -eq 1 ]; then
   expect_no_output "secret value not in state file" "$_cred_val" "$state_json"
 
   # Allowlisted fingerprint passes the check.
-  fingerprint="$(printf '%s' "$state_json" | grep -o '"Fingerprint":"[^"]*"' | head -1 | sed 's/"Fingerprint":"//;s/".*//')"
+  # gitleaks writes `"Fingerprint": "..."` (with a space, indented). JSON escapes a Windows path's
+  # backslashes, so decode `\\` to `\` before the value goes into .gitleaksignore.
+  fingerprint="$(printf '%s' "$state_json" | sed -n 's/.*"Fingerprint"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 | sed 's/\\\\/\\/g')"
   if [ -n "$fingerprint" ]; then
     printf '%s\n' "$fingerprint" >> .gitleaksignore
     out="$(bash tools/check.sh 2>&1)"
@@ -284,6 +286,35 @@ else
   echo "  skip  secret value not in state file"
   echo "  skip  allowlisted fingerprint passes"
 fi
+
+# Scan command by gitleaks version, with a test double, so it runs without real gitleaks: the double
+# reports $FAKE_GL_VERSION, scans with $FAKE_GL_SCAN, writes one finding in gitleaks' report layout
+# and exits 1 (leaks found). Regression: gitleaks 8.18 has no working `dir`, so check.sh must scan
+# with `detect --no-git` there and use `dir` from 8.19.1. Either way the output names the file.
+_scan_gl="$work/fake-gl-scan"
+mkdir -p "$_scan_gl"
+cat > "$_scan_gl/gitleaks" << 'FAKE'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_GL_LOG"
+case "$1" in
+  version) echo "v$FAKE_GL_VERSION" ;;
+  "$FAKE_GL_SCAN")
+    for a in "$@"; do case "$a" in --report-path=*) report="${a#--report-path=}" ;; esac; done
+    printf '[\n {\n  "RuleID": "selftest-marker",\n  "File": "src/services/TodoService.ts",\n  "StartLine": 14,\n  "Fingerprint": "src/services/TodoService.ts:selftest-marker:14"\n }\n]\n' > "$report"
+    exit 1 ;;
+  *) echo "FTL unknown command \"$1\"" >&2; exit 1 ;;
+esac
+FAKE
+chmod +x "$_scan_gl/gitleaks"
+_scan_log="$work/fake-gl-scan.log"
+for _v in 8.18.0 8.30.1; do
+  if [ "$_v" = "8.18.0" ]; then _scan=detect; _want="detect --no-git"; else _scan=dir; _want="dir "; fi
+  : > "$_scan_log"
+  out="$(FAKE_GL_VERSION="$_v" FAKE_GL_SCAN="$_scan" FAKE_GL_LOG="$_scan_log" PATH="$_scan_gl:$PATH" bash tools/check.sh 2>&1)"
+  expect_status "fails on a finding with gitleaks $_v" 1 $? "$out"
+  expect_output "names the file in a finding with gitleaks $_v" "found in: src/services/TodoService.ts" "$out"
+  expect_output "scans with $_scan on gitleaks $_v" "^$_want" "$(cat "$_scan_log")"
+done
 
 # Exit 3 when gitleaks is absent: rebuild PATH stripping every directory that holds gitleaks
 # (including the fake one when we set it up, so this path contains neither).
