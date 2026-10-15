@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T3 · B7
+**Next IDs:** T4 · B7
 
 ## Queue
+
+### T3 · The install paths get the latest release · done · M · agent
+- Touches: SKILL.md, skills/app-director/SKILL.md, package.json, scripts/fetch-app-director.sh, .claude-plugin/marketplace.json, CLAUDE.md, README.md, selftest.sh, CHANGELOG.md
+- Done when: both `SKILL.md` files, the fetch script and the marketplace's plugin entry name the release tag `v<version>`, and the version in `SKILL.md`, `skills/app-director/SKILL.md`, `package.json` and the marketplace agrees with `VERSION` (check) · a folder left by an earlier fetch moves to the script's release tag (test) · `CLAUDE.md` › For a release lists every file that carries the version and says each release is tagged `v<version>` (check)
+- Brief: -
+- Source: Director-Driven-Development T39
 
 ### B3 · The secrets check reports a scan that can't run as credentials found · done · S · agent · med
 - Touches: framework/tools/check.sh, selftest.sh

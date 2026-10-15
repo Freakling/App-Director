@@ -37,7 +37,7 @@ Your app needs git (`git init` if it has none) and no uncommitted changes. You a
 npx skills add Freakling/App-Director
 ```
 
-That installs the `app-director` skill for the assistant you choose in the prompt; in Claude Code it becomes the `/app-director` slash command. Ask your assistant to set up App Director. The skill fetches App Director outside your app and runs onboarding.
+That installs the `app-director` skill for the assistant you choose in the prompt; in Claude Code it becomes the `/app-director` slash command. Ask your assistant to set up App Director. The skill fetches the latest App Director release outside your app and runs onboarding. To pick up a newer release later, run the command again.
 
 **Option 2: the Claude Code plugin.** In Claude Code:
 
@@ -46,7 +46,7 @@ That installs the `app-director` skill for the assistant you choose in the promp
 /plugin install app-director@app-director
 ```
 
-Then open a new Claude Code session in your app's folder (or run `/reload-plugins`), and run `/app-director:app-director`.
+The plugin installs the latest release. Then open a new Claude Code session in your app's folder (or run `/reload-plugins`), and run `/app-director:app-director`.
 
 **Option 3: manual install.** Clone this repository next to your app as `App-Director/`:
 
