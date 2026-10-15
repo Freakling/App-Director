@@ -6,6 +6,7 @@ This repository is App Director, the workflow installed into small apps. It is n
 - **What's where.**
   - `framework/` holds files installed into apps and replaced on upgrade: the tool-neutral core (`.app-director/`, `tools/`, `.githooks/`) plus the Claude Code adapter (`.claude/`).
   - `project/` holds seeds, copied once and then owned by the app.
+  - `TASKS.md` at the root is this framework's own work queue (item format: `framework/.app-director/tasks.md`); `project/TASKS.md` is the template for apps, not this queue.
 - **One place per rule.** Rules live in `framework/.app-director/rules.md`. Each procedure lives in `framework/.app-director/procedures/`. If you find a rule copied into a second file, delete the copy and link to the original.
 - **Tool-neutral core.** Nothing in `.app-director/`, `tools/` or `.githooks/` may depend on one assistant. Tool-specific behaviour belongs in that tool's adapter folder.
 - **After any change:** Add the change to `CHANGELOG.md`, with "Upgrade steps" if apps' own files need changing.
