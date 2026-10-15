@@ -440,4 +440,17 @@ out="$(git_q commit -qm "with adir-new" 2>&1)"
 expect_status "refuses while a .adir-new file is unmerged" 1 $? "$out"
 rm -f tools/check.sh.adir-new
 
+# A nested clone in an ignored folder is listed by ls-files as a directory. It doesn't block a
+# commit, but a real upgrade file still does while the clone is there.
+git restore --staged src/ui/TodoList.ts && git checkout -- src/ui/TodoList.ts
+printf '/clones/\n' >> .git/info/exclude
+mkdir -p clones/nested && (cd clones/nested && git init -q && git_q commit -q --allow-empty -m nested) >/dev/null 2>&1
+out="$(git_q commit -q --allow-empty -m "with a nested clone" 2>&1)"
+expect_status "a nested clone in an ignored folder doesn't block a commit" 0 $? "$out"
+printf 'x\n' > tools/check.sh.adir-new
+out="$(git_q commit -q --allow-empty -m "with a nested clone and adir-new" 2>&1)"
+expect_status "a real upgrade file still blocks with a nested clone present" 1 $? "$out"
+expect_no_output "names the upgrade file, not the nested clone" "clones/" "$out"
+rm -f tools/check.sh.adir-new
+
 finish

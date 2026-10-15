@@ -7,7 +7,7 @@ A consistency pass across the brief, decisions, TASKS.md, AGENTS.md and check co
 2. **Entry files.**
    - AGENTS.md points to `.app-director/rules.md`.
    - In Claude Code, CLAUDE.md contains `@AGENTS.md`.
-   - No `*.adir-new` files are left unmerged: `git ls-files -o -i --exclude-standard -- '*.adir-new'`.
+   - No `*.adir-new` files are left unmerged: `git ls-files -o -i --exclude-standard -- '*.adir-new' | grep '\.adir-new$'` (the grep drops nested clones, which `ls-files` lists as directories).
 3. **Items.**
    - IDs are unique and below `Next IDs`, and every `Depends on` exists, in TASKS.md or the archive.
    - No `done` item depends on a `todo` one.

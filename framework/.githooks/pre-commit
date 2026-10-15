@@ -7,9 +7,12 @@
 #   2. Runs gitleaks protect --staged --redact to catch secrets entering history.
 # Both steps block the commit on failure.
 
-if [ -n "$(git ls-files -o -i --exclude-standard -- '*.adir-new' 2>/dev/null)" ]; then
+# ls-files also lists a nested repository in an ignored folder (such as a clone) as a
+# directory, so keep only the paths that really end in .adir-new.
+pending="$(git ls-files -o -i --exclude-standard -- '*.adir-new' 2>/dev/null | grep '\.adir-new$')"
+if [ -n "$pending" ]; then
   echo "pre-commit: unmerged App Director upgrade files (*.adir-new) exist. Merge them, then delete them:"
-  git ls-files -o -i --exclude-standard -- '*.adir-new' | sed 's/^/  /'
+  printf '%s\n' "$pending" | sed 's/^/  /'
   exit 1
 fi
 
