@@ -8,7 +8,7 @@ The build runs in a fresh context wherever the tool allows it; in Claude Code th
 The request can be:
 - empty: the next ready item;
 - an item ID: that item;
-- "the next N tasks" or "work through the queue": see Several items.
+- "the next N tasks", "work through the queue" or "grab tasks until you're blocked": see Several items.
 
 ## 1. Pick
 1. **Find items without reading the whole file.** `grep -n '^### ' TASKS.md` lists every heading; then read only the candidates.
@@ -57,7 +57,7 @@ Only when `rules.md` › Reviews and model size calls for one, judged from the i
 4. Review again only if the fixes were substantial.
 
 ## 7. Commit and report
-- **Commit** as `rules.md` › Git describes: one commit for the item's paths, including its records. Pause for approval unless the human has said to work autonomously ("do the next N tasks", "work through the queue"), in which case commit without pausing and include all commits in the final report.
+- **Commit** as `rules.md` › Git describes: one commit for the item's paths, including its records. Pause for approval unless the human has said to work autonomously ("do the next N tasks", "work through the queue", "grab tasks until you're blocked"), in which case commit without pausing and include all commits in the final report.
 - **Report** in a few lines: what changed, the check result, placeholders added, and anything waiting on the human. Mention that `(demo)` outcomes, or a bug fix without a regression test, will be in the next acceptance check.
 - **After the commit,** the records hold everything about the item. A new item can start in a fresh session, or after `/clear` in Claude Code, without losing anything.
 
