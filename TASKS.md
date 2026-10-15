@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T2 · B2
+**Next IDs:** T2 · B3
 
 ## Queue
+
+### B2 · The secrets check names the file and works with gitleaks 8.18 and 8.30 · done · S · agent · med
+- Touches: framework/tools/check.sh, selftest.sh
+- Repro: plant a credential in a project file, then run `bash tools/check.sh` with gitleaks 8.30.1 → expected: the output names the file, and an allowlisted fingerprint passes / actual: the output names no file, and the selftest's "names the file with the secret" and "allowlisted fingerprint passes" checks fail (the fingerprint pattern expects `"Fingerprint":"` with no space, which gitleaks doesn't write); with gitleaks 8.18 every scan fails, because `gitleaks dir` doesn't exist there
+- Found in: Director-Driven-Development T47
+- Brief: -
 
 ### B1 · The upgrade-file check ignores nested clones · done · S · agent · med
 - Touches: framework/.githooks/pre-commit, framework/.app-director/procedures/align.md, ONBOARDING.md, selftest.sh
