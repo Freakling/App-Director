@@ -48,6 +48,60 @@ plugin_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1
   && ok "plugin.json version matches VERSION" \
   || bad "plugin.json version ($plugin_version) != VERSION ($(cat "$src/VERSION"))"
 
+# Every install path gets the latest release, tagged v<version>. The files that carry the version
+# must agree with VERSION: package.json, the release the marketplace pins the plugin to, each
+# skill's metadata.version and the release it clones, and the fetch script's tag.
+version="$(tr -d '\r\n' < "$src/VERSION")"
+package_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$src/package.json")"
+[ "$package_version" = "$version" ] \
+  && ok "package.json version matches VERSION" \
+  || bad "package.json version ($package_version) != VERSION ($version)"
+pinned_ref="$(sed -n 's/.*"ref"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$src/.claude-plugin/marketplace.json")"
+[ "$pinned_ref" = "v$version" ] \
+  && ok "the marketplace pins the plugin to the release v<VERSION>" \
+  || bad "the marketplace pins the plugin to '$pinned_ref', VERSION is $version"
+for skill in "$src/SKILL.md" "$src"/skills/*/SKILL.md; do
+  skill_name="${skill#"$src"/}"
+  skill_version=""; branch=""; dashes=0
+  while IFS= read -r line; do
+    [ "$line" = "---" ] && { dashes=$((dashes + 1)); continue; }
+    if [ "$dashes" -eq 1 ]; then case "$line" in "  version: "*) skill_version="${line#  version: }" ;; esac; fi
+    [[ $line =~ --branch[[:space:]]+v([0-9.]+) ]] && branch="${BASH_REMATCH[1]}"
+  done < "$skill"
+  [ "$skill_version" = "$version" ] && [ "$branch" = "$version" ] \
+    && ok "$skill_name: metadata.version and the release it clones match VERSION" \
+    || bad "$skill_name: version '$skill_version', clones v$branch, VERSION is $version"
+done
+fetch_tag="$(sed -n 's/^tag=\(v[0-9.]*\)$/\1/p' "$src/scripts/fetch-app-director.sh")"
+[ "$fetch_tag" = "v$version" ] \
+  && ok "scripts/fetch-app-director.sh fetches the release v<VERSION>" \
+  || bad "scripts/fetch-app-director.sh fetches '$fetch_tag', VERSION is $version"
+
+# The fetch script moves a folder left by an earlier run to its release tag. A local repository
+# with two tags stands in for GitHub, so this needs no network.
+fetch_origin="$work/fetch-origin"
+mkdir -p "$fetch_origin"
+(cd "$fetch_origin" && git init -q && git config core.autocrlf false \
+  && printf 'one\n' > release.txt && git add -A && git_q commit -qm one && git tag v0.0.1 \
+  && printf 'two\n' > release.txt && git_q commit -qam two && git tag v0.0.2 \
+  && printf 'three\n' > release.txt && git_q commit -qam three) >/dev/null 2>&1
+fetch_run() { # <tag>: the fetch script with its tag and repository replaced
+  sed -e "s#^tag=.*#tag=$1#" -e "s#https://github.com/Freakling/App-Director.git#file://$fetch_origin#" \
+    "$src/scripts/fetch-app-director.sh" > "$work/fetch-run.sh"
+  TMPDIR="$work/fetch-tmp" bash "$work/fetch-run.sh" 2>&1
+}
+mkdir -p "$work/fetch-tmp"
+out="$(fetch_run v0.0.1)"; status=$?
+expect_status "fetch-app-director.sh clones the release tag" 0 $status "$out"
+[ "$(tr -d '\r\n' < "$work/fetch-tmp/app-director/release.txt")" = "one" ] \
+  && ok "the clone is at the tag, not at the default branch" \
+  || bad "the clone is not at v0.0.1" "$(cat "$work/fetch-tmp/app-director/release.txt")"
+out="$(fetch_run v0.0.2)"; status=$?
+expect_status "fetch-app-director.sh moves a reused folder to the new tag" 0 $status "$out"
+[ "$(tr -d '\r\n' < "$work/fetch-tmp/app-director/release.txt")" = "two" ] \
+  && ok "the reused folder is at the new tag" \
+  || bad "the reused folder is not at v0.0.2" "$(cat "$work/fetch-tmp/app-director/release.txt")"
+
 cmp -s "$src/LICENSE" "$src/framework/.app-director/LICENSE" \
   && ok "the installed LICENSE copy matches LICENSE" \
   || bad "framework/.app-director/LICENSE differs from LICENSE"

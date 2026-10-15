@@ -1,11 +1,15 @@
 {
   "name": "app-director",
   "description": "The App Director workflow for apps.",
-  "owner": "Freakling",
+  "owner": { "name": "Freakling" },
   "plugins": [
     {
       "name": "app-director",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "Freakling/App-Director",
+        "ref": "v1.4.0"
+      },
       "description": "Installs and upgrades the App Director workflow in an app."
     }
   ]
