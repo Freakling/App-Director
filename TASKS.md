@@ -4,7 +4,7 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T11 · B8 · R1
+**Next IDs:** T12 · B8 · R1
 
 ## Queue
 
@@ -13,8 +13,6 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 - Done when: align's item 6 is "Brief against reality", in place of the Decisions spot-check: it reads the whole brief, checks every statement of state against the built app, the done items and the latest releases, and checks every decision line since the last `docs: align` commit one by one (check)
 - Brief: -
 - Source: Director-Driven-Development T93
-
-## Queue
 
 ### T8 · The README says how to update the plugin · done · XS · agent
 - Touches: README.md, CHANGELOG.md
@@ -33,6 +31,12 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 - Done when: every app has the director's product brief template as a seed (`product/director-brief.md`) for the human to fill in, and the example carries it too (check) · onboarding offers it before the interview, as an alternative or an addition to the chat interview, with a word on why it helps, and reads a filled one first for a new or an existing app to build the initial assessment and the design records, marking what it took `(from your brief)` and what it inferred `(inferred, please confirm)` (check) · the README mentions it (check) · the selftest fails when the seed, the example copy, onboarding's wiring or the README is missing, and checks that a new app and an upgraded app receive the seed (check)
 - Brief: -
 - Source: Director-Driven-Development T87
+
+### T11 · The README says "an agreed placeholder" · done · XS · agent
+- Touches: README.md, CHANGELOG.md
+- Done when: the README's ownership line says human-owned areas get an agreed placeholder instead of generated content, in place of "a documented placeholder policy" (check)
+- Brief: -
+- Source: Director-Driven-Development T121
 
 ### T6 · The repository ignores OS metadata files · done · XS · agent
 - Touches: .gitignore, CHANGELOG.md
