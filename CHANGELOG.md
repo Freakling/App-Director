@@ -7,6 +7,8 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
 - **The repository ignores OS metadata files.** `.gitignore` keeps `.DS_Store`, `Thumbs.db`, `desktop.ini` and `__MACOSX/` out of the repository, as the Claude plugin directory's scanner requires. No upgrade steps: the file belongs to the App Director repository, not to apps.
 - **Fix: the protected-space guard blocks absolute paths.** `framework/.claude/hooks/guard-protected.sh` matched `file_path` only as written, so a write to `director/` sent as an absolute path (`<project>/director/x`, or Windows `C:\...\director\x`) got through. The hook now resolves the path against the project root (`$CLAUDE_PROJECT_DIR`, else the current directory) before matching: Windows, Git Bash and POSIX forms, `..` segments and case-insensitive matching on Windows. Paths outside the project root, and folders named `director` elsewhere in it, are still allowed. The selftest covers each form.
   - **Upgrade steps:** none. The hook is framework-owned and arrives on upgrade.
+- **Align checks the brief against reality.** `align.md`'s item 6 is now "Brief against reality", in place of the Decisions spot-check. It reads the whole brief, checks every statement of state (a section marked later or planned, a count, a list of what exists, a line saying work waits on something, "once X exists") against the built app, the done items and the latest releases, and checks every decision line since the last `docs: align` commit one by one, not a sample. Mechanical drift gets fixed; design calls are reported with the stale statement named. The numbering of the other items is unchanged.
+  - **Upgrade steps:** none. The procedure is framework-owned and arrives on upgrade.
 
 ## 1.6.0 (2026-10-16)
 
