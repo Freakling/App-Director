@@ -4,7 +4,7 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T10 · B8
+**Next IDs:** T10 · B8 · R1
 
 ## Queue
 
@@ -13,8 +13,6 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 - Done when: align's item 6 is "Brief against reality", in place of the Decisions spot-check: it reads the whole brief, checks every statement of state against the built app, the done items and the latest releases, and checks every decision line since the last `docs: align` commit one by one (check)
 - Brief: -
 - Source: Director-Driven-Development T93
-
-**Next IDs:** T9 · B8 · R1
 
 ## Queue
 
