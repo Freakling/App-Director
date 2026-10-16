@@ -121,6 +121,7 @@ your-app/
 ├── CLAUDE.md                   "@AGENTS.md", for Claude Code
 ├── TASKS.md                    milestones and the queue (tasks, bugs and research)
 ├── product/brief.md            what the app should be, and Open Questions
+├── product/director-brief.md   your own product brief, in your words (optional); onboarding reads it first and never edits it
 ├── product/decisions.md        why: one line per design decision
 ├── product/research/           dated research notes, one per topic; the decision line links to its note
 ├── tools/check.cfg             check settings: stack, UI and data folders
