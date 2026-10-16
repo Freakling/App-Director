@@ -144,6 +144,23 @@ grep -q '^\*\*Next IDs:\*\* T[0-9]* · B[0-9]* · R[0-9]*$' "$src/project/TASKS.
 grep -q '^T[0-9]* · B[0-9]* · R[0-9]*$' "$src/examples/todo-web/TASKS.md" || wired="$wired todo-web/TASKS.md(Next IDs)"
 [ -z "$wired" ] && ok "the research assistant is wired into the procedures, the item format, the seeds and the docs" \
   || bad "the research assistant isn't wired into:$wired"
+# The human-written product brief: the director's template ships as a seed (and in the example,
+# blank), keeps the director's structure, and onboarding and the README present it.
+wired=""
+brief_seed="$src/project/product/director-brief.md"
+cmp -s "$brief_seed" "$src/examples/todo-web/product/director-brief.md" || wired="$wired example copy differs from the seed"
+grep -q '^# Product Brief: \[App Name\]$' "$brief_seed" || wired="$wired title"
+for heading in "1\. Executive" "2\. Problem" "3\. Goals" "4\. Target" "5\. Core" "6\. User" "7\. Technical" \
+    "8\. Launch" "9\. Risks" "10\. Open"; do
+  grep -qE "^## $heading" "$brief_seed" || wired="$wired [## $heading]"
+done
+grep -q '^### Your own product brief' "$src/ONBOARDING.md" && grep -q 'product/director-brief\.md' "$src/ONBOARDING.md" \
+  && grep -q '(from your brief)' "$src/ONBOARDING.md" && grep -q '(inferred, please confirm)' "$src/ONBOARDING.md" \
+  && grep -q 'alternative to the chat interview or an addition to it' "$src/ONBOARDING.md" \
+  && grep -q 'sets the stage for later development' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
+grep -q 'product/director-brief\.md' "$src/README.md" || wired="$wired README.md"
+[ -z "$wired" ] && ok "the human-written product brief ships as a seed (and in the example) with the director's structure, and onboarding and the README present it" \
+  || bad "the human-written product brief isn't wired into:$wired"
 
 unrouted=""
 for proc in "$src"/framework/.app-director/procedures/*.md; do
@@ -268,6 +285,26 @@ adir_clone="$work/adir-clone"; cp -R "$src" "$adir_clone"; rm -rf "$adir_clone/.
 from_clone="$work/from-clone"; new_repo "$from_clone"
 out="$(bash "$adir_clone/install.sh" "$from_clone" 2>&1)"
 expect_status "installs from an App Director git clone" 0 $? "$out"
+cmp -s "$from_clone/product/director-brief.md" "$src/project/product/director-brief.md" \
+  && ok "a new app gets the product brief template" \
+  || bad "a new app gets the product brief template" "$out"
+
+# An app installed by the release before the brief template gets it on upgrade. v1.6.0 is that
+# release (cloned from this repository); without its tag, the installed template is removed to
+# stand for the earlier install.
+upgraded="$work/upgraded"; new_repo "$upgraded"
+if git -C "$src" rev-parse -q --verify 'v1.6.0^{commit}' >/dev/null 2>&1; then
+  old_release="$work/old-release"
+  git clone -q --branch v1.6.0 "$src" "$old_release" >/dev/null 2>&1
+  bash "$old_release/install.sh" "$upgraded" >/dev/null 2>&1
+else
+  bash "$src/install.sh" "$upgraded" >/dev/null 2>&1; rm -f "$upgraded/product/director-brief.md"
+fi
+(cd "$upgraded" && git add -A && git_q commit -qm "install the earlier release" >/dev/null 2>&1)
+out="$(bash "$src/install.sh" "$upgraded" 2>&1)"; expect_status "upgrades an app installed before the brief template" 0 $? "$out"
+cmp -s "$upgraded/product/director-brief.md" "$src/project/product/director-brief.md" \
+  && ok "an upgraded app gets the product brief template" \
+  || bad "an upgraded app gets the product brief template" "$out"
 
 inside="$work/inside"; new_repo "$inside"
 cp -R "$adir_clone" "$inside/App-Director"; rm -rf "$inside/App-Director/.git"
