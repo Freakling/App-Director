@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.7.0 (2026-10-16)
 
 - **New: your own product brief, a template to fill in, in your own words** (`product/director-brief.md`). Every app gets the template, for a new app or one already underway. Onboarding offers it before the interview, as an alternative to the chat interview or an addition to it, and says why it helps: a written brief gives the agent your intent and its context, and sets the stage for the design sessions and builds that follow. Fill it before onboarding, during it or later.
   - **How it relates to the brief.** `product/brief.md` stays the design record the agent maintains. Your brief is input that stays as you wrote it: the agent reads it, never edits it, and writes the current design into the brief's own sections, so each fact lives in one place.
