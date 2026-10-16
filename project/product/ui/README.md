@@ -4,9 +4,12 @@ Your drawings and the agent's records of each screen. You draw; the agent reads 
 
 ## How to draw a screen
 1. Ask the agent to capture the screens (`/ui-design capture`). It writes `product/ui/captures/<screen>.starter.excalidraw` for each screen: the screenshot, locked inside a frame named after the screen.
-2. Open that file in [Excalidraw](https://excalidraw.com) (in a browser, or as the desktop app; no account needed) and draw over the screenshot.
+2. Open that file in Excalidraw, as "Using Excalidraw" below says, and draw over the screenshot.
 3. Save it as `director/ui/<screen>.excalidraw` (create `director/ui/` if it isn't there).
 4. Ask the agent to process it (`/ui-design process <screen>`). It tells you how it read your drawing and asks you about the open points. The result is `product/ui/<screen>.md`, the one place the screen's layout is written down.
+
+## Using Excalidraw
+Excalidraw is free and open source, and nothing needs installing. Open [excalidraw.com](https://excalidraw.com) in Chrome, Edge or another browser: no account is needed, and Excalidraw+ isn't. To open your starter, use the menu's Open, or drag the file onto the page. To save, use Save to… (Ctrl+S saves over the file you opened) and save it as `director/ui/<screen>.excalidraw`. Chrome and Edge let you pick that folder; other browsers save to Downloads, so move the file there and rename it. Your drawing stays on this computer unless you use Live collaboration or a shareable link. You can install Excalidraw as an app from Chrome's or Edge's address bar if you like; it's the same as the website.
 
 ## What to draw
 - **One rectangle per thing you care about.** Double-click the box to type inside it. The first line is its name (`Gear list`); the next lines are anything about it, in plain words. These keys are understood when you use them, and never required:
