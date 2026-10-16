@@ -17,6 +17,7 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
   - **Upgrade steps:** none. The procedure is framework-owned and arrives on upgrade.
 - **The README says how to update the plugin.** The Install section gets an Upgrade part, as Godot Director's and SaaSAllTheThings' READMEs have: `/plugin marketplace update app-director`, then `/plugin update app-director@app-director`, then a restart and a new session in the app, where `/app-director:app-director` upgrades it.
   - **Upgrade steps:** none. The README belongs to the App Director repository, not to apps.
+- **The README says "an agreed placeholder".** Its ownership line says human-owned areas get an agreed placeholder instead of generated content, in place of "a documented placeholder policy". No upgrade steps: the README belongs to the App Director repository, not to apps.
 
 ## 1.6.0 (2026-10-16)
 
