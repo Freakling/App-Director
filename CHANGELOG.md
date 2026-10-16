@@ -7,6 +7,8 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
 - **The repository ignores OS metadata files.** `.gitignore` keeps `.DS_Store`, `Thumbs.db`, `desktop.ini` and `__MACOSX/` out of the repository, as the Claude plugin directory's scanner requires. No upgrade steps: the file belongs to the App Director repository, not to apps.
 - **Fix: the protected-space guard blocks absolute paths.** `framework/.claude/hooks/guard-protected.sh` matched `file_path` only as written, so a write to `director/` sent as an absolute path (`<project>/director/x`, or Windows `C:\...\director\x`) got through. The hook now resolves the path against the project root (`$CLAUDE_PROJECT_DIR`, else the current directory) before matching: Windows, Git Bash and POSIX forms, `..` segments and case-insensitive matching on Windows. Paths outside the project root, and folders named `director` elsewhere in it, are still allowed. The selftest covers each form.
   - **Upgrade steps:** none. The hook is framework-owned and arrives on upgrade.
+- **The README says how to update the plugin.** The Install section gets an Upgrade part, as Godot Director's and SaaSAllTheThings' READMEs have: `/plugin marketplace update app-director`, then `/plugin update app-director@app-director`, then a restart and a new session in the app, where `/app-director:app-director` upgrades it.
+  - **Upgrade steps:** none. The README belongs to the App Director repository, not to apps.
 
 ## 1.6.0 (2026-10-16)
 

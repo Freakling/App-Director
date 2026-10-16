@@ -68,6 +68,10 @@ Either way, onboarding works out whether this is a new app, an existing app or a
 
 Afterwards, restart Claude Code so the new commands load. Each new clone later needs one command: `bash tools/setup-clone.sh`.
 
+### Upgrade
+
+- **Plugin:** run `/plugin marketplace update app-director` and then `/plugin update app-director@app-director`. Restart Claude Code, open a new session in your app's folder, and run `/app-director:app-director` again.
+
 ### Day to day
 
 | Say | What happens |
