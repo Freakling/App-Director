@@ -77,6 +77,7 @@ Afterwards, restart Claude Code so the new commands load. Each new clone later n
 | "Which open questions block development?" (`/design questions`) | Ranks the open questions by what they unblock, with options and a recommendation for each. |
 | "Let's design {topic}" (`/design {topic}`) | A design session. Your decisions become brief text, decision-log lines and task items. |
 | "Research which library fits {topic}", "What licence does this library use?" (`/research {question}`) | A read-only researcher looks into one question in a fresh context and saves a dated note in `product/research/`: the conclusion, the options, the sources with a confidence, and a recommendation. It informs; you decide. A design session asks it for facts it doesn't have, and you can queue a research item (`R1`, `R2`, ...) for later. |
+| "Capture the screens", "Redesign the orders page", "Process my drawing", "Verify the orders page" (`/ui-design`) | Opens your web app on this machine in headless Chromium (Node and Playwright, installed once in `tools/ui/`; your check never needs them) and captures each screen at each size, with a numbered map of its elements and a layout lint (squeezed text, off-screen or unreachable controls, a dialog without focus), and writes a starter drawing per screen. You draw over it in Excalidraw (free, no account) and save it in `director/ui/`; `process` reads exactly what you drew, asks about what it can't tell, and records the layout once in `product/ui/<screen>.md`; the build follows that spec, and `verify` captures the built screen, lists its deviations from the spec and writes a compare image of your drawing's screenshot beside the result. States are seeded through your app's API, never with real user data, and capture refuses any host but this machine. Drawing is optional; capture and lint work without it. Apps without a web UI (native Flutter, mobile, desktop) get capture later. |
 | "Prepare an acceptance check", "Process the acceptance check" (`/acceptance`) | A checklist of what's been built since the last round and needs a human eye; you tick Works or Broken. |
 | "Check the docs are aligned" (`/align`) | A consistency pass. Drift gets fixed; gaps and conflicts come to you. |
 | "Run a design drift reset" (`/drift-reset`, later `/drift-reset postmortem`) | For when a principle has been built two ways: analyses the app as built, maps each principle's interpretations, has you rewrite the design, and plans the rebuild as tasks. Only you start it. Align often, reset when you have to. |
@@ -120,16 +121,21 @@ your-app/
 ├── product/decisions.md        why: one line per design decision
 ├── product/research/           dated research notes, one per topic; the decision line links to its note
 ├── tools/check.cfg             check settings: stack, UI and data folders
+├── tools/ui/screens.mjs        the screen catalog: every screen, its route, and how to seed each state
+├── tools/ui_capture.cfg        capture sizes and seed, the app to open, lint thresholds, verify tolerance
+├── product/ui/                 one spec per screen (and a gitignored captures/ folder); README.md says how to draw
+├── director/ui/                your screen drawings (you create it; the agent only reads it)
 ├── validation/TEMPLATE.md      acceptance check template, one section per core flow
 │
 │  App Director's, tool-neutral: updated on upgrade
 ├── .app-director/rules.md        the workflow rules, loaded through AGENTS.md
 ├── .app-director/tasks.md        the TASKS.md item format, read when items are written
-├── .app-director/procedures/     next-task · build · design · research · review · align · drift-reset · prune · release · acceptance · refresh-model-sizing
+├── .app-director/procedures/     next-task · build · design · research · ui-design · review · align · drift-reset · prune · release · acceptance · refresh-model-sizing
 ├── .app-director/research-domain.md  what the researcher adds for apps: stacks and libraries, licences, app-store and platform requirements
 ├── tools/check.sh              the check (UI purity, secrets, stack, custom)
 ├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit hook
 ├── tools/stacks/               typescript.sh · flutter.sh · python.sh · none.sh
+├── tools/ui_capture.sh, tools/ui/  screen capture, element map, layout lint, drawing reader, compare and verify (Node and Playwright)
 ├── .githooks/pre-commit        runs the check before commits that touch code
 │
 │  App Director's, Claude Code adapter: updated on upgrade

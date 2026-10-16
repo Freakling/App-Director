@@ -1,0 +1,114 @@
+{
+ "schema": 1,
+ "frames": [
+  {
+   "name": "hero_room",
+   "state": "default",
+   "size": [
+    1000,
+    500
+   ],
+   "mode": "replace",
+   "notes": [
+    "Make the gear panel wider\nmode: replace"
+   ],
+   "boxes": [
+    {
+     "id": "b1",
+     "label": "Right panel",
+     "text": "Right panel",
+     "keys": {},
+     "intent": "default",
+     "rect_pct": [
+      50,
+      6,
+      30,
+      66
+     ],
+     "parent": null,
+     "comments": [],
+     "flows_to": [],
+     "overlaps": [
+      {
+       "n": 2,
+       "name": "Panel",
+       "iou": 1
+      },
+      {
+       "n": 4,
+       "name": "GearList",
+       "iou": 0.33
+      }
+     ]
+    },
+    {
+     "id": "b2",
+     "label": "Gear list",
+     "text": "Gear list\nclick: opens Change",
+     "keys": {
+      "click": "opens Change"
+     },
+     "intent": "new",
+     "rect_pct": [
+      54,
+      20,
+      22,
+      30
+     ],
+     "parent": "b1",
+     "comments": [
+      "scroll if more than 8 slots"
+     ],
+     "flows_to": [],
+     "overlaps": [
+      {
+       "n": 4,
+       "name": "GearList",
+       "iou": 1
+      },
+      {
+       "n": 2,
+       "name": "Panel",
+       "iou": 0.33
+      }
+     ]
+    },
+    {
+     "id": "b3",
+     "label": "Hero sheet",
+     "text": "Hero sheet\nsize: fixed",
+     "keys": {
+      "size": "fixed"
+     },
+     "intent": "keep",
+     "rect_pct": [
+      5,
+      20,
+      20,
+      20
+     ],
+     "parent": null,
+     "comments": [],
+     "flows_to": [],
+     "overlaps": [
+      {
+       "n": 3,
+       "name": "HeroSheet",
+       "iou": 0.78
+      }
+     ]
+    }
+   ],
+   "removed": [
+    {
+     "n": 5,
+     "name": "RepairButton",
+     "by": "red-x"
+    }
+   ],
+   "unparsed": [
+    "a freehand line near (330, 350)"
+   ]
+  }
+ ]
+}

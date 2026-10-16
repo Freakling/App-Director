@@ -1,0 +1,92 @@
+{
+  "frames": [
+    {
+      "boxes": [
+        {
+          "comments": [],
+          "flows_to": [],
+          "id": "b1",
+          "intent": "default",
+          "keys": {},
+          "label": "Right panel",
+          "overlaps": [
+            {
+              "iou": 1.0,
+              "n": 2,
+              "name": "Panel"
+            },
+            {
+              "iou": 0.33,
+              "n": 4,
+              "name": "GearList"
+            }
+          ],
+          "parent": null,
+          "rect_pct": [50.0, 6.0, 30.0, 66.0],
+          "text": "Right panel"
+        },
+        {
+          "comments": ["scroll if more than 8 slots"],
+          "flows_to": [],
+          "id": "b2",
+          "intent": "new",
+          "keys": {
+            "click": "opens Change"
+          },
+          "label": "Gear list",
+          "overlaps": [
+            {
+              "iou": 1.0,
+              "n": 4,
+              "name": "GearList"
+            },
+            {
+              "iou": 0.33,
+              "n": 2,
+              "name": "Panel"
+            }
+          ],
+          "parent": "b1",
+          "rect_pct": [54.0, 20.0, 22.0, 30.0],
+          "text": "Gear list\nclick: opens Change"
+        },
+        {
+          "comments": [],
+          "flows_to": [],
+          "id": "b3",
+          "intent": "keep",
+          "keys": {
+            "size": "fixed"
+          },
+          "label": "Hero sheet",
+          "overlaps": [
+            {
+              "iou": 0.78,
+              "n": 3,
+              "name": "HeroSheet"
+            }
+          ],
+          "parent": null,
+          "rect_pct": [5.0, 20.0, 20.0, 20.0],
+          "text": "Hero sheet\nsize: fixed"
+        }
+      ],
+      "mode": "replace",
+      "name": "hero_room",
+      "notes": ["Make the gear panel wider\nmode: replace"],
+      "removed": [
+        {
+          "by": "red-x",
+          "n": 5,
+          "name": "RepairButton"
+        }
+      ],
+      "size": [1000, 500],
+      "state": "default",
+      "unparsed": ["a freehand line near (330, 350)"]
+    }
+  ],
+  "schema": 1,
+  "sha1": "172de70c3757d21006d9c5a125c4c3b131428fc7",
+  "source": "drawing_fixtures/fixture.excalidraw"
+}

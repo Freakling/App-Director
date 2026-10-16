@@ -182,10 +182,12 @@ ensure_lines() {
   done
 }
 ensure_lines "$dest/.gitignore" \
-  ".app-director/state/" "*.adir-new" ".env" "*.local"
+  ".app-director/state/" "*.adir-new" ".env" "*.local" \
+  "/product/ui/captures/" "/tools/ui/node_modules/" "/tools/ui/.auth/"
 ensure_lines "$dest/.gitattributes" \
   "*.sh text eol=lf" "/.githooks/** text eol=lf" "/.app-director/** text eol=lf" \
-  "/.claude/** text eol=lf" "/tools/check.sh text eol=lf" "/tools/setup-clone.sh text eol=lf"
+  "/.claude/** text eol=lf" "/tools/check.sh text eol=lf" "/tools/setup-clone.sh text eol=lf" \
+  "/tools/ui/** text eol=lf"
 
 # --- report ---------------------------------------------------------------------------------------
 if [ -z "$old_version" ]; then action="installed $version"

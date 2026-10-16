@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T6 · B7
+**Next IDs:** T7 · B7
 
 ## Queue
+
+### T6 · /ui-design with Playwright capture · done · L · agent
+- Touches: framework/.app-director/procedures/ui-design.md (new), framework/.claude/skills/ui-design/SKILL.md (new), framework/tools/ui_capture.sh (new), framework/tools/ui/capture.mjs (new), framework/tools/ui/lint.mjs (new), framework/tools/ui/drawing.mjs (new), framework/tools/ui/overlay.mjs (new), framework/tools/ui/verify.mjs (new), framework/tools/ui/common.mjs (new), framework/tools/ui/package.json (new), framework/tools/ui/.npmrc (new), project/tools/ui/screens.mjs (new), project/tools/ui_capture.cfg (new), project/product/ui/README.md (new), project/AGENTS.md, framework/.app-director/rules.md, framework/.app-director/tasks.md, framework/.app-director/procedures/build.md, framework/.app-director/procedures/review.md, framework/.app-director/procedures/acceptance.md, framework/.app-director/procedures/align.md, framework/.app-director/procedures/design.md, framework/.claude/settings.json, install.sh, ONBOARDING.md, README.md, tests/ui-drawing/ (new), tests/ui-web/ (new), selftest.sh, CHANGELOG.md
+- Done when: `/ui-design list` prints the catalog and `capture` writes a PNG, element map, map image and lint file per catalog screen, state and size of a web app on this machine, the same twice, and refuses a host that isn't local (test) · the lint catches each of its seven rules on a fixture page built to break it and reports nothing on a clean one, and a page with a known Tab order and one trap gives that order and exactly one unreachable element (test) · the reader gives the same `drawing.json` as Godot Director's for the shared fixtures, the same percentages with the image moved and scaled, and a starter that reads back empty (test) · `verify` reports no deviation on a page built as its spec says and exactly the element moved 10% (test) · without Node, Playwright or a web app, capture exits 3 with the reason and writes nothing, and the check doesn't need them (test)
+- Brief: -
+- Source: Director-Driven-Development T84
 
 ### T5 · The research assistant · done · M · agent
 - Touches: framework/.app-director/procedures/research.md (new), framework/.app-director/research-domain.md (new), framework/.claude/agents/researcher.md (new), framework/.claude/skills/research/SKILL.md (new), framework/.claude/settings.json, framework/.app-director/tasks.md, framework/.app-director/rules.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/align.md, project/TASKS.md (+R counter), project/product/research/README.md (new), examples/todo-web/TASKS.md, examples/todo-web/product/research/README.md (new), examples/scenarios.md, README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md
