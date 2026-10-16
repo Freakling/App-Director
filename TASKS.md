@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T6 · B7
+**Next IDs:** T6 · B8
 
 ## Queue
+
+### B7 · The protected-space guard blocks absolute paths · done · S · agent · high
+- Touches: framework/.claude/hooks/guard-protected.sh, selftest.sh
+- Repro: with the project at `<root>`, Claude Code writes to `<root>/director/x` (absolute), or `C:\...\director\x` on Windows → expected: the hook blocks it / actual: the hook allows it, because it matched `director/*` only against the path as written
+- Found in: Director-Driven-Development T85
+- Brief: -
 
 ### T5 · The research assistant · done · M · agent
 - Touches: framework/.app-director/procedures/research.md (new), framework/.app-director/research-domain.md (new), framework/.claude/agents/researcher.md (new), framework/.claude/skills/research/SKILL.md (new), framework/.claude/settings.json, framework/.app-director/tasks.md, framework/.app-director/rules.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/align.md, project/TASKS.md (+R counter), project/product/research/README.md (new), examples/todo-web/TASKS.md, examples/todo-web/product/research/README.md (new), examples/scenarios.md, README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md

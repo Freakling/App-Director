@@ -2,6 +2,11 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## Unreleased
+
+- **Fix: the protected-space guard blocks absolute paths.** `framework/.claude/hooks/guard-protected.sh` matched `file_path` only as written, so a write to `director/` sent as an absolute path (`<project>/director/x`, or Windows `C:\...\director\x`) got through. The hook now resolves the path against the project root (`$CLAUDE_PROJECT_DIR`, else the current directory) before matching: Windows, Git Bash and POSIX forms, `..` segments and case-insensitive matching on Windows. Paths outside the project root, and folders named `director` elsewhere in it, are still allowed. The selftest covers each form.
+  - **Upgrade steps:** none. The hook is framework-owned and arrives on upgrade.
+
 ## 1.6.0 (2026-10-16)
 
 - **New: `/research`, the research assistant** (`.app-director/procedures/research.md`). When a design question depends on facts nobody has checked, or you ask for research, a read-only `researcher` subagent looks into it in a fresh context and reports a note. It informs; you decide: its recommendation is one option shown with its reason, and it never records a decision, edits the brief or `product/decisions.md`, answers an Open Question, or asks you anything. It states its assumptions in the note instead.
