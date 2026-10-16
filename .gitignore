@@ -8,3 +8,9 @@ __pycache__/
 *.local
 .env
 *.adir-new
+
+# OS metadata files the plugin directory scanner refuses
+.DS_Store
+Thumbs.db
+desktop.ini
+__MACOSX/

@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T6 · B8
+**Next IDs:** T7 · B8
 
 ## Queue
+
+### T6 · The repository ignores OS metadata files · done · XS · agent
+- Touches: .gitignore, CHANGELOG.md
+- Done when: `.gitignore` lists `.DS_Store`, `Thumbs.db`, `desktop.ini` and `__MACOSX/` (check)
+- Brief: -
+- Source: Director-Driven-Development T100
 
 ### B7 · The protected-space guard blocks absolute paths · done · S · agent · high
 - Touches: framework/.claude/hooks/guard-protected.sh, selftest.sh
