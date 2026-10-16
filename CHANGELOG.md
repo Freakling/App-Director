@@ -9,6 +9,8 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
   - **Upgrade steps:** none. The hook is framework-owned and arrives on upgrade.
 - **Align checks the brief against reality.** `align.md`'s item 6 is now "Brief against reality", in place of the Decisions spot-check. It reads the whole brief, checks every statement of state (a section marked later or planned, a count, a list of what exists, a line saying work waits on something, "once X exists") against the built app, the done items and the latest releases, and checks every decision line since the last `docs: align` commit one by one, not a sample. Mechanical drift gets fixed; design calls are reported with the stale statement named. The numbering of the other items is unchanged.
   - **Upgrade steps:** none. The procedure is framework-owned and arrives on upgrade.
+- **The README says how to update the plugin.** The Install section gets an Upgrade part, as Godot Director's and SaaSAllTheThings' READMEs have: `/plugin marketplace update app-director`, then `/plugin update app-director@app-director`, then a restart and a new session in the app, where `/app-director:app-director` upgrades it.
+  - **Upgrade steps:** none. The README belongs to the App Director repository, not to apps.
 
 ## 1.6.0 (2026-10-16)
 

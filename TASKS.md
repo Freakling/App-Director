@@ -4,7 +4,7 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T8 · B8
+**Next IDs:** T10 · B8 · R1
 
 ## Queue
 
@@ -13,6 +13,20 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 - Done when: align's item 6 is "Brief against reality", in place of the Decisions spot-check: it reads the whole brief, checks every statement of state against the built app, the done items and the latest releases, and checks every decision line since the last `docs: align` commit one by one (check)
 - Brief: -
 - Source: Director-Driven-Development T93
+
+## Queue
+
+### T8 · The README says how to update the plugin · done · XS · agent
+- Touches: README.md, CHANGELOG.md
+- Done when: the README's Install section has an upgrade part that gives `/plugin marketplace update app-director` and `/plugin update app-director@app-director` and the restart, as Godot-Director's and SaaSAllTheThings' READMEs do (check)
+- Brief: -
+- Source: Director-Driven-Development T118
+
+### T9 · The repository's own queue has a research counter · done · XS · agent
+- Touches: TASKS.md
+- Done when: `Next IDs` carries the `R` counter that `align.md` asks for, `· R1` (check)
+- Brief: -
+- Source: Director-Driven-Development T119
 
 ### T6 · The repository ignores OS metadata files · done · XS · agent
 - Touches: .gitignore, CHANGELOG.md
