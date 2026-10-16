@@ -21,7 +21,11 @@ A consistency pass across the brief, decisions, TASKS.md, AGENTS.md and check co
    - Every significant system has a row in AGENTS.md › Architecture.
    - Every row points at something that exists in the codebase.
    - The `[ui] dirs` and `[data] dirs` in `tools/check.cfg` match the actual folder layout.
-6. **Decisions.** Spot-check that recent lines in `product/decisions.md` are reflected in the brief, and that no older brief text contradicts them.
+6. **Brief against reality.** For this step only, read the whole brief, not sections by heading.
+   - Read `product/brief.md` from its first line to its last.
+   - For every statement of state, check it against what exists: the built app, the done items (`TASKS.md` and `TASKS-archive.md`) and, where the project tracks them, the latest releases (the app's deploys, where a release is a release tag and its contents are the done items since the last tag; see `release.md`). A statement of state is a section marked later or planned, a count, a list of what exists, a line saying work waits on something, and "once X exists". Fix a stale statement as mechanical drift when the fact is settled (the item is done, the page exists). Report it to the human when the fix is a design call.
+   - Check every line added to `product/decisions.md` since the last `docs: align` commit (`git log --grep="^docs: align"` for the last one; all lines if there is none) against the brief, one by one and not a sample. Each is reflected in it, and no older text contradicts it.
+   - Report what was fixed and what needs the human, naming each stale statement, so the next align can tell a repeat.
 7. **Setup.**
    - `bash tools/check.sh` passes.
    - The `.gitignore` and `.gitattributes` lines that install.sh adds are still there.
