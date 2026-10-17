@@ -13,7 +13,9 @@
 # - Framework files an earlier version installed but this one no longer ships are deleted,
 #   unless you changed them.
 # - .gitignore and .gitattributes get the lines App Director needs.
-# - What was installed is recorded in .app-director/manifest (commit it).
+# - What was installed is recorded in .app-director/manifest (commit it). Installed from a source with
+#   unreleased changes, its first line says "+ unreleased (<commit>)"; the source commit is on a
+#   "# source" line whenever the source is a git checkout.
 # Nothing is committed. Review with `git status` and `git diff`, then follow ONBOARDING.md.
 
 set -eu
@@ -58,6 +60,23 @@ if grep -rlq "$(printf '\r')" "$src/framework" "$src/project" 2>/dev/null; then
 fi
 
 version="$(tr -d '\r\n' < "$src/VERSION")"
+# The source commit, when $src is a git checkout of its own (a release zip has no .git, and must not
+# borrow the .git of an enclosing repository).
+commit=""
+if [ -e "$src/.git" ]; then commit="$(git -C "$src" rev-parse --short HEAD 2>/dev/null || true)"; fi
+# Unreleased: the CHANGELOG's "## Unreleased" section has at least one non-blank line before the next "## ".
+unreleased=0
+if [ -f "$src/CHANGELOG.md" ] && tr -d '\r' < "$src/CHANGELOG.md" | awk '
+  /^## Unreleased[[:space:]]*$/ { inside = 1; next }
+  /^## / { inside = 0 }
+  inside && /[^[:space:]]/ { found = 1; exit }
+  END { exit !found }'; then
+  unreleased=1
+fi
+label="$version"
+if [ "$unreleased" -eq 1 ]; then
+  if [ -n "$commit" ]; then label="$version + unreleased ($commit)"; else label="$version + unreleased"; fi
+fi
 manifest_rel=".app-director/manifest"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -67,6 +86,7 @@ old_version=""
 if [ -f "$dest/$manifest_rel" ]; then
   tr -d '\r' < "$dest/$manifest_rel" > "$tmp/manifest"
   old_version="$(sed -n 's/^# app-director //p' "$tmp/manifest" | head -n 1)"
+  old_version="${old_version% + unreleased*}"
   grep -v '^#' "$tmp/manifest" > "$tmp/old" || true
 fi
 
@@ -142,7 +162,11 @@ done < "$tmp/plan"
 copy_list "$src/framework" "$dest" "$tmp/copy"
 
 mkdir -p "$dest/${manifest_rel%/*}"
-{ printf '# app-director %s\n' "$version"; cat "$tmp/new"; } > "$dest/$manifest_rel"
+{
+  printf '# app-director %s\n' "$label"
+  if [ -n "$commit" ]; then printf '# source %s\n' "$commit"; fi
+  cat "$tmp/new"
+} > "$dest/$manifest_rel"
 
 # --- project-owned seeds --------------------------------------------------------------------------
 : > "$tmp/seeds"
@@ -188,9 +212,9 @@ ensure_lines "$dest/.gitattributes" \
   "/.claude/** text eol=lf" "/tools/check.sh text eol=lf" "/tools/setup-clone.sh text eol=lf"
 
 # --- report ---------------------------------------------------------------------------------------
-if [ -z "$old_version" ]; then action="installed $version"
-elif [ "$old_version" = "$version" ]; then action="$version reinstalled"
-else action="upgraded from $old_version to $version"; fi
+if [ -z "$old_version" ]; then action="installed $label"
+elif [ "$old_version" = "$version" ]; then action="$label reinstalled"
+else action="upgraded from $old_version to $label"; fi
 echo "App Director $action in $dest"
 echo "  framework files: $new_count new, $updated_count updated, $same_count unchanged"
 if [ -n "$kept_local" ]; then echo "  kept your changes (this version doesn't change these files):$kept_local"; fi
@@ -201,6 +225,9 @@ if [ -n "$left" ]; then echo "  no longer part of App Director but changed local
 if [ -n "$conflicts" ]; then
   echo "  CONFLICTS: you changed these and so does this version. The new version is next to each as"
   echo "  <file>.adir-new; merge it, then delete it:$conflicts"
+fi
+if [ "$unreleased" -eq 1 ]; then
+  echo "Installed $label: a development snapshot, not a release. The latest release is at https://github.com/Freakling/App-Director/releases."
 fi
 echo "Next: review with git status / git diff, then follow $src/ONBOARDING.md."
 exit 0

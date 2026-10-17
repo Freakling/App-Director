@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T12 · B8 · R1
+**Next IDs:** T13 · B8 · R1
 
 ## Queue
+
+### T12 · An install from a development snapshot says so · done · S · agent
+- Touches: install.sh, selftest.sh, CHANGELOG.md
+- Done when: the manifest records the source commit, and an install from a source whose CHANGELOG.md has entries under Unreleased records `<version> + unreleased (<commit>)` and says so in its closing lines (test) · an install from a release records the plain version (test) · `bash selftest.sh` passes (check)
+- Brief: -
+- Source: Director-Driven-Development T134
 
 ### T7 · align checks the brief against reality · done · S · agent
 - Touches: framework/.app-director/procedures/align.md, CHANGELOG.md

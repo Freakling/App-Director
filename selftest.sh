@@ -312,6 +312,81 @@ printf '/App-Director/\n' >> "$inside/.git/info/exclude"
 out="$(bash "$inside/App-Director/install.sh" "$inside" 2>&1)"
 expect_status "installs from a folder inside the app" 0 $? "$out"
 
+# An install from a source with unreleased changes says so. A copy of the installer and its files, in
+# a git repository of its own (so the commit is known), with the CHANGELOG given. The copy leaves out
+# the rest of this folder (tests, node_modules) to stay quick.
+snapshot_source() { # snapshot_source <folder> <CHANGELOG to use>
+  rm -rf "$1" && mkdir -p "$1" \
+    && cp -R "$src/framework" "$src/project" "$src/install.sh" "$src/VERSION" "$1/" \
+    && cp "$2" "$1/CHANGELOG.md" \
+    && (cd "$1" && git init -q && git config core.autocrlf false && git add -A && git_q commit -qm snapshot) >/dev/null 2>&1
+}
+printf '# Changelog\n\n## Unreleased\n\n- **New: a snapshot entry.**\n\n## 1.7.0 (2026-10-16)\n\n- Earlier.\n' > "$work/changelog-unreleased.md"
+printf '# Changelog\n\n## Unreleased\n\n## 1.7.0 (2026-10-16)\n\n- Earlier.\n' > "$work/changelog-empty.md"
+printf '# Changelog\n\n## 1.7.0 (2026-10-16)\n\n- Earlier.\n' > "$work/changelog-release.md"
+
+snap="$work/snapshot"
+snapshot_source "$snap" "$work/changelog-unreleased.md" || bad "builds a source with unreleased entries"
+snap_commit="$(git -C "$snap" rev-parse --short HEAD 2>/dev/null)"
+snap_app="$work/snapshot-app"; new_repo "$snap_app"
+out="$(bash "$snap/install.sh" "$snap_app" 2>&1)"; expect_status "installs from a source with unreleased entries" 0 $? "$out"
+if [ "$(sed -n 1p "$snap_app/.app-director/manifest")" = "# app-director 1.7.0 + unreleased ($snap_commit)" ] \
+    && [ "$(sed -n 2p "$snap_app/.app-director/manifest")" = "# source $snap_commit" ]; then
+  ok "the manifest says unreleased, with the source commit on its own line"
+else
+  bad "the manifest says unreleased, with the source commit on its own line" "$(head -n 3 "$snap_app/.app-director/manifest")"
+fi
+closing="Installed 1.7.0 + unreleased ($snap_commit): a development snapshot, not a release. The latest release is at https://github.com/Freakling/App-Director/releases."
+printf '%s\n' "$out" | grep -qxF "$closing" \
+  && ok "the closing lines say the install is a development snapshot" \
+  || bad "the closing lines say the install is a development snapshot" "$out"
+
+empty="$work/snapshot-empty"
+snapshot_source "$empty" "$work/changelog-empty.md" || bad "builds a source with an empty Unreleased section"
+empty_commit="$(git -C "$empty" rev-parse --short HEAD 2>/dev/null)"
+empty_app="$work/empty-app"; new_repo "$empty_app"
+out="$(bash "$empty/install.sh" "$empty_app" 2>&1)"; expect_status "installs from a source with an empty Unreleased section" 0 $? "$out"
+[ "$(sed -n 1p "$empty_app/.app-director/manifest")" = "# app-director 1.7.0" ] \
+  && ok "an empty Unreleased section records the plain version" \
+  || bad "an empty Unreleased section records the plain version" "$(head -n 2 "$empty_app/.app-director/manifest")"
+expect_no_output "an empty Unreleased section adds no closing line" "development snapshot" "$out"
+
+# A release records the plain version, and its commit when it comes from a git checkout. A release
+# zip has no .git, and an enclosing repository's commit must not be recorded for it.
+rel="$work/snapshot-release"
+snapshot_source "$rel" "$work/changelog-release.md" || bad "builds a release source"
+rel_commit="$(git -C "$rel" rev-parse --short HEAD 2>/dev/null)"
+rel_app="$work/release-app"; new_repo "$rel_app"
+out="$(bash "$rel/install.sh" "$rel_app" 2>&1)"; expect_status "installs from a release checkout" 0 $? "$out"
+if [ "$(sed -n 1p "$rel_app/.app-director/manifest")" = "# app-director 1.7.0" ] \
+    && [ "$(sed -n 2p "$rel_app/.app-director/manifest")" = "# source $rel_commit" ]; then
+  ok "a release checkout records the plain version and its commit"
+else
+  bad "a release checkout records the plain version and its commit" "$(head -n 3 "$rel_app/.app-director/manifest")"
+fi
+expect_no_output "a release adds no closing line about snapshots" "development snapshot" "$out"
+
+zip_app="$work/zip-app"; new_repo "$zip_app"
+mkdir -p "$zip_app/App-Director"
+cp -R "$rel/framework" "$rel/project" "$rel/install.sh" "$rel/VERSION" "$rel/CHANGELOG.md" "$zip_app/App-Director/"
+out="$(bash "$zip_app/App-Director/install.sh" "$zip_app" 2>&1)"; expect_status "installs from a release folder with no git, inside an app repository" 0 $? "$out"
+if [ "$(sed -n 1p "$zip_app/.app-director/manifest")" = "# app-director 1.7.0" ] \
+    && [ "$(grep -c '^# source' "$zip_app/.app-director/manifest")" -eq 0 ]; then
+  ok "a release folder with no git records no commit"
+else
+  bad "a release folder with no git records no commit" "$(head -n 3 "$zip_app/.app-director/manifest")"
+fi
+
+# An upgrade from the unreleased install reads the old version without its suffix (and skips the
+# # source line): the next release, 1.8.0, upgrades it, and the message says so.
+next="$work/snapshot-next"
+snapshot_source "$next" "$work/changelog-release.md" && printf '1.8.0\n' > "$next/VERSION" \
+  || bad "builds the next release source"
+out="$(bash "$next/install.sh" "$snap_app" 2>&1)"; expect_status "upgrades from an unreleased install" 0 $? "$out"
+expect_output "the upgrade reads the old version without the unreleased suffix" "upgraded from 1.7.0 to 1.8.0" "$out"
+expect_no_output "the # source line isn't read as a file" "no longer part of App Director" "$out"
+expect_no_output "the upgrade from an unreleased install closes without the snapshot line" "development snapshot" "$out"
+
 # Refuses a folder that isn't the repository root.
 mkdir -p "$app/sub"
 out="$(bash "$src/install.sh" "$app/sub" 2>&1)"
