@@ -29,16 +29,18 @@ Set the item to `in-progress YYYY-MM-DD` (today).
 ## 3. Build
 A research item goes to Research items instead, and skips steps 4 and 6.
 
+Every subagent launch sets its model explicitly, from the sizing table (the Model sizing block in AGENTS.md › Project rules) for the item's size: the builder, the reviewer (step 6), the researcher (Research items) and an escalated retry. A launch never lets a subagent inherit the session's model. Where the table has no entry for the size, or model sizing is off, the launch passes the session model explicitly.
+
 - **In Claude Code,** give the `builder` subagent the item's ID and full text. Run it in the foreground (`run_in_background: false`), and never run two builders at once: they would edit, and check, each other's files.
   1. Before starting it, create the file `.app-director/state/building`. Delete it when the report arrives; while it exists, the Stop hook leaves the half-built files alone.
-  2. If AGENTS.md › Project rules has model sizing on, read the model ID for the item's size from that block (e.g. `- XS: claude-haiku-4-5-20251001`) and pass it as `model:`. If no entry exists for the size, use the session model.
-- **Other tools:** follow `build.md` yourself, or in a subagent if your tool has them.
+  2. Pass that model as `model:`.
+- **Other tools:** follow `build.md` yourself, or in a subagent if your tool has them, with its model set as section 3 says.
 - **A rebuild** (after a failure, a blocked report or review findings) gets the previous report, anything the human said about the item, and word that the earlier attempt's edits are still in the tree to continue from.
 - **Report `blocked`:** the report brings the question with options and a recommendation. Put it to the human.
   - If the answer is a design decision, record it following `design.md` › Record each decision before rebuilding. It's committed with the item.
   - Then rebuild, including the answer.
 - **Report `failed`:**
-  - If the item is not `XL` and has not already been escalated, retry once using the next size's model entry (XS→S, S→M, M→L, L→XL; or the session model if no entry exists). Update the item label to `<next-size> (escalated from <original-size>)`, e.g. `M (escalated from S)`.
+  - If the item is not `XL` and has not already been escalated, retry once with its model set to the next size's entry (XS→S, S→M, M→L, L→XL), or the session model where that size has no entry, as section 3 says. Update the item label to `<next-size> (escalated from <original-size>)`, e.g. `M (escalated from S)`.
   - If the item is `XL`, or the retry also fails, add a `Note:` to the item and bring the check output to the human.
 - **Report `failed: pre-existing`:** the failure was there before the build. Tell the human.
 
@@ -56,7 +58,7 @@ From the report:
 ## 6. Review
 Only when `rules.md` › Reviews and model size calls for one, judged from the item's size and the report's `API/saves:` line.
 1. Make new files show up in the diff with `git add -N <new files>`, then write it: `git diff HEAD > .app-director/state/review.diff`.
-2. Ask for a review following `review.md`; in Claude Code, that's the `reviewer` subagent. Give it the item ID, the builder's report and the check result.
+2. Ask for a review following `review.md`; in Claude Code, that's the `reviewer` subagent, with its model set as section 3 says for the item's size. Give it the item ID, the builder's report and the check result.
 3. Code findings that are in scope: rebuild with the findings. Record findings: fix them yourself. Everything else becomes new items.
 4. Review again only if the fixes were substantial.
 
@@ -69,8 +71,8 @@ Only when `rules.md` › Reviews and model size calls for one, judged from the i
 A research item (format in `.app-director/tasks.md`) is a candidate like any other, in file order. It changes no code, so there's no check to run (Pick step 3, Verify), no review, and no `building` marker: the researcher writes nothing.
 1. **Claim** it as in step 2.
 2. **Run it** in a fresh context.
-   - In Claude Code, give the `researcher` subagent the item's ID and full text, in the foreground (`run_in_background: false`). If AGENTS.md › Project rules has model sizing on, pass the model for the item's size, as for a build; otherwise use the session model.
-   - Other tools: follow `research.md` in a fresh context, or a subagent if your tool has them.
+   - In Claude Code, give the `researcher` subagent the item's ID and full text, in the foreground (`run_in_background: false`), with its model set as section 3 says for the item's size.
+   - Other tools: follow `research.md` in a fresh context, or a subagent if your tool has them, with its model set as section 3 says.
    - The researcher never asks the human. It states assumptions in the note and carries on.
 3. **Write the note.** The report is the note. Write it to `product/research/YYYY-MM-DD-<slug>.md`, with today's date and a short kebab-case slug of the topic, creating the folder if needed. The researcher never writes the file.
 4. **Update the records.** Set the item to `done` and delete its `Note:`. Follow-ups the note names become new items (IDs from `Next IDs`, then bump it). The note doesn't change the brief, `product/decisions.md` or Open Questions.

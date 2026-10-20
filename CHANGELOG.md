@@ -8,6 +8,8 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
   - **Upgrade steps:** none. The README belongs to the App Director repository, and the template is a seed that's copied once and never overwritten.
 - **Sessions that build at the same time each get their own git worktree.** The sessions rule in `rules.md` now applies to any two sessions that build, not only design and coding, and says why: a shared checkout lets one session's half-written files fail the other's check and Stop hook, and both queue on the same build artefacts. The commands stay the same (`git worktree add`, then `bash tools/setup-clone.sh` there). The README's day-to-day section points to the rule, and the selftest checks that it names the rule and its reason.
   - **Upgrade steps:** none. The rules file is framework-owned and arrives on upgrade.
+- **Every subagent launch passes its model explicitly.** The builder, the reviewer, the researcher and an escalated retry each get the model for the item's size from the sizing table, set in the launch. Where the table has no entry for the size, or model sizing is off, the session model is passed the same way. No launch leaves a subagent to inherit the session's model, so the model a build runs on is always the one its launch names. `rules.md` states the rule, `next-task.md` applies it at each launch, and the selftest checks the wording.
+  - **Upgrade steps:** none. The procedures and rules are framework-owned and arrive on upgrade.
 
 ## 1.7.1 (2026-10-18)
 

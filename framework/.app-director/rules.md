@@ -88,5 +88,5 @@ Update the owning place in the same change that makes it untrue. Replace superse
     - L:  <model-id>
     - XL: <model-id>
   ```
-  `next-task.md` reads the entry for the current item's size and passes it to the builder. A size without an entry uses the session model. Run `/refresh-model-sizing` to set or update these entries.
+  `next-task.md` passes the entry for the current item's size as an explicit model on every subagent launch: the builder, the reviewer and the researcher. A size without an entry, or model sizing off, passes the session model, also explicitly. Run `/refresh-model-sizing` to set or update these entries.
 - **Escalation:** a failed build retries once on the next size's model. An XL failure stops and comes to the director.
