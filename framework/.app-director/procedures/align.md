@@ -28,6 +28,12 @@ A consistency pass across the brief, decisions, TASKS.md, AGENTS.md and check co
    - Report what was fixed and what needs the human, naming each stale statement, so the next align can tell a repeat.
 7. **Setup.**
    - `bash tools/check.sh` passes.
-   - The `.gitignore` and `.gitattributes` lines that install.sh adds are still there.
-8. **Report.** Say what you fixed and what needs the human. Commit the fixes as `docs: align` after the human approves, naming the conflicts that need the human in the commit body so the next align can tell a repeat; during onboarding they go into the install commit instead.
-9. **Recommend a reset when patching won't hold.** If a conflict you report has come up before (an earlier `docs: align` commit body names it, or `product/decisions.md` already settled it), or one conflict involves several brief principles, recommend `/drift-reset` (`drift-reset.md`) in the report instead of a patch. Never start it yourself.
+   - The `.gitignore` and `.gitattributes` lines that install.sh adds are still there (among them `/product/ui/captures/`, `/tools/ui/node_modules/` and `/tools/ui/.auth/`).
+8. **Screens** (skip it when the app has no `tools/ui/screens.mjs`). Report what is missing; none of it fails the pass. The first two need Node; without it, say they weren't checked.
+   - `bash tools/ui_capture.sh --missing` lists the files in the UI folders (`tools/check.cfg` › `[ui] dirs`) that look like screens, with no catalog entry naming them as its `source` and not in `tools/ui_capture.cfg` › `[capture] skip`. With no UI folders set it says so, and nothing is listed.
+   - Every `product/ui/<screen>.md` names a catalog entry that exists, and every name its Layout table lists is in the source: `node tools/ui/verify.mjs <screen> --static` prints where each is found (it exits 3 by design: no capture).
+   - Every `director/ui/<screen>.excalidraw` has a spec whose recorded sha1 matches the file (`sha1sum`, or `shasum` on macOS). A newer drawing: report "drawing changed since it was processed".
+   - Every item's `UI:` points at an existing spec.
+   - On an upgrade, this is the check that lists the app's screens the catalog doesn't cover yet.
+9. **Report.** Say what you fixed and what needs the human. Commit the fixes as `docs: align` after the human approves, naming the conflicts that need the human in the commit body so the next align can tell a repeat; during onboarding they go into the install commit instead.
+10. **Recommend a reset when patching won't hold.** If a conflict you report has come up before (an earlier `docs: align` commit body names it, or `product/decisions.md` already settled it), or one conflict involves several brief principles, recommend `/drift-reset` (`drift-reset.md`) in the report instead of a patch. Never start it yourself.

@@ -2,6 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(bash tools/check.sh*)",
+      "Bash(bash tools/ui_capture.sh*)",
+      "Bash(node tools/ui/drawing.mjs *)",
+      "Bash(node tools/ui/overlay.mjs *)",
+      "Bash(node tools/ui/verify.mjs *)",
+      "Bash(node tools/ui/capture.mjs *)",
       "Bash(bash tools/setup-clone.sh*)",
       "Bash(bash tools/stacks/*.sh*)",
       "Bash(npm *)",

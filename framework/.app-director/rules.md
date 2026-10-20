@@ -12,6 +12,7 @@ These rules apply to any AI assistant working in this project. For each of these
 - **prune.md:** prune the task list.
 - **review.md:** review a finished change.
 - **release.md:** release to an environment or platform.
+- **ui-design.md:** capture the screens (`/ui-design`): a PNG per screen, state and size of the web app on this machine, with an element map, a numbered map image, layout lint and a starter drawing; process the human's Excalidraw drawing of a screen into a screen spec and items; verify a built screen against its spec and write compare images; list the screens in the catalog.
 - **refresh-model-sizing.md:** set or update the model sizing block in AGENTS.md › Project rules.
 
 In Claude Code these are also slash commands, and builds, reviews and research run as the `builder`, `reviewer` and `researcher` subagents.
@@ -35,13 +36,15 @@ In Claude Code these are also slash commands, and builds, reviews and research r
 | The evidence behind a design call | `product/research/`, one dated note per topic; the decision line links to it |
 | How the app was built before a design drift reset, and what drifted | `product/resets/YYYY-MM-DD/` (never deleted) |
 | Which systems exist and what each owns | `AGENTS.md` › Architecture |
+| How each screen is laid out | `product/ui/<screen>.md`, one spec per screen (`procedures/ui-design.md`) |
+| The human's screen drawings | `director/ui/` (Excalidraw files; read-only for you) |
 | Work, bugs, research, milestones | `TASKS.md` (format: `.app-director/tasks.md`; done items: `TASKS-archive.md`) |
 | Whether it works | `bash tools/check.sh` |
 
 Update the owning place in the same change that makes it untrue. Replace superseded text; never strike it through or keep two versions. Refer to brief sections by heading ("Brief: Authentication › Sign in"), never by number.
 
 ## Architecture defaults
-- **UI layer.** Screens, pages and components display state and call the logic layer. They never import from the data layer directly, never call `fetch`/`http` themselves, and hold no business logic. The check fails when a file in a configured UI folder imports from a configured data folder.
+- **UI layer.** Screens, pages and components display state and call the logic layer. They never import from the data layer directly, never call `fetch`/`http` themselves, and hold no business logic. The check fails when a file in a configured UI folder imports from a configured data folder. Every screen has an entry in the catalog, `tools/ui/screens.mjs`; add or update it whenever you add or change a screen. Elements a screen spec names get a `data-testid` (`gear-list`) that the spec, element maps and tests share. Build layouts with flex or grid, never pixel positions. The catalog seeds a screen's state through the app's public API, as a client does, and never imports the data layer.
 - **Logic layer.** Services, hooks, providers and stores hold business logic, state management, and calls to the data layer. This is what the UI calls and what tests exercise.
 - **Data layer.** Repositories, API clients and storage modules handle network access and persistent storage only. No UI concerns.
 - **Folder configuration.** `tools/check.cfg` › `[ui] dirs` lists the UI-layer folders; `[data] dirs` lists the data-layer folders. Update them when folders move.
