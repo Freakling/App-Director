@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T13 · B8 · R1
+**Next IDs:** T14 · B8 · R1
 
 ## Queue
+
+### T13 · The README starts with writing your own product brief · done · S · agent
+- Touches: README.md, project/product/director-brief.md, selftest.sh, CHANGELOG.md
+- Done when: the README's Install section opens with a "Start here" step: write your product brief first, with a link to the template at the latest release tag, then install, and onboarding reads it and asks only what you left open (check) · the template's header carries the same link, at v<VERSION>, and the selftest checks both (check) · `bash selftest.sh` passes (check)
+- Brief: -
+- Source: Director-Driven-Development T155
 
 ### T12 · An install from a development snapshot says so · done · S · agent
 - Touches: install.sh, selftest.sh, CHANGELOG.md

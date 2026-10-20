@@ -2,6 +2,11 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## Unreleased
+
+- **The README starts with the product brief.** The Install section opens with a "Start here" step: write your product brief in your own words first, from the template at the latest release, then install, and onboarding reads it and asks only what you left open. The template's header links to the latest template too, so a copied file explains itself. The selftest checks that both links point at the release tag `v<VERSION>`.
+  - **Upgrade steps:** none. The README belongs to the App Director repository, and the template is a seed that's copied once and never overwritten.
+
 ## 1.7.1 (2026-10-18)
 
 - **An install from a development snapshot says so.** An install from a source whose `CHANGELOG.md` has entries under `## Unreleased` records `# app-director <version> + unreleased (<commit>)` as the manifest's first line, and its closing lines say it is a development snapshot, not a release, with where the latest release is listed. `VERSION` stays at the last release until a release is cut, so the manifest tells the truth. The commit comes from the source's git checkout (a release zip has none) and goes on a `# source <commit>` line, which release installs get too. An install from a release records the plain version. Upgrades read the old version without the suffix, so an upgrade from a snapshot works.
