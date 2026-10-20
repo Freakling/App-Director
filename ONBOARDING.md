@@ -68,8 +68,25 @@ Then run `bash tools/check.sh` once and keep the result. An existing app often f
 
 ## 5. Product interview (fresh) or fill brief from existing code
 
+### Your own product brief (fresh start and existing app; before the interview or the brief)
+Every project has `product/director-brief.md`: the human's own product brief template, in their own words. It is the human's file: you read it and never edit it. `product/brief.md` stays the design record you maintain, so each fact lives in one place; the human's brief is input that stays as they wrote it.
+1. **Is it filled?** It is still the template while its title reads `# Product Brief: [App Name]` and its sections hold only the prompts. If the human points to another document (notes, a spec, or a file in `director/`), read that instead.
+2. **If it is blank, offer it** before the interview, as an alternative to the chat interview or an addition to it:
+   - what it is: the template for describing the app, what it should be, who it's for and what it must do, in their own words;
+   - where it is: `product/director-brief.md`;
+   - why it helps: a written brief gives you their intent and the context behind it, adds value that a chat interview alone doesn't, and sets the stage for later development, since every design session and build starts from it;
+   - when: it can be filled before onboarding, now (you wait), or later, for a new app or one already underway; and the interview works without it.
+
+   Ask which they prefer: fill it now, interview only, or both (interview first, brief later). Never fill it in for them. If they fill it later, the next session reads it as below.
+3. **If it is filled, read it first.**
+   - Fresh start: take the interview's answers from it (step 1 of Fresh start below). Show each answer taken, marked `(from your brief)`, and ask only what it leaves open. An answer you worked out from the brief without it saying so is `(inferred, please confirm)`.
+   - Existing app: read it with the existing documents and the code, and use it to build the initial assessment: Architecture rows, `product/brief.md` sections and the first TASKS.md items. Mark each statement it supplied `(from your brief)` and each you inferred `(inferred, please confirm)`.
+   - Both: where the brief and the code or the earlier docs disagree, say so and let the human decide.
+4. **Record it.** Write the `product/brief.md` sections from it, and a `product/decisions.md` line for each decision (`why: from your brief` when that is the reason). Anything the brief leaves undecided becomes an Open Question (`Q<n>`). Don't copy the brief wholesale into `product/brief.md`; write the current design in the brief's own sections.
+5. **Upgrade.** On an upgrade the installer adds `product/director-brief.md` when it is missing; offer it as above. Later, when the human says the brief changed, read it again and bring `product/brief.md` in line, marking what you inferred.
+
 ### Fresh start
-1. **A short product interview**, in short rounds. For each question, give options with a recommendation and let the human pick:
+1. **A short product interview**, in short rounds, after reading the human's brief if they filled one (above): ask only what it leaves open, and confirm what you took from it. For each question, give options with a recommendation and let the human pick:
    1. Pitch: what the app does, who it's for, and the feeling it should give.
    2. Core flows: the 3-5 things a user actually does (not screens, but actions with an outcome).
    3. Platforms and constraints: web, mobile, desktop, or a mix; offline support; auth required.
@@ -78,7 +95,7 @@ Then run `bash tools/check.sh` once and keep the result. An existing app often f
 
 ### Existing app
 1. **AGENTS.md › Architecture:** one row per significant system. Take "Owns" from public exports and module boundaries, not from guesses.
-2. **product/brief.md:** fill each section from the existing code and any docs. Mark anything inferred `(inferred, please confirm)`, and turn anything unknown into an Open Question.
+2. **product/brief.md:** fill each section from the existing code, any docs, and the human's own brief if they filled one (above). Mark anything inferred `(inferred, please confirm)` and anything the brief supplied `(from your brief)`, and turn anything unknown into an Open Question.
 3. **TASKS.md:** turn TODOs, known bugs and the human's priorities into items.
 4. **UI files that break the layer rule.** Set `tools/check.cfg` › `[ui] dirs` to the UI folders. Each file that imports from data-layer folders directly gets its own `M` item "Decouple: <file>".
 5. **Check failures** from step 3 become the first items. Crashes or data-loss bugs are `high`.

@@ -147,6 +147,23 @@ grep -q '^\*\*Next IDs:\*\* T[0-9]* · B[0-9]* · R[0-9]*$' "$src/project/TASKS.
 grep -q '^T[0-9]* · B[0-9]* · R[0-9]*$' "$src/examples/todo-web/TASKS.md" || wired="$wired todo-web/TASKS.md(Next IDs)"
 [ -z "$wired" ] && ok "the research assistant is wired into the procedures, the item format, the seeds and the docs" \
   || bad "the research assistant isn't wired into:$wired"
+# The human-written product brief: the director's template ships as a seed (and in the example,
+# blank), keeps the director's structure, and onboarding and the README present it.
+wired=""
+brief_seed="$src/project/product/director-brief.md"
+cmp -s "$brief_seed" "$src/examples/todo-web/product/director-brief.md" || wired="$wired example copy differs from the seed"
+grep -q '^# Product Brief: \[App Name\]$' "$brief_seed" || wired="$wired title"
+for heading in "1\. Executive" "2\. Problem" "3\. Goals" "4\. Target" "5\. Core" "6\. User" "7\. Technical" \
+    "8\. Launch" "9\. Risks" "10\. Open"; do
+  grep -qE "^## $heading" "$brief_seed" || wired="$wired [## $heading]"
+done
+grep -q '^### Your own product brief' "$src/ONBOARDING.md" && grep -q 'product/director-brief\.md' "$src/ONBOARDING.md" \
+  && grep -q '(from your brief)' "$src/ONBOARDING.md" && grep -q '(inferred, please confirm)' "$src/ONBOARDING.md" \
+  && grep -q 'alternative to the chat interview or an addition to it' "$src/ONBOARDING.md" \
+  && grep -q 'sets the stage for later development' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
+grep -q 'product/director-brief\.md' "$src/README.md" || wired="$wired README.md"
+[ -z "$wired" ] && ok "the human-written product brief ships as a seed (and in the example) with the director's structure, and onboarding and the README present it" \
+  || bad "the human-written product brief isn't wired into:$wired"
 
 # /ui-design: every piece exists and is wired in, the same way the research assistant is.
 missing=""
@@ -331,12 +348,107 @@ adir_clone="$work/adir-clone"; cp -R "$src" "$adir_clone"; rm -rf "$adir_clone/.
 from_clone="$work/from-clone"; new_repo "$from_clone"
 out="$(bash "$adir_clone/install.sh" "$from_clone" 2>&1)"
 expect_status "installs from an App Director git clone" 0 $? "$out"
+cmp -s "$from_clone/product/director-brief.md" "$src/project/product/director-brief.md" \
+  && ok "a new app gets the product brief template" \
+  || bad "a new app gets the product brief template" "$out"
+
+# An app installed by the release before the brief template gets it on upgrade. v1.6.0 is that
+# release (cloned from this repository); without its tag, the installed template is removed to
+# stand for the earlier install.
+upgraded="$work/upgraded"; new_repo "$upgraded"
+if git -C "$src" rev-parse -q --verify 'v1.6.0^{commit}' >/dev/null 2>&1; then
+  old_release="$work/old-release"
+  git clone -q --branch v1.6.0 "$src" "$old_release" >/dev/null 2>&1
+  bash "$old_release/install.sh" "$upgraded" >/dev/null 2>&1
+else
+  bash "$src/install.sh" "$upgraded" >/dev/null 2>&1; rm -f "$upgraded/product/director-brief.md"
+fi
+(cd "$upgraded" && git add -A && git_q commit -qm "install the earlier release" >/dev/null 2>&1)
+out="$(bash "$src/install.sh" "$upgraded" 2>&1)"; expect_status "upgrades an app installed before the brief template" 0 $? "$out"
+cmp -s "$upgraded/product/director-brief.md" "$src/project/product/director-brief.md" \
+  && ok "an upgraded app gets the product brief template" \
+  || bad "an upgraded app gets the product brief template" "$out"
 
 inside="$work/inside"; new_repo "$inside"
 cp -R "$adir_clone" "$inside/App-Director"; rm -rf "$inside/App-Director/.git"
 printf '/App-Director/\n' >> "$inside/.git/info/exclude"
 out="$(bash "$inside/App-Director/install.sh" "$inside" 2>&1)"
 expect_status "installs from a folder inside the app" 0 $? "$out"
+
+# An install from a source with unreleased changes says so. A copy of the installer and its files, in
+# a git repository of its own (so the commit is known), with the CHANGELOG given. The copy leaves out
+# the rest of this folder (tests, node_modules) to stay quick.
+snapshot_source() { # snapshot_source <folder> <CHANGELOG to use>
+  rm -rf "$1" && mkdir -p "$1" \
+    && cp -R "$src/framework" "$src/project" "$src/install.sh" "$src/VERSION" "$1/" \
+    && cp "$2" "$1/CHANGELOG.md" \
+    && (cd "$1" && git init -q && git config core.autocrlf false && git add -A && git_q commit -qm snapshot) >/dev/null 2>&1
+}
+printf '# Changelog\n\n## Unreleased\n\n- **New: a snapshot entry.**\n\n## 1.7.1 (2026-10-16)\n\n- Earlier.\n' > "$work/changelog-unreleased.md"
+printf '# Changelog\n\n## Unreleased\n\n## 1.7.1 (2026-10-16)\n\n- Earlier.\n' > "$work/changelog-empty.md"
+printf '# Changelog\n\n## 1.7.1 (2026-10-16)\n\n- Earlier.\n' > "$work/changelog-release.md"
+
+snap="$work/snapshot"
+snapshot_source "$snap" "$work/changelog-unreleased.md" || bad "builds a source with unreleased entries"
+snap_commit="$(git -C "$snap" rev-parse --short HEAD 2>/dev/null)"
+snap_app="$work/snapshot-app"; new_repo "$snap_app"
+out="$(bash "$snap/install.sh" "$snap_app" 2>&1)"; expect_status "installs from a source with unreleased entries" 0 $? "$out"
+if [ "$(sed -n 1p "$snap_app/.app-director/manifest")" = "# app-director 1.7.1 + unreleased ($snap_commit)" ] \
+    && [ "$(sed -n 2p "$snap_app/.app-director/manifest")" = "# source $snap_commit" ]; then
+  ok "the manifest says unreleased, with the source commit on its own line"
+else
+  bad "the manifest says unreleased, with the source commit on its own line" "$(head -n 3 "$snap_app/.app-director/manifest")"
+fi
+closing="Installed 1.7.1 + unreleased ($snap_commit): a development snapshot, not a release. The latest release is at https://github.com/Freakling/App-Director/releases."
+printf '%s\n' "$out" | grep -qxF "$closing" \
+  && ok "the closing lines say the install is a development snapshot" \
+  || bad "the closing lines say the install is a development snapshot" "$out"
+
+empty="$work/snapshot-empty"
+snapshot_source "$empty" "$work/changelog-empty.md" || bad "builds a source with an empty Unreleased section"
+empty_commit="$(git -C "$empty" rev-parse --short HEAD 2>/dev/null)"
+empty_app="$work/empty-app"; new_repo "$empty_app"
+out="$(bash "$empty/install.sh" "$empty_app" 2>&1)"; expect_status "installs from a source with an empty Unreleased section" 0 $? "$out"
+[ "$(sed -n 1p "$empty_app/.app-director/manifest")" = "# app-director 1.7.1" ] \
+  && ok "an empty Unreleased section records the plain version" \
+  || bad "an empty Unreleased section records the plain version" "$(head -n 2 "$empty_app/.app-director/manifest")"
+expect_no_output "an empty Unreleased section adds no closing line" "development snapshot" "$out"
+
+# A release records the plain version, and its commit when it comes from a git checkout. A release
+# zip has no .git, and an enclosing repository's commit must not be recorded for it.
+rel="$work/snapshot-release"
+snapshot_source "$rel" "$work/changelog-release.md" || bad "builds a release source"
+rel_commit="$(git -C "$rel" rev-parse --short HEAD 2>/dev/null)"
+rel_app="$work/release-app"; new_repo "$rel_app"
+out="$(bash "$rel/install.sh" "$rel_app" 2>&1)"; expect_status "installs from a release checkout" 0 $? "$out"
+if [ "$(sed -n 1p "$rel_app/.app-director/manifest")" = "# app-director 1.7.1" ] \
+    && [ "$(sed -n 2p "$rel_app/.app-director/manifest")" = "# source $rel_commit" ]; then
+  ok "a release checkout records the plain version and its commit"
+else
+  bad "a release checkout records the plain version and its commit" "$(head -n 3 "$rel_app/.app-director/manifest")"
+fi
+expect_no_output "a release adds no closing line about snapshots" "development snapshot" "$out"
+
+zip_app="$work/zip-app"; new_repo "$zip_app"
+mkdir -p "$zip_app/App-Director"
+cp -R "$rel/framework" "$rel/project" "$rel/install.sh" "$rel/VERSION" "$rel/CHANGELOG.md" "$zip_app/App-Director/"
+out="$(bash "$zip_app/App-Director/install.sh" "$zip_app" 2>&1)"; expect_status "installs from a release folder with no git, inside an app repository" 0 $? "$out"
+if [ "$(sed -n 1p "$zip_app/.app-director/manifest")" = "# app-director 1.7.1" ] \
+    && [ "$(grep -c '^# source' "$zip_app/.app-director/manifest")" -eq 0 ]; then
+  ok "a release folder with no git records no commit"
+else
+  bad "a release folder with no git records no commit" "$(head -n 3 "$zip_app/.app-director/manifest")"
+fi
+
+# An upgrade from the unreleased install reads the old version without its suffix (and skips the
+# # source line): the next release, 1.8.0, upgrades it, and the message says so.
+next="$work/snapshot-next"
+snapshot_source "$next" "$work/changelog-release.md" && printf '1.8.0\n' > "$next/VERSION" \
+  || bad "builds the next release source"
+out="$(bash "$next/install.sh" "$snap_app" 2>&1)"; expect_status "upgrades from an unreleased install" 0 $? "$out"
+expect_output "the upgrade reads the old version without the unreleased suffix" "upgraded from 1.7.1 to 1.8.0" "$out"
+expect_no_output "the # source line isn't read as a file" "no longer part of App Director" "$out"
+expect_no_output "the upgrade from an unreleased install closes without the snapshot line" "development snapshot" "$out"
 
 # Refuses a folder that isn't the repository root.
 mkdir -p "$app/sub"
@@ -627,22 +739,40 @@ done
 
 # --- guard-protected hook -------------------------------------------------------------------------
 echo "guard-protected hook"
-guard_write() { # guard_write <expected-exit> <path>
-  printf '{"file_path":"%s"}' "$2" | bash .claude/hooks/guard-protected.sh >/dev/null 2>&1
-  local got=$?
-  if [ "$got" -eq "$1" ]; then
-    ok "$([ "$1" -eq 2 ] && echo blocks || echo allows): write to $2"
-  else
-    bad "guard-protected exit $got, expected $1: $2"
-  fi
+# Claude Code sends the path as given: relative, absolute POSIX, or Windows (JSON-escaped). The
+# project root is $CLAUDE_PROJECT_DIR (the Windows cases pass a made-up root; the hook only reads text).
+guard_write() { # guard_write <expected exit> <what> <file_path as sent (JSON-escaped)> [project dir]
+  local out got
+  out="$(printf '{"session_id":"s","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' "$3" \
+    | CLAUDE_PROJECT_DIR="${4:-$app}" bash .claude/hooks/guard-protected.sh 2>&1)"
+  got=$?
+  if [ "$got" -eq "$1" ]; then ok "$([ "$1" -eq 2 ] && echo blocks || echo allows): $2"; else bad "guard-protected exit $got, expected $1: $2" "$out"; fi
 }
-guard_write 2 "director/mockup.png"
-guard_write 2 "director/notes.md"
-guard_write 2 "director"
-guard_write 2 "director/ui/home.excalidraw"
-guard_write 0 "src/ui/TodoList.ts"
-guard_write 0 "AGENTS.md"
-guard_write 0 "TASKS.md"
+guard_write 2 "relative director/mockup.png" 'director/mockup.png'
+guard_write 2 "relative director/notes.md" 'director/notes.md'
+guard_write 2 "relative director" 'director'
+guard_write 2 "./director/x" './director/x'
+guard_write 2 "x/../director/y" 'x/../director/y'
+guard_write 2 "absolute POSIX <root>/director/x" "$app/director/x"
+guard_write 2 "Windows C:\\...\\director\\x (escaped backslashes)" 'C:\\git\\Proj\\director\\x' 'C:\git\Proj'
+guard_write 2 "Windows C:/.../director/x" 'C:/git/Proj/director/x' 'C:\git\Proj'
+guard_write 2 "Git Bash /c/.../director/x" '/c/git/Proj/director/x' 'C:\git\Proj'
+guard_write 2 "Windows path, project root given in Git Bash form" 'C:\\git\\Proj\\director\\x' '/c/git/Proj'
+guard_write 2 "relative director/ui/home.excalidraw" 'director/ui/home.excalidraw'
+guard_write 0 "relative src/ui/TodoList.ts" 'src/ui/TodoList.ts'
+guard_write 0 "relative AGENTS.md" 'AGENTS.md'
+guard_write 0 "relative TASKS.md" 'TASKS.md'
+guard_write 0 "relative docs/director-notes.md" 'docs/director-notes.md'
+guard_write 0 "absolute <root>/docs/director-notes.md" "$app/docs/director-notes.md"
+guard_write 0 "relative src/director/x.ts (nested folder)" 'src/director/x.ts'
+guard_write 0 "absolute <root>/src/director/x.ts (nested folder)" "$app/src/director/x.ts"
+guard_write 0 "outside the project root" '/nonexistent/elsewhere/director/x'
+guard_write 0 "Windows path outside the project root" 'D:\\other\\director\\x' 'C:\git\Proj'
+guard_write 0 "Windows sibling folder with the root's name as a prefix" 'C:\\git\\Proj-old\\director\\x' 'C:\git\Proj'
+guard_write 0 "../director/x (outside the project root)" '../director/x'
+out="$(printf '%s' '{"tool_name":"Edit","tool_input":{"file_path":"director/x"}}' | env -u CLAUDE_PROJECT_DIR bash .claude/hooks/guard-protected.sh 2>&1)"
+got=$?
+if [ "$got" -eq 2 ]; then ok "blocks a relative path against the current directory when CLAUDE_PROJECT_DIR is unset"; else bad "guard-protected without CLAUDE_PROJECT_DIR exit $got, expected 2" "$out"; fi
 
 # --- stop-check hook ------------------------------------------------------------------------------
 echo "stop-check hook"

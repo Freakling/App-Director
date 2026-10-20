@@ -4,11 +4,61 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T7 · B7
+**Next IDs:** T14 · B8 · R1
 
 ## Queue
 
-### T6 · /ui-design with Playwright capture · done · L · agent
+### T12 · An install from a development snapshot says so · done · S · agent
+- Touches: install.sh, selftest.sh, CHANGELOG.md
+- Done when: the manifest records the source commit, and an install from a source whose CHANGELOG.md has entries under Unreleased records `<version> + unreleased (<commit>)` and says so in its closing lines (test) · an install from a release records the plain version (test) · `bash selftest.sh` passes (check)
+- Brief: -
+- Source: Director-Driven-Development T134
+
+### T7 · align checks the brief against reality · done · S · agent
+- Touches: framework/.app-director/procedures/align.md, CHANGELOG.md
+- Done when: align's item 6 is "Brief against reality", in place of the Decisions spot-check: it reads the whole brief, checks every statement of state against the built app, the done items and the latest releases, and checks every decision line since the last `docs: align` commit one by one (check)
+- Brief: -
+- Source: Director-Driven-Development T93
+
+### T8 · The README says how to update the plugin · done · XS · agent
+- Touches: README.md, CHANGELOG.md
+- Done when: the README's Install section has an upgrade part that gives `/plugin marketplace update app-director` and `/plugin update app-director@app-director` and the restart, as Godot-Director's and SaaSAllTheThings' READMEs do (check)
+- Brief: -
+- Source: Director-Driven-Development T118
+
+### T9 · The repository's own queue has a research counter · done · XS · agent
+- Touches: TASKS.md
+- Done when: `Next IDs` carries the `R` counter that `align.md` asks for, `· R1` (check)
+- Brief: -
+- Source: Director-Driven-Development T119
+
+### T10 · Your own product brief, a template the human writes · done · S · agent
+- Touches: project/product/director-brief.md (new), examples/todo-web/product/director-brief.md (new), ONBOARDING.md, README.md, selftest.sh, CHANGELOG.md
+- Done when: every app has the director's product brief template as a seed (`product/director-brief.md`) for the human to fill in, and the example carries it too (check) · onboarding offers it before the interview, as an alternative or an addition to the chat interview, with a word on why it helps, and reads a filled one first for a new or an existing app to build the initial assessment and the design records, marking what it took `(from your brief)` and what it inferred `(inferred, please confirm)` (check) · the README mentions it (check) · the selftest fails when the seed, the example copy, onboarding's wiring or the README is missing, and checks that a new app and an upgraded app receive the seed (check)
+- Brief: -
+- Source: Director-Driven-Development T87
+
+### T11 · The README says "an agreed placeholder" · done · XS · agent
+- Touches: README.md, CHANGELOG.md
+- Done when: the README's ownership line says human-owned areas get an agreed placeholder instead of generated content, in place of "a documented placeholder policy" (check)
+- Brief: -
+- Source: Director-Driven-Development T121
+
+### T6 · The repository ignores OS metadata files · done · XS · agent
+- Touches: .gitignore, CHANGELOG.md
+- Done when: `.gitignore` lists `.DS_Store`, `Thumbs.db`, `desktop.ini` and `__MACOSX/` (check)
+- Brief: -
+- Source: Director-Driven-Development T100
+
+### B7 · The protected-space guard blocks absolute paths · done · S · agent · high
+- Touches: framework/.claude/hooks/guard-protected.sh, selftest.sh
+- Repro: with the project at `<root>`, Claude Code writes to `<root>/director/x` (absolute), or `C:\...\director\x` on Windows → expected: the hook blocks it / actual: the hook allows it, because it matched `director/*` only against the path as written
+- Found in: Director-Driven-Development T85
+- Brief: -
+
+## Queue
+
+### T13 · /ui-design with Playwright capture · done · L · agent
 - Touches: framework/.app-director/procedures/ui-design.md (new), framework/.claude/skills/ui-design/SKILL.md (new), framework/tools/ui_capture.sh (new), framework/tools/ui/capture.mjs (new), framework/tools/ui/lint.mjs (new), framework/tools/ui/drawing.mjs (new), framework/tools/ui/overlay.mjs (new), framework/tools/ui/verify.mjs (new), framework/tools/ui/common.mjs (new), framework/tools/ui/package.json (new), framework/tools/ui/.npmrc (new), project/tools/ui/screens.mjs (new), project/tools/ui_capture.cfg (new), project/product/ui/README.md (new), project/AGENTS.md, framework/.app-director/rules.md, framework/.app-director/tasks.md, framework/.app-director/procedures/build.md, framework/.app-director/procedures/review.md, framework/.app-director/procedures/acceptance.md, framework/.app-director/procedures/align.md, framework/.app-director/procedures/design.md, framework/.claude/settings.json, install.sh, ONBOARDING.md, README.md, tests/ui-drawing/ (new), tests/ui-web/ (new), selftest.sh, CHANGELOG.md
 - Done when: `/ui-design list` prints the catalog and `capture` writes a PNG, element map, map image and lint file per catalog screen, state and size of a web app on this machine, the same twice, and refuses a host that isn't local (test) · the lint catches each of its seven rules on a fixture page built to break it and reports nothing on a clean one, and a page with a known Tab order and one trap gives that order and exactly one unreachable element (test) · the reader gives the same `drawing.json` as Godot Director's for the shared fixtures, the same percentages with the image moved and scaled, and a starter that reads back empty (test) · `verify` reports no deviation on a page built as its spec says and exactly the element moved 10% (test) · without Node, Playwright or a web app, capture exits 3 with the reason and writes nothing, and the check doesn't need them (test)
 - Brief: -

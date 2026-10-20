@@ -68,6 +68,10 @@ Either way, onboarding works out whether this is a new app, an existing app or a
 
 Afterwards, restart Claude Code so the new commands load. Each new clone later needs one command: `bash tools/setup-clone.sh`.
 
+### Upgrade
+
+- **Plugin:** run `/plugin marketplace update app-director` and then `/plugin update app-director@app-director`. Restart Claude Code, open a new session in your app's folder, and run `/app-director:app-director` again.
+
 ### Day to day
 
 | Say | What happens |
@@ -118,6 +122,7 @@ your-app/
 ├── CLAUDE.md                   "@AGENTS.md", for Claude Code
 ├── TASKS.md                    milestones and the queue (tasks, bugs and research)
 ├── product/brief.md            what the app should be, and Open Questions
+├── product/director-brief.md   your own product brief, in your words (optional); onboarding reads it first and never edits it
 ├── product/decisions.md        why: one line per design decision
 ├── product/research/           dated research notes, one per topic; the decision line links to its note
 ├── tools/check.cfg             check settings: stack, UI and data folders
@@ -149,7 +154,7 @@ Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/
 ### The rules, briefly
 The full rules are in `.app-director/rules.md`, and the assistant reads them every session.
 - **You decide design.** The assistant offers options and a recommendation. It never picks values (new values are marked `PLACEHOLDER`), and never answers an open question itself.
-- **Areas you own are never generated.** Onboarding asks who owns visual design, assets, copy and infrastructure. Human-owned areas get a documented placeholder policy instead of generated content. `director/` is an optional protected workspace: the AI reads it for context but never creates, modifies or deletes anything inside it.
+- **Areas you own are never generated.** Onboarding asks who owns visual design, assets, copy and infrastructure. Human-owned areas get an agreed placeholder instead of generated content. `director/` is an optional protected workspace: the AI reads it for context but never creates, modifies or deletes anything inside it.
 - **Each fact lives in one place,** and is updated in the same change that makes it untrue.
 - **Logic lives in the logic layer, not the UI.** Screens display state and call services. They never fetch data directly or hold business logic. The check fails when they do.
 - **No secrets in source.** Credentials live in `.env` files (gitignored) and platform secrets. The check (gitleaks) fails when a credential is found in the working tree; the pre-commit hook also scans staged changes. A false positive can be allowlisted with a fingerprint in `.gitleaksignore` and a reason in `product/decisions.md`, with the human's approval.
