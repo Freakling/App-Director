@@ -70,7 +70,7 @@ Update the owning place in the same change that makes it untrue. Replace superse
 
 ## Sessions and context
 - **New clone.** Run `bash tools/setup-clone.sh`. It checks that the stack tool is available and installs the pre-commit hook.
-- **Two sessions at once** (say design and coding): give one its own worktree (`git worktree add ../app-design`) and run `bash tools/setup-clone.sh` there. A claim in TASKS.md protects only its own worktree. So only one session per project picks items; the others name the item they work on.
+- **Any two sessions building at once** (say design and coding): each gets its own git worktree, since a shared checkout lets one session's half-written files fail the other's check and Stop hook, and both queue on the same build artefacts. Make one with `git worktree add ../app-design`, then run `bash tools/setup-clone.sh` there. A claim in TASKS.md protects only its own worktree. So only one session per project picks items; the others name the item they work on.
 - **The records are the hand-off.** TASKS.md (what's done and what's next), commit messages (why), AGENTS.md and the brief carry everything between sessions. Once an item is committed, a fresh session, or `/clear` in Claude Code, loses nothing.
 
 ## Reviews and model size

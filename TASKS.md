@@ -8,6 +8,12 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 
 ## Queue
 
+### T13 · One git worktree per parallel building session · done · XS · agent
+- Touches: framework/.app-director/rules.md, README.md, selftest.sh, CHANGELOG.md
+- Done when: rules.md says that any two sessions building at once each use their own git worktree, since a shared checkout lets one session's half-written files fail the other's check and Stop hook, with the commands to make one and run tools/setup-clone.sh in it (check) · the README's day-to-day section points to that rule (check) · the selftest checks the rule exists with its reason (check)
+- Brief: -
+- Source: Director-Driven-Development T160
+
 ### T12 · An install from a development snapshot says so · done · S · agent
 - Touches: install.sh, selftest.sh, CHANGELOG.md
 - Done when: the manifest records the source commit, and an install from a source whose CHANGELOG.md has entries under Unreleased records `<version> + unreleased (<commit>)` and says so in its closing lines (test) · an install from a release records the plain version (test) · `bash selftest.sh` passes (check)

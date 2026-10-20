@@ -87,6 +87,8 @@ Afterwards, restart Claude Code so the new commands load. Each new clone later n
 | "Prune the task list" (`/prune`) | Moves done items to `TASKS-archive.md`. |
 | "Release to production" (`/release`) | Runs the check, builds for the target platform, and walks you through the deploy. |
 
+Two sessions that build at the same time each need their own git worktree; `.app-director/rules.md` (Sessions and context) gives the commands and the reason.
+
 ```
 you use the app, or have an idea
         │
