@@ -6,6 +6,8 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
 
 - **The README starts with the product brief.** The Install section opens with a "Start here" step: write your product brief in your own words first, from the template at the latest release, then install, and onboarding reads it and asks only what you left open. The template's header links to the latest template too, so a copied file explains itself. The selftest checks that both links point at the release tag `v<VERSION>`.
   - **Upgrade steps:** none. The README belongs to the App Director repository, and the template is a seed that's copied once and never overwritten.
+- **Sessions that build at the same time each get their own git worktree.** The sessions rule in `rules.md` now applies to any two sessions that build, not only design and coding, and says why: a shared checkout lets one session's half-written files fail the other's check and Stop hook, and both queue on the same build artefacts. The commands stay the same (`git worktree add`, then `bash tools/setup-clone.sh` there). The README's day-to-day section points to the rule, and the selftest checks that it names the rule and its reason.
+  - **Upgrade steps:** none. The rules file is framework-owned and arrives on upgrade.
 
 ## 1.7.1 (2026-10-18)
 

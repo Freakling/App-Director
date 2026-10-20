@@ -233,6 +233,14 @@ done
 [ -z "$unrouted" ] && ok "every procedure is routed in rules.md" \
   || bad "procedures missing from rules.md routing:$unrouted"
 
+# Sessions building at once each get a git worktree, and the rule gives the reason (a shared checkout
+# lets one session's half-written files fail the other's check and Stop hook).
+_wt_rule="$src/framework/.app-director/rules.md"
+grep -qF 'git worktree add ../app-design' "$_wt_rule" && grep -qF 'bash tools/setup-clone.sh' "$_wt_rule" \
+  && grep -qF 'half-written files fail the other' "$_wt_rule" \
+  && ok "sessions building at once each get a worktree, with the reason, in rules.md" \
+  || bad "rules.md doesn't name the worktree rule for sessions building at once, with its reason"
+
 # Model IDs must live only in the refresh-model-sizing procedure (single source of truth).
 _rms="$src/framework/.app-director/procedures/refresh-model-sizing.md"
 _rms_ids="$(grep -oE 'claude-[a-z0-9-]+' "$_rms" | sort -u | tr '\n' '|' | sed 's/|$//')"

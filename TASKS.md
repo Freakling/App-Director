@@ -4,7 +4,7 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T14 · B8 · R1
+**Next IDs:** T16 · B8 · R1
 
 ## Queue
 
@@ -13,6 +13,12 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 - Done when: the README's Install section opens with a "Start here" step: write your product brief first, with a link to the template at the latest release tag, then install, and onboarding reads it and asks only what you left open (check) · the template's header carries the same link, at v<VERSION>, and the selftest checks both (check) · `bash selftest.sh` passes (check)
 - Brief: -
 - Source: Director-Driven-Development T155
+
+### T14 · One git worktree per parallel building session · done · XS · agent
+- Touches: framework/.app-director/rules.md, README.md, selftest.sh, CHANGELOG.md
+- Done when: rules.md says that any two sessions building at once each use their own git worktree, since a shared checkout lets one session's half-written files fail the other's check and Stop hook, with the commands to make one and run tools/setup-clone.sh in it (check) · the README's day-to-day section points to that rule (check) · the selftest checks the rule exists with its reason (check)
+- Brief: -
+- Source: Director-Driven-Development T160
 
 ### T12 · An install from a development snapshot says so · done · S · agent
 - Touches: install.sh, selftest.sh, CHANGELOG.md
@@ -64,7 +70,7 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 
 ## Queue
 
-### T13 · /ui-design with Playwright capture · done · L · agent
+### T15 · /ui-design with Playwright capture · done · L · agent
 - Touches: framework/.app-director/procedures/ui-design.md (new), framework/.claude/skills/ui-design/SKILL.md (new), framework/tools/ui_capture.sh (new), framework/tools/ui/capture.mjs (new), framework/tools/ui/lint.mjs (new), framework/tools/ui/drawing.mjs (new), framework/tools/ui/overlay.mjs (new), framework/tools/ui/verify.mjs (new), framework/tools/ui/common.mjs (new), framework/tools/ui/package.json (new), framework/tools/ui/.npmrc (new), project/tools/ui/screens.mjs (new), project/tools/ui_capture.cfg (new), project/product/ui/README.md (new), project/AGENTS.md, framework/.app-director/rules.md, framework/.app-director/tasks.md, framework/.app-director/procedures/build.md, framework/.app-director/procedures/review.md, framework/.app-director/procedures/acceptance.md, framework/.app-director/procedures/align.md, framework/.app-director/procedures/design.md, framework/.claude/settings.json, install.sh, ONBOARDING.md, README.md, tests/ui-drawing/ (new), tests/ui-web/ (new), selftest.sh, CHANGELOG.md
 - Done when: `/ui-design list` prints the catalog and `capture` writes a PNG, element map, map image and lint file per catalog screen, state and size of a web app on this machine, the same twice, and refuses a host that isn't local (test) · the lint catches each of its seven rules on a fixture page built to break it and reports nothing on a clean one, and a page with a known Tab order and one trap gives that order and exactly one unreachable element (test) · the reader gives the same `drawing.json` as Godot Director's for the shared fixtures, the same percentages with the image moved and scaled, and a starter that reads back empty (test) · `verify` reports no deviation on a page built as its spec says and exactly the element moved 10% (test) · without Node, Playwright or a web app, capture exits 3 with the reason and writes nothing, and the check doesn't need them (test)
 - Brief: -
