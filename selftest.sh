@@ -2,6 +2,9 @@
 # App Director self-test. Tests the installer, the project check, the hooks and the pre-commit
 # hook using a temporary copy of examples/todo-web. No network access; no external tools required
 # (the example uses the `none` stack). Run it after every change to the framework.
+# The /ui-design tests use Node when it's installed; the capture of the fixture web app also needs
+# Playwright with Chromium, once: cd tests/ui-web && npm install && npx playwright install chromium
+# (or ADIR_PLAYWRIGHT=<a node_modules folder that has playwright>). Without them they're skipped.
 #
 #   bash selftest.sh
 #
@@ -172,6 +175,54 @@ seed_link="$(grep -oE "$brief_link_re" "$brief_seed" | head -1)"
   && ok "the README's Start here step (first in Install) and the template's header link to the latest template at v<VERSION>" \
   || bad "the latest-template link isn't at v<VERSION> in both the README and the template header (README: '$readme_link', header: '$seed_link', VERSION is $version)"
 
+# /ui-design: every piece exists and is wired in, the same way the research assistant is.
+missing=""
+for file in framework/.app-director/procedures/ui-design.md framework/.claude/skills/ui-design/SKILL.md \
+    framework/tools/ui_capture.sh framework/tools/ui/capture.mjs framework/tools/ui/lint.mjs framework/tools/ui/drawing.mjs \
+    framework/tools/ui/overlay.mjs framework/tools/ui/verify.mjs framework/tools/ui/common.mjs framework/tools/ui/package.json \
+    framework/tools/ui/.npmrc project/tools/ui/screens.mjs project/tools/ui_capture.cfg project/product/ui/README.md \
+    tests/ui-drawing/fixture.excalidraw tests/ui-drawing/fixture-scaled.excalidraw tests/ui-drawing/fixture.elements.json \
+    tests/ui-drawing/fixture.expected.json tests/ui-drawing/fixture.png tests/ui-drawing/starter.expected.excalidraw \
+    tests/ui-drawing/fixture.godot.drawing.json tests/ui-drawing/fixture-scaled.godot.drawing.json \
+    tests/ui-drawing/README.md tests/ui-web/serve.mjs tests/ui-web/package.json tests/ui-web/site/index.html tests/ui-web/site/lint.html \
+    tests/ui-web/site/order.html tests/ui-web/site/away.html tests/ui-web/site/modal.html tests/ui-web/site/reload.html; do
+  [ -f "$src/$file" ] || missing="$missing $file"
+done
+[ -z "$missing" ] && ok "the /ui-design files exist" || bad "/ui-design files missing:$missing"
+wired=""
+uiproc="$proc/procedures/ui-design.md"
+grep -q 'procedures/ui-design\.md' "$src/framework/.claude/skills/ui-design/SKILL.md" || wired="$wired SKILL.md"
+grep -q '^- `process <screen>`' "$uiproc" && grep -q 'tools/ui/drawing\.mjs' "$uiproc" && grep -q '\.drawing\.json' "$uiproc" \
+  && grep -q '\.starter\.excalidraw' "$uiproc" && grep -q 'Never read the raw' "$uiproc" && grep -q '^### The screen spec' "$uiproc" \
+  && grep -q "^## If you can't view images" "$uiproc" && grep -q -- '--verify' "$uiproc" || wired="$wired ui-design.md"
+grep -q 'product/ui/<screen>\.md' "$proc/rules.md" && grep -q '`director/ui/`' "$proc/rules.md" && grep -q 'tools/ui/screens\.mjs' "$proc/rules.md" \
+  && grep -q 'data-testid' "$proc/rules.md" || wired="$wired rules.md"
+grep -q '^- \*\*`UI:`\*\*' "$proc/tasks.md" || wired="$wired tasks.md"
+grep -q '\*\*Screens\*\*' "$proc/procedures/build.md" && grep -q 'Screen: <' "$proc/procedures/build.md" \
+  && grep -q 'ui_capture\.sh <id> --verify' "$proc/procedures/build.md" || wired="$wired build.md"
+grep -q '`UI:`' "$proc/procedures/review.md" && grep -q 'compare@' "$proc/procedures/review.md" || wired="$wired review.md"
+grep -q '`UI:`' "$proc/procedures/acceptance.md" && grep -q 'compare@' "$proc/procedures/acceptance.md" || wired="$wired acceptance.md"
+grep -q -- '--missing' "$proc/procedures/align.md" && grep -q -- '--static' "$proc/procedures/align.md" \
+  && grep -q '/product/ui/captures/' "$proc/procedures/align.md" || wired="$wired align.md"
+grep -q 'ui-design\.md' "$proc/procedures/design.md" || wired="$wired design.md"
+grep -q '"Bash(bash tools/ui_capture.sh\*)"' "$settings" && grep -q '"Bash(node tools/ui/drawing.mjs \*)"' "$settings" \
+  && grep -q '"Bash(node tools/ui/verify.mjs \*)"' "$settings" && ! grep -q '"Bash(node tools/ui/\*)"' "$settings" || wired="$wired settings.json"
+grep -q '/ui-design' "$src/README.md" && grep -q '/ui-design' "$src/ONBOARDING.md" && grep -q 'UI / screen layout' "$src/ONBOARDING.md" \
+  && grep -q 'UI / screen layout' "$src/project/AGENTS.md" && grep -q '`product/ui/`' "$src/project/AGENTS.md" || wired="$wired README.md/ONBOARDING.md/AGENTS.md"
+grep -q '"/product/ui/captures/" "/tools/ui/node_modules/" "/tools/ui/.auth/"' "$src/install.sh" || wired="$wired install.sh"
+[ -z "$wired" ] && ok "/ui-design is wired into the rules, the item format, the procedures, the settings, the seeds and the docs" \
+  || bad "/ui-design isn't wired into:$wired"
+# The check must not start needing Node: it never runs the capture tools.
+if grep -qiE 'ui_capture|tools/ui/|playwright' "$src/framework/tools/check.sh" "$src/framework/tools/setup-clone.sh"; then
+  bad "the check and setup-clone never run the capture tools (they would need Node)"
+else
+  ok "the check and setup-clone never run the capture tools (they would need Node)"
+fi
+_pw_range() { sed -n 's/.*"playwright"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1"; }
+[ "$(_pw_range "$src/framework/tools/ui/package.json")" = "$(_pw_range "$src/tests/ui-web/package.json")" ] \
+  && ok "the selftest's Playwright is the version range capture asks for" \
+  || bad "framework/tools/ui/package.json and tests/ui-web/package.json ask for different Playwright versions"
+
 unrouted=""
 for proc in "$src"/framework/.app-director/procedures/*.md; do
   name="$(basename "$proc")"
@@ -230,6 +281,18 @@ if [ -f .app-director/procedures/research.md ] && [ -f .app-director/research-do
 else
   bad "installs the research assistant: procedure, domain file, researcher, skill and note folder" "$out"
 fi
+if [ -f .app-director/procedures/ui-design.md ] && [ -f .claude/skills/ui-design/SKILL.md ] && [ -x tools/ui_capture.sh ] \
+    && [ -f tools/ui/capture.mjs ] && [ -f tools/ui/drawing.mjs ] && [ -f tools/ui/package.json ] && [ -f tools/ui/.npmrc ] \
+    && [ -f tools/ui/screens.mjs ] && [ -f tools/ui_capture.cfg ] && [ -f product/ui/README.md ]; then
+  ok "installs /ui-design: procedure, skill, capture tools, catalog, settings and the drawing guide"
+else
+  bad "installs /ui-design: procedure, skill, capture tools, catalog, settings and the drawing guide" "$out"
+fi
+grep -qx '/product/ui/captures/' .gitignore && grep -qx '/tools/ui/node_modules/' .gitignore && grep -qx '/tools/ui/.auth/' .gitignore \
+  && grep -qx '/tools/ui/\*\* text eol=lf' .gitattributes \
+  && ok "ignores captures, the capture tools' packages and saved sign-ins" || bad "the /ui-design .gitignore and .gitattributes lines" "$(cat .gitignore)"
+grep -q "$(printf '\t')tools/ui/capture.mjs$" .app-director/manifest && ! grep -q "$(printf '\t')tools/ui/screens.mjs$" .app-director/manifest \
+  && ok "the manifest lists the capture tools, not the app's own catalog" || bad "the manifest lists the capture tools, not the app's own catalog"
 
 out="$(bash "$src/install.sh" . 2>&1)"
 expect_output "a second run changes nothing" "0 new, 0 updated" "$out"
@@ -705,6 +768,7 @@ guard_write 2 "Windows C:\\...\\director\\x (escaped backslashes)" 'C:\\git\\Pro
 guard_write 2 "Windows C:/.../director/x" 'C:/git/Proj/director/x' 'C:\git\Proj'
 guard_write 2 "Git Bash /c/.../director/x" '/c/git/Proj/director/x' 'C:\git\Proj'
 guard_write 2 "Windows path, project root given in Git Bash form" 'C:\\git\\Proj\\director\\x' '/c/git/Proj'
+guard_write 2 "relative director/ui/home.excalidraw" 'director/ui/home.excalidraw'
 guard_write 0 "relative src/ui/TodoList.ts" 'src/ui/TodoList.ts'
 guard_write 0 "relative AGENTS.md" 'AGENTS.md'
 guard_write 0 "relative TASKS.md" 'TASKS.md'
@@ -900,5 +964,347 @@ else
   echo "  skip  real gitleaks staged-secret tests (gitleaks not found or below $_gl_min_req)"
 fi
 cp "$work/saved-svc-staged" src/services/TodoService.ts
+
+# --- /ui-design -----------------------------------------------------------------------------------
+echo "ui-design"
+# Everything here runs in the installed example ($app). The reader and the capture checks need Node;
+# the capture of the fixture web app (tests/ui-web) also needs Playwright and Chromium, found in
+# tests/ui-web/node_modules (npm install there, then npx playwright install chromium) or in the
+# node_modules folder $ADIR_PLAYWRIGHT names. Without them those tests are skipped.
+cd "$app" || exit 1
+helpers="$work/ui-helpers"
+mkdir -p "$helpers"
+# compare <actual> <expected>: the same reading, apart from where it came from.
+cat > "$helpers/compare.mjs" <<'EOF'
+import { readFileSync } from "node:fs";
+const load = (path) => { const value = JSON.parse(readFileSync(path, "utf8")); delete value.source; delete value.sha1; return value; };
+const same = (a, b) => {
+  if (typeof a === "number" && typeof b === "number") return a === b;
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => same(item, b[index]));
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const keys = Object.keys(a).sort();
+    return same(keys, Object.keys(b).sort()) && keys.every((key) => same(a[key], b[key]));
+  }
+  return a === b;
+};
+const [actual, expected] = [load(process.argv[2]), load(process.argv[3])];
+console.log(same(actual, expected) ? "SAME" : "DIFFERENT\n" + JSON.stringify(actual) + "\n" + JSON.stringify(expected));
+EOF
+# validate <starter> <screen> <W> <H> <drawing.mjs>: valid Excalidraw (types.ts in excalidraw/excalidraw) that reads back empty.
+cat > "$helpers/validate.mjs" <<'EOF'
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+const [path, screen, width, height, reader] = process.argv.slice(2);
+const { readDrawing } = await import(pathToFileURL(reader).href);
+const TYPES = ["rectangle", "text", "image", "frame", "line", "arrow", "freedraw", "ellipse", "diamond"];
+const problems = [];
+const doc = JSON.parse(readFileSync(path, "utf8"));
+if (doc.type !== "excalidraw" || doc.version !== 2) problems.push("type excalidraw, version 2");
+if (!Array.isArray(doc.elements) || typeof doc.appState !== "object" || typeof doc.files !== "object") { console.log("elements, appState and files are required"); process.exit(1); }
+for (const [key, file] of Object.entries(doc.files)) {
+  if (file.id !== key || file.mimeType !== "image/png" || !String(file.dataURL).startsWith("data:image/png;base64,") || typeof file.created !== "number") problems.push("file " + key);
+}
+const ids = new Map();
+const frames = [];
+let previous = "";
+for (const e of doc.elements) {
+  if (!e.id || ids.has(e.id)) problems.push(`id '${e.id}' is empty or repeated`);
+  ids.set(e.id, e);
+  if (e.type === "frame") frames.push(e.id);
+  if (!TYPES.includes(e.type)) problems.push(e.id + ": type");
+  for (const key of ["x", "y", "width", "height", "angle", "strokeWidth", "roughness", "opacity", "updated"]) if (typeof e[key] !== "number") problems.push(`${e.id}: ${key} must be a number`);
+  for (const key of ["seed", "version", "versionNonce"]) if (!Number.isInteger(e[key])) problems.push(`${e.id}: ${key} must be an integer`);
+  for (const key of ["strokeColor", "backgroundColor", "index"]) if (typeof e[key] !== "string") problems.push(`${e.id}: ${key} must be a string`);
+  if (!["hachure", "cross-hatch", "solid", "zigzag"].includes(e.fillStyle) || !["solid", "dashed", "dotted"].includes(e.strokeStyle)) problems.push(e.id + ": fillStyle or strokeStyle");
+  if (!Array.isArray(e.groupIds) || typeof e.isDeleted !== "boolean" || typeof e.locked !== "boolean") problems.push(e.id + ": groupIds, isDeleted or locked");
+  for (const key of ["frameId", "roundness", "boundElements", "link"]) if (!(key in e)) problems.push(`${e.id}: ${key} is missing (null is fine)`);
+  if (!(String(e.index) > previous)) problems.push(e.id + ": index must grow with the array order");
+  previous = String(e.index);
+  if (e.type === "text" && (typeof e.text !== "string" || typeof e.originalText !== "string" || typeof e.fontSize !== "number" || typeof e.fontFamily !== "number"
+      || typeof e.lineHeight !== "number" || typeof e.autoResize !== "boolean" || !["left", "center", "right"].includes(e.textAlign)
+      || !["top", "middle", "bottom"].includes(e.verticalAlign) || !("containerId" in e))) problems.push(e.id + ": text fields");
+  if (e.type === "image" && (!(e.fileId in doc.files) || e.status !== "saved" || !Array.isArray(e.scale) || e.scale.length !== 2 || !("crop" in e))) problems.push(e.id + ": fileId, status, scale or crop");
+  if (e.type === "frame" && typeof e.name !== "string") problems.push(e.id + ": name");
+}
+if (frames.length !== 1) problems.push("one frame is expected");
+else {
+  const frame = ids.get(frames[0]);
+  const background = ids.get("ddd-background") || {};
+  if (frame.name !== screen || frame.width !== Number(width) || frame.height !== Number(height)) problems.push("the frame is named after the screen and is the size of the capture");
+  if (background.type !== "image" || background.locked !== true || background.frameId !== frames[0] || background.width !== Number(width) || background.height !== Number(height)) problems.push("the screenshot is a locked image filling the frame");
+  for (const [id, e] of ids) {
+    if (e.type !== "frame" && e.frameId !== frames[0] && id !== "ddd-legend") problems.push(id + ": frameId");
+    if (id.startsWith("ddd-existing") && (e.locked !== true || e.opacity !== 25 || JSON.stringify(e.groupIds) !== '["ddd-existing"]')) problems.push(id + ": the existing group is locked, at 25% opacity");
+  }
+  if (ids.has("ddd-legend") && ids.get("ddd-legend").frameId !== null) problems.push("the legend is outside the frame");
+}
+const read = readDrawing(readFileSync(path, "utf8"), path, "", screen, join(dirname(path), "captures"));
+if (read.error) problems.push("reading it back: " + read.error);
+else {
+  const back = read.drawing.frames[0];
+  if (back.boxes.length || back.unparsed.length || back.notes.length || back.removed.length) problems.push("saving the starter unchanged and reading it back must give no boxes, notes or unparsed entries");
+}
+console.log(problems.length === 0 ? "VALID" : problems.join("\n"));
+EOF
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "  skip  /ui-design reader and capture tests (Node isn't installed)"
+else
+  # Drawings. The fixture drawing (tests/ui-drawing/, shared with Godot Director) has a green box with
+  # bound text and click:, a blue box over an existing element, a red X over an element, an arrowed
+  # comment, a box inside a box, a note outside the frame and a freehand squiggle; its expected
+  # reading was worked out by hand. The scaled copy has the background image and everything over it
+  # moved and scaled to 50% (the frame stays). The *.godot.drawing.json files are what Godot
+  # Director's reader (tools/ui_drawing.gd) writes for them: the port must write the same text.
+  drawings="$work/drawings"
+  mkdir -p "$drawings/drawing_fixtures/read" "$drawings/drawing_fixtures/moved"
+  cp "$src"/tests/ui-drawing/* "$drawings/drawing_fixtures/"
+  for variant in fixture:read fixture-scaled:moved; do
+    name="${variant%%:*}"; folder="${variant#*:}"
+    cp "$src/tests/ui-drawing/fixture.elements.json" "$drawings/drawing_fixtures/$folder/hero_room@1000x500.elements.json"
+    out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" "drawing_fixtures/$name.excalidraw" "drawing_fixtures/$folder/hero_room.drawing.json" 2>&1)"
+    expect_status "the reader reads $name.excalidraw" 0 $? "$out"
+    out="$(node "$helpers/compare.mjs" "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/fixture.expected.json" 2>&1)"
+    case "$name" in
+      fixture) expect_output "the fixture drawing gives exactly the expected boxes, intents, parent, comment, removal, note and one unparsed entry, to 0.1%" "^SAME" "$out" ;;
+      *) expect_output "the same drawing with the background image moved and scaled 50% gives the same percentages" "^SAME" "$out" ;;
+    esac
+    cmp -s "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/$name.godot.drawing.json" \
+      && ok "and exactly the drawing.json Godot Director's reader writes for $name.excalidraw" \
+      || bad "the reader writes the drawing.json Godot Director's reader writes for $name.excalidraw" \
+        "$(diff "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/$name.godot.drawing.json" | head -n 10)"
+  done
+  out="$(node tools/ui/drawing.mjs "$drawings/nowhere.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses a missing drawing" 1 $? "$out"
+  printf '{ not json' > "$drawings/broken.excalidraw"
+  out="$(node tools/ui/drawing.mjs "$drawings/broken.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses invalid JSON" 1 $? "$out"
+  expect_output "and says so" "isn't valid JSON" "$out"
+  printf '{"type":"excalidraw","version":2,"elements":[],"files":{}}' > "$drawings/empty.excalidraw"
+  out="$(node tools/ui/drawing.mjs "$drawings/empty.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses a drawing with no frame" 1 $? "$out"
+  expect_output "and says so" "has no frame" "$out"
+  out="$(node tools/ui/drawing.mjs starter "$drawings/drawing_fixtures/fixture" "$drawings/hero_room.starter.excalidraw" 2>&1)"
+  expect_status "the starter drawing is written from a capture's files" 0 $? "$out"
+  cmp -s "$drawings/hero_room.starter.excalidraw" "$src/tests/ui-drawing/starter.expected.excalidraw" \
+    && ok "the starter matches the hand-checked fixture that Godot Director's starter matches" \
+    || bad "the starter matches the hand-checked fixture" "$(diff "$drawings/hero_room.starter.excalidraw" "$src/tests/ui-drawing/starter.expected.excalidraw" | head -n 10)"
+  out="$(node "$helpers/validate.mjs" "$drawings/hero_room.starter.excalidraw" hero_room 1000 500 "$app/tools/ui/drawing.mjs" 2>&1)"
+  expect_output "the starter is valid Excalidraw, and saved unchanged it reads back with no boxes and no unparsed entries" "^VALID" "$out"
+
+  # What capture needs, and what it says without it. Nothing may be written when it can't run.
+  cp tools/ui_capture.cfg "$work/saved-ui-cfg"; cp tools/ui/screens.mjs "$work/saved-catalog"; cp tools/check.cfg "$work/saved-check-cfg"
+  rm -rf product/ui/captures
+  out="$(bash tools/ui_capture.sh --list 2>&1)"; expect_status "lists the catalog with Node alone" 0 $? "$out"
+  expect_output "a line per screen: id, title, states, route, drawing and spec" "home · Home · states: default · opens / · drawing: no · spec: no" "$out"
+  printf 'export default { screens: [\n  { id: "a", title: "A", route: "/" },\n  { id: "a", title: "Again", route: "/again" },\n  { id: "b", title: "B", route: "b", scene: "x" },\n] };\n' > tools/ui/screens.mjs
+  out="$(bash tools/ui_capture.sh --list 2>&1)"; expect_status "fails a catalog with broken entries" 1 $? "$out"
+  expect_output "and names each problem" "the id 'a' is used twice" "$out"
+  expect_output "and an unknown key and a route that isn't a path" "unknown key 'scene'.*route must be a path" "$out"
+  cp "$work/saved-catalog" tools/ui/screens.mjs
+  mkdir -p src/ui/screens
+  printf 'export const HomeScreen = () => `<h1 data-testid="home-title">Home</h1>`;\n' > src/ui/screens/HomeScreen.ts
+  out="$(bash tools/ui_capture.sh --missing 2>&1)"; expect_status "--missing never fails" 0 $? "$out"
+  expect_output "it lists a screen file the catalog doesn't name as a source" "missing: src/ui/screens/HomeScreen.ts" "$out"
+  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 for an app with no web UI to open" 3 $? "$out"
+  expect_output "and says capture isn't available for it yet" "capture isn't available for this .*app yet" "$out"
+  printf '# Home\n\n## Layout (at 1280x720)\n| # | Element | Name | Where (x, y, w, h %%) | Shows | Does | Size |\n|---|---|---|---|---|---|---|\n| 1 | Title | home-title | 2, 2, 20, 5 | - | - | fit |\n| 2 | Menu | home-menu | 2, 10, 20, 5 | - | - | fit |\n' > product/ui/home.md
+  out="$(bash tools/ui_capture.sh home --verify 2>&1)"; expect_status "verify without capture exits 3: unverified" 3 $? "$out"
+  expect_output "but checks the spec's names in the source" "\| Title \| home-title \| src/ui/screens/HomeScreen.ts \|" "$out"
+  expect_output "and names one that isn't there" "\| Menu \| home-menu \| not found \|" "$out"
+  sed 's#^base_url =.*#base_url = https://example.com#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "refuses a host that isn't this machine (exit 3)" 3 $? "$out"
+  expect_output "and says why" "refusing \[web\] base_url: example.com isn't this machine" "$out"
+  sed 's#^base_url =.*#base_url = http://127.0.0.1:9#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 without Playwright" 3 $? "$out"
+  expect_output "and gives the command that installs it" "cd tools/ui && npm install && npx playwright install chromium" "$out"
+  _no_node_path=""
+  for _dir in $(printf '%s' "$PATH" | tr ':' '\n'); do
+    [ -x "$_dir/node" ] || [ -x "$_dir/node.exe" ] || _no_node_path="${_no_node_path:+$_no_node_path:}$_dir"
+  done
+  out="$(PATH="$_no_node_path" bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 without Node" 3 $? "$out"
+  expect_output "and says it needs Node 18" "needs Node 18 or newer" "$out"
+  [ ! -e product/ui/captures ] && ok "writes nothing when it can't run" || bad "writes nothing when it can't run" "$(ls product/ui/captures)"
+  out="$(PATH="$_no_node_path" bash tools/check.sh 2>&1)"; expect_status "the check passes without Node" 0 $? "$out"
+  fingerprint="$(bash tools/check.sh --fingerprint)"
+  mkdir -p product/ui/captures && printf '{}\n' > product/ui/captures/home@1280x720.elements.json && printf 'x' > product/ui/captures/home@1280x720.png
+  [ "$(bash tools/check.sh --fingerprint)" = "$fingerprint" ] && ok "captures don't change the check's fingerprint (they're gitignored)" \
+    || bad "captures don't change the check's fingerprint (they're gitignored)"
+  rm -rf product/ui/captures product/ui/home.md
+
+  # An upgrade from the release before /ui-design: an app without its files gets the stubs, the
+  # .gitignore lines and the manifest entries, and keeps its own AGENTS.md and check.cfg.
+  upgraded="$work/upgraded"
+  new_repo "$upgraded"
+  bash "$src/install.sh" "$upgraded" >/dev/null 2>&1
+  (cd "$upgraded" && rm -rf .app-director/procedures/ui-design.md .claude/skills/ui-design tools/ui_capture.sh tools/ui tools/ui_capture.cfg product/ui \
+    && grep -v -e '/product/ui/captures/' -e '/tools/ui/' .gitignore > .gitignore.new && mv .gitignore.new .gitignore \
+    && grep -v -e 'tools/ui' -e 'ui-design' .app-director/manifest > manifest.new && mv manifest.new .app-director/manifest \
+    && printf '# My app\nOur own AGENTS.md\n' > AGENTS.md && printf '[project]\nstack = none\n[ui]\ndirs = web/pages\n' > tools/check.cfg \
+    && mkdir -p web/pages && printf 'export default () => "<main>Orders</main>";\n' > web/pages/orders.tsx)
+  out="$(bash "$src/install.sh" "$upgraded" 2>&1)"; expect_status "upgrades an app from before /ui-design" 0 $? "$out"
+  if [ -f "$upgraded/tools/ui/screens.mjs" ] && [ -f "$upgraded/tools/ui_capture.cfg" ] && [ -f "$upgraded/product/ui/README.md" ] \
+      && [ -x "$upgraded/tools/ui_capture.sh" ] && grep -qx '/product/ui/captures/' "$upgraded/.gitignore" && grep -qx '/tools/ui/node_modules/' "$upgraded/.gitignore" \
+      && grep -q "$(printf '\t')tools/ui/capture.mjs$" "$upgraded/.app-director/manifest" && grep -q "$(printf '\t').app-director/procedures/ui-design.md$" "$upgraded/.app-director/manifest"; then
+    ok "it gets the catalog, the settings, the tools, the .gitignore lines and the manifest entries"
+  else
+    bad "the upgrade gets the catalog, the settings, the tools, the .gitignore lines and the manifest entries" "$out"
+  fi
+  grep -q "Our own AGENTS.md" "$upgraded/AGENTS.md" && grep -q "dirs = web/pages" "$upgraded/tools/check.cfg" \
+    && ok "and keeps its own AGENTS.md and check.cfg" || bad "the upgrade keeps the app's own AGENTS.md and check.cfg"
+  out="$(cd "$upgraded" && bash tools/ui_capture.sh --missing 2>&1)"; expect_status "align's screen check lists without failing" 0 $? "$out"
+  expect_output "the app's screens the catalog doesn't cover yet" "missing: web/pages/orders.tsx" "$out"
+
+  # Capture of the fixture web app (tests/ui-web), served on this machine by its start_command.
+  pw="${ADIR_PLAYWRIGHT:-$src/tests/ui-web/node_modules}"
+  chromium_ok=0
+  if [ -d "$pw/playwright" ] && [ -d "$pw/playwright-core" ]; then
+    mkdir -p tools/ui/node_modules && cp -R "$pw/playwright" "$pw/playwright-core" tools/ui/node_modules/
+    (cd tools/ui && node --input-type=module -e 'import { chromium } from "playwright"; import { existsSync } from "node:fs"; process.exit(existsSync(chromium.executablePath()) ? 0 : 1);') >/dev/null 2>&1 && chromium_ok=1
+  fi
+  if [ "$chromium_ok" -eq 0 ]; then
+    echo "  skip  capture of the fixture web app (no Playwright with Chromium in tests/ui-web/node_modules or \$ADIR_PLAYWRIGHT)"
+  else
+    rm -rf uifixture && cp -R "$src/tests/ui-web" uifixture && rm -rf uifixture/node_modules
+    port=$((40000 + $$ % 20000))
+    sed -e "s#^base_url =.*#base_url = http://127.0.0.1:$port#" -e "s#^start_command =.*#start_command = node uifixture/serve.mjs $port#" \
+      -e 's#^list = .*#list = 1280x720 800x600#' -e 's#^setup_timeout = .*#setup_timeout = 3#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+    cat > tools/ui/screens.mjs <<'EOF'
+export default {
+  screens: [
+    { id: "clean", title: "Hero room", route: "/", source: "uifixture/site/index.html",
+      states: {
+        default: null,
+        busy: async (page, api, screen) => { await screen.open(); await page.evaluate(() => { document.querySelector("h2").textContent = "Ada (busy)"; }); },
+      } },
+    { id: "lint", title: "Lint fixture", route: "/lint" },
+    { id: "order", title: "Tab order", route: "/order" },
+    { id: "broken", title: "Throws", route: "/broken" },
+    { id: "gone", title: "Missing route", route: "/missing" },
+    { id: "stuck", title: "A state that never finishes", route: "/", states: { default: () => new Promise(() => undefined) } },
+    { id: "away", title: "Calls a hosted backend", route: "/away" },
+    { id: "apiaway", title: "Seeds through a redirect off this machine", route: "/", states: { default: async (page, api) => { await api.get("/redirect-away"); } } },
+    { id: "modal", title: "A modal dialog", route: "/modal" },
+    { id: "reload", title: "Reloads when focused", route: "/reload" },
+    { id: "bad", title: "A broken entry", route: "nope" },
+  ],
+};
+EOF
+    captures=product/ui/captures
+    out="$(bash tools/ui_capture.sh --all 2>&1)"; status=$?
+    expect_status "a screen that fails fails the run (exit 1), and the others are captured" 1 "$status" "$out"
+    missing=""
+    for base in clean clean.busy lint order away modal; do
+      for size in 1280x720 800x600; do
+        for ext in png elements.json map.png lint.txt; do [ -f "$captures/$base@$size.$ext" ] || missing="$missing $base@$size.$ext"; done
+      done
+    done
+    [ -z "$missing" ] && ok "writes a PNG, element map, map image and lint file per screen, state and size" || bad "capture outputs missing:$missing" "$out"
+    [ "$(od -An -tu1 -j16 -N8 "$captures/clean@800x600.png" | tr -s ' ' | sed 's/^ //;s/ $//')" = "0 0 3 32 0 0 2 88" ] \
+      && ok "a capture has the requested size (800x600)" || bad "a capture has the requested size (800x600)"
+    (cd "$captures" && ls -- *.starter.excalidraw 2>/dev/null | tr '\n' ' ') > "$work/starters"
+    [ "$(cat "$work/starters")" = "away.starter.excalidraw broken.starter.excalidraw clean.starter.excalidraw lint.starter.excalidraw modal.starter.excalidraw order.starter.excalidraw " ] \
+      && ok "writes a starter drawing for the default state at the default size" || bad "writes a starter drawing for the default state at the default size" "$(cat "$work/starters")"
+    grep -q '"schema": 1, "adapter": "playwright"' "$captures/clean@1280x720.elements.json" \
+      && grep -q '"id":"change","stable":true,"path":"\[data-testid=\\"change\\"\]","kind":"button","name":"Change",' "$captures/clean@1280x720.elements.json" \
+      && ok "the element map lists the data-testid elements with their role and name" || bad "the element map lists the data-testid elements with their role and name" "$(head -n 8 "$captures/clean@1280x720.elements.json")"
+    grep -q 'Ada (busy)' "$captures/clean.busy@1280x720.elements.json" && ! grep -q 'Ada (busy)' "$captures/clean@1280x720.elements.json" \
+      && ok "a state prepares the page after opening it" || bad "a state prepares the page after opening it"
+    [ -z "$(cat "$captures"/clean@*.lint.txt "$captures"/clean.busy@*.lint.txt)" ] && ok "the clean page is lint-clean at every size" \
+      || bad "the clean page is lint-clean at every size" "$(cat "$captures"/clean*.lint.txt)"
+    lint="$(cat "$captures/lint@1280x720.lint.txt")"
+    for rule in 'squeezed-text element [0-9]* \[data-testid="squeezed"\]' 'stretched-control element [0-9]* \[data-testid="stretched"\]' \
+        'off-screen element [0-9]* \[data-testid="far"\]' 'overlap element [0-9]* \[data-testid="link-one"\]: element [0-9]* \(Two\)' \
+        'unreachable element [0-9]* \[data-testid="skipped"\]' 'no-default-focus element [0-9]* \[data-testid="ok"\]' \
+        'hard-coded-position element [0-9]* \[data-testid="pinned"\].*\(warning\)'; do
+      expect_output "lint: ${rule%% *} on the element built to break it" "$rule" "$lint"
+    done
+    [ "$(printf '%s\n' "$lint" | grep -c .)" = "7" ] && ok "and nothing else on that page" || bad "the lint page has exactly seven findings" "$lint"
+    order="$(node -e 'const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(m.elements.map((e) => e.id + "=" + e.focus_order).join(" "));' "$captures/order@1280x720.elements.json")"
+    [ "$order" = "first=3 third=2 second=1 trap=4 after=null" ] && ok "Tab order follows tabindex, and stops at the focus trap" || bad "Tab order follows tabindex, and stops at the focus trap" "$order"
+    [ "$(cat "$captures/order@1280x720.lint.txt")" = 'unreachable element 5 [data-testid="after"]: Tab never reaches it from the default focus' ] \
+      && ok "the element after the trap is the one unreachable element" || bad "the element after the trap is the one unreachable element" "$(cat "$captures/order@1280x720.lint.txt")"
+    head -n 1 "$captures/broken@1280x720.lint.txt" | grep -q '^error: a page error: selftest page error' && [ -f "$captures/broken@1280x720.png" ] \
+      && ok "a page error fails its screen, which is still captured, with the error at the top of its lint file" || bad "a page error fails its screen, with the error at the top of its lint file" "$out"
+    grep -q '^error: /missing answered 404' "$captures/gone@1280x720.lint.txt" && [ ! -f "$captures/gone@1280x720.png" ] \
+      && ok "a route that answers 404 fails its screen and leaves only the error" || bad "a route that answers 404 fails its screen and leaves only the error" "$out"
+    expect_output "a state that doesn't finish fails only its screen" "FAIL: stuck@1280x720: the setup didn't finish within 3 seconds" "$out"
+    expect_output "a broken catalog entry is named" "FAIL: bad: its route must be a path" "$out"
+    away="$(cat "$captures/away@1280x720.lint.txt")"
+    expect_output "a request to a host that isn't this machine is blocked and noted" "^note: blocked requests to 192\.0\.2\.1: not this machine" "$away"
+    expect_output "so is a redirect off this machine, which capture doesn't follow" "^note: blocked requests to 203\.0\.113\.9:" "$away"
+    expect_output "and a WebSocket to another host" "^note: blocked requests to 198\.51\.100\.7:" "$away"
+    grep -q '"name":"local data"' "$captures/away@1280x720.elements.json" && ok "while the page's own requests to this machine go through" \
+      || bad "the page's own requests to this machine go through" "$(head -n 8 "$captures/away@1280x720.elements.json")"
+    expect_output "the api helper doesn't follow a redirect (it fails the state)" "FAIL: apiaway@1280x720: api: GET http://127\.0\.0\.1:$port/redirect-away answered 302" "$out"
+    [ -z "$(cat "$captures/modal@1280x720.lint.txt")" ] && ok "behind an open modal dialog, nothing counts as unreachable" \
+      || bad "behind an open modal dialog, nothing counts as unreachable" "$(cat "$captures/modal@1280x720.lint.txt")"
+    expect_output "a page that reloads while it is mapped fails only its screen" "FAIL: reload@1280x720: the page changed while it was mapped" "$out"
+    expect_output "capture starts the app with start_command" "starting the app: node uifixture/serve.mjs $port" "$out"
+    node -e 'require("http").get(process.argv[1], () => process.exit(1)).on("error", () => process.exit(0));' "http://127.0.0.1:$port/" \
+      && ok "and stops it afterwards" || bad "capture stops the app it started"
+    cp "$captures/clean@1280x720.elements.json" "$work/first-map"; cp "$captures/clean@1280x720.png" "$work/first-png"
+    out="$(bash tools/ui_capture.sh clean --state default --size 1280x720 2>&1)"; expect_status "captures one screen, state and size" 0 $? "$out"
+    cmp -s "$captures/clean@1280x720.elements.json" "$work/first-map" && ok "a second capture gives the same element map" || bad "a second capture gives the same element map" "$out"
+    cmp -s "$captures/clean@1280x720.png" "$work/first-png" && ok "and the same image" || bad "a second capture gives the same image"
+    out="$(node "$helpers/validate.mjs" "$captures/clean.starter.excalidraw" clean 1280 720 "$app/tools/ui/drawing.mjs" 2>&1)"
+    expect_output "a captured starter drawing is valid Excalidraw and reads back empty" "^VALID" "$out"
+
+    # verify: a spec written from the capture matches it; moving one element 10% reports exactly it.
+    node -e '
+      const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      const rows = m.elements.filter((e) => ["back", "hero-sheet", "gear-list", "change"].includes(e.id))
+        .map((e, i) => `| ${i + 1} | ${e.id} | ${e.id} | ${e.rect_pct.join(", ")} | - | - | fit |`);
+      require("fs").writeFileSync(process.argv[2], "# Hero room\n\n## Layout (at 1280x720)\n| # | Element | Name | Where (x, y, w, h %) | Shows | Does | Size |\n|---|---|---|---|---|---|---|\n" + rows.join("\n") + "\n");
+    ' "$captures/clean@1280x720.elements.json" product/ui/clean.md
+    mkdir -p "$work/director-ui" && cp "$captures/clean.starter.excalidraw" "$work/director-ui/clean.excalidraw"
+    node tools/ui/drawing.mjs "$work/director-ui/clean.excalidraw" "$captures/clean.drawing.json" clean >/dev/null 2>&1
+    out="$(bash tools/ui_capture.sh clean --verify --size 1280x720 2>&1)"; expect_status "verify passes a screen built as its spec says" 0 $? "$out"
+    expect_output "with no deviations" "4 elements checked, 0 deviations" "$out"
+    expect_output "a broken entry elsewhere in the catalog doesn't stop it" "note: another entry in tools/ui/screens.mjs has a problem: bad:" "$out"
+    expect_output "it names the compare image" "compare image: product/ui/captures/clean.compare@1280x720.png" "$out"
+    [ "$(od -An -tu1 -j16 -N8 "$captures/clean.compare@1280x720.png" 2>/dev/null | tr -s ' ' | sed 's/^ //;s/ $//')" = "0 0 10 8 0 0 2 208" ] \
+      && ok "and writes it: the drawing's screenshot and the capture side by side (2568x720)" || bad "the compare image is the drawing's screenshot and the capture side by side (2568x720)" "$out"
+    sed 's#<section class="panel" data-testid="hero-sheet">#<section class="panel" data-testid="hero-sheet" style="margin-left:128px">#' "$src/tests/ui-web/site/index.html" > uifixture/site/index.html
+    out="$(bash tools/ui_capture.sh clean --verify --size 1280x720 2>&1)"; expect_status "verify fails a screen with an element moved 10%" 1 $? "$out"
+    if [ "$(printf '%s\n' "$out" | grep -c '^ui_verify: | .* | moved: ')" = "1" ]; then
+      expect_output "and reports exactly that element" "\| hero-sheet \| hero-sheet \| .* \| moved: left edge" "$out"
+    else
+      bad "verify reports exactly the moved element" "$out"
+    fi
+    cp "$src/tests/ui-web/site/index.html" uifixture/site/index.html
+
+    # A capture killed mid-run leaves the app it started running; the next capture stops it first,
+    # instead of taking it for an app the human started.
+    answers() { node -e 'require("http").get(process.argv[1], () => process.exit(0)).on("error", () => process.exit(1));' "http://127.0.0.1:$port/"; }
+    cp tools/ui_capture.cfg "$work/fixture-cfg"
+    sed 's#^setup_timeout = .*#setup_timeout = 120#' "$work/fixture-cfg" > tools/ui_capture.cfg
+    rm -f .app-director/state/ui_app.pid
+    bash tools/ui_capture.sh stuck > "$work/stuck.log" 2>&1 &
+    waited=0
+    until [ -f .app-director/state/ui_app.pid ] && answers; do
+      waited=$((waited + 1)); [ "$waited" -ge 60 ] && break; sleep 1
+    done
+    sleep 1
+    capture_pid="$(cut -d' ' -f2 .app-director/state/ui_app.pid 2>/dev/null)"
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) taskkill //PID "$capture_pid" //F >/dev/null 2>&1 ;;
+      *) kill -9 "$capture_pid" 2>/dev/null ;;
+    esac
+    wait 2>/dev/null
+    sleep 1
+    if answers; then ok "a capture killed mid-run leaves the app it started running"; else bad "a capture killed mid-run leaves the app it started running" "$(cat "$work/stuck.log")"; fi
+    cp "$work/fixture-cfg" tools/ui_capture.cfg
+    out="$(bash tools/ui_capture.sh clean --state default --size 1280x720 2>&1)"; expect_status "the next capture runs" 0 $? "$out"
+    expect_output "it stops the app the killed capture left running" "stopping the app an interrupted capture left running" "$out"
+    expect_output "and starts its own" "starting the app: node uifixture/serve.mjs $port" "$out"
+    if answers; then bad "and stops it afterwards: nothing is left running" "$out"; else ok "and stops it afterwards: nothing is left running"; fi
+    [ ! -f .app-director/state/ui_app.pid ] && ok "and clears its record of the app" || bad "capture clears its record of the app it started"
+
+    sed -e "s#^base_url =.*#base_url = http://127.0.0.1:$((port + 1))#" -e 's#^start_command =.*#start_command = node -e "process.exit(4)"#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+    out="$(bash tools/ui_capture.sh clean 2>&1)"; expect_status "exits 3 when the start command ends before the app answers" 3 $? "$out"
+    expect_output "and says so, naming the app's output" "ended with exit 4 before the app answered at .* \(its output: \.app-director/state/ui_app\.log\)" "$out"
+  fi
+  cp "$work/saved-ui-cfg" tools/ui_capture.cfg; cp "$work/saved-catalog" tools/ui/screens.mjs; cp "$work/saved-check-cfg" tools/check.cfg
+  rm -rf product/ui/captures product/ui/clean.md uifixture tools/ui/node_modules src/ui/screens
+fi
 
 finish

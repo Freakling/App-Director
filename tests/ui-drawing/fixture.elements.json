@@ -1,0 +1,153 @@
+{
+ "schema": 1,
+ "adapter": "godot",
+ "screen": "hero_room",
+ "state": "default",
+ "size": [
+  1000,
+  500
+ ],
+ "source": "res://hero_room.tscn",
+ "capped": false,
+ "elements": [
+  {
+   "n": 1,
+   "id": "Root",
+   "stable": true,
+   "path": "Root",
+   "kind": "Control",
+   "name": "Root",
+   "rect": [
+    0,
+    0,
+    1000,
+    500
+   ],
+   "rect_pct": [
+    0,
+    0,
+    100,
+    100
+   ],
+   "visible": true,
+   "focusable": false,
+   "focus_order": null
+  },
+  {
+   "n": 2,
+   "id": "Panel",
+   "stable": true,
+   "path": "Panel",
+   "kind": "Control",
+   "name": "Panel",
+   "rect": [
+    500,
+    30,
+    300,
+    330
+   ],
+   "rect_pct": [
+    50,
+    6,
+    30,
+    66
+   ],
+   "visible": true,
+   "focusable": false,
+   "focus_order": null
+  },
+  {
+   "n": 3,
+   "id": "HeroSheet",
+   "stable": true,
+   "path": "HeroSheet",
+   "kind": "Control",
+   "name": "HeroSheet",
+   "rect": [
+    75,
+    100,
+    200,
+    100
+   ],
+   "rect_pct": [
+    7.5,
+    20,
+    20,
+    20
+   ],
+   "visible": true,
+   "focusable": false,
+   "focus_order": null
+  },
+  {
+   "n": 4,
+   "id": "GearList",
+   "stable": true,
+   "path": "GearList",
+   "kind": "Control",
+   "name": "GearList",
+   "rect": [
+    540,
+    100,
+    220,
+    150
+   ],
+   "rect_pct": [
+    54,
+    20,
+    22,
+    30
+   ],
+   "visible": true,
+   "focusable": false,
+   "focus_order": null
+  },
+  {
+   "n": 5,
+   "id": "RepairButton",
+   "stable": true,
+   "path": "RepairButton",
+   "kind": "Control",
+   "name": "RepairButton",
+   "rect": [
+    400,
+    400,
+    100,
+    50
+   ],
+   "rect_pct": [
+    40,
+    80,
+    10,
+    10
+   ],
+   "visible": true,
+   "focusable": false,
+   "focus_order": null
+  },
+  {
+   "n": 6,
+   "id": "TitleLabel",
+   "stable": true,
+   "path": "TitleLabel",
+   "kind": "Control",
+   "name": "TitleLabel",
+   "rect": [
+    10,
+    10,
+    100,
+    20
+   ],
+   "rect_pct": [
+    1,
+    2,
+    10,
+    4
+   ],
+   "visible": true,
+   "focusable": false,
+   "focus_order": null
+  }
+ ],
+ "pickables_3d": []
+}

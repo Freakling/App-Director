@@ -20,6 +20,8 @@ Instructions for AI assistants working on this app. The workflow is App Director
 | `src/api/` or `src/data/` | Data layer: storage and network access |
 | `src/repositories/` | Data layer: data-access abstractions |
 | `tests/` | Tests |
+| `product/ui/` | Screen specs (one per screen) and `captures/` (gitignored); the director's drawings are in `director/ui/` |
+| `tools/ui/` | Screen capture (Node and Playwright, kept apart from the app); `screens.mjs` is the screen catalog |
 
 ## Architecture
 One row per significant system: what it owns and where its boundary is.
@@ -35,6 +37,7 @@ Owner: agent | human | shared. For human-owned areas, the agent uses the placeho
 <!-- | Visual design / assets      | human | `<img src="placeholder.svg" alt="[PLACEHOLDER]" />`  | -->
 <!-- | Infrastructure / deployment | human | config stub with # PLACEHOLDER on values to set       | -->
 <!-- | director/                   | human | read-only for the agent                               | -->
+<!-- | UI / screen layout          | director designs (director/ui/), agent builds | minimal functional component, commented for redesign | -->
 
 ## Project rules
 <!-- Only where this project differs from App Director defaults, as agreed with the human.

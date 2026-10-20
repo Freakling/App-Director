@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Away</title></head>
+<body>
+<h1 data-testid="title">Orders</h1>
+<p data-testid="local">waiting</p>
+<img alt="" src="http://192.0.2.1/tracker.png" width="1" height="1">
+<script>
+  // A dev server whose page calls a hosted backend: capture must block it and say so.
+  fetch("/api/data").then((r) => r.json()).then((d) => { document.querySelector('[data-testid="local"]').textContent = d.local ? "local data" : "?"; });
+  fetch("http://192.0.2.1/api/orders").catch(() => undefined);
+  fetch("/redirect-away").catch(() => undefined);
+  try { new WebSocket("ws://198.51.100.7/live"); } catch (error) { void error; }
+</script>
+</body>
+</html>

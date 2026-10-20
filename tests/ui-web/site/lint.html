@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lint</title>
+<style>
+  body { margin: 0; font: 16px/1.4 Arial, sans-serif; }
+  .row { display: flex; align-items: stretch; gap: 8px; margin: 8px; }
+  .tall { height: 300px; width: 100px; background: #ddd; }
+  .links a { display: inline-block; width: 120px; height: 30px; background: #eef; }
+  .flex { display: flex; position: relative; height: 60px; }
+  .pinned { position: absolute; left: 40px; top: 10px; }
+</style>
+</head>
+<body>
+<div data-testid="squeezed" style="width:20px">Belt: Simple Belt</div>
+<div class="row"><div class="tall">Portrait</div><button data-testid="stretched">Buy</button></div>
+<button data-testid="far" style="position:relative;left:2500px;white-space:nowrap">Far away</button>
+<div class="links"><a href="#one" data-testid="link-one">One</a><a href="#two" data-testid="link-two" style="margin-left:-60px">Two</a></div>
+<div class="flex"><span class="pinned" data-testid="pinned">Pinned</span></div>
+<dialog open style="position:static" data-testid="dialog"><p>Sure?</p><button data-testid="ok">OK</button></dialog>
+<button data-testid="trap">Trap</button>
+<button data-testid="skipped">Never reached</button>
+<script>
+  document.querySelector('[data-testid="trap"]').addEventListener("keydown", (event) => {
+    if (event.key === "Tab") { event.preventDefault(); document.querySelector('[data-testid="link-one"]').focus(); }
+  });
+</script>
+</body>
+</html>

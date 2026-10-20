@@ -25,7 +25,8 @@ The human makes every design and ownership decision; you gather, propose and wri
    1. Read the entries in `$ADIR/CHANGELOG.md` newer than the old version. Carry out each **Upgrade steps** section in order.
    2. If full, carry out steps 3-8 below.
    3. Run step 2 only if `bash tools/check.sh` exits 3 (fast) or run it again now (full).
-   4. Summarise what changed. Go to step 9.
+   4. **Screens.** If the app has a web UI, ask for the address of its dev server on this machine and write it to `tools/ui_capture.cfg` › `[web] base_url` (and `start_command`, if capture should start it). With Node available, run `bash tools/ui_capture.sh --missing` (the Screens checks of `.app-director/procedures/align.md`) and tell the human which screens the catalog doesn't cover yet. It lists them; it never fails the upgrade. Offer to add the entries now or leave them for the next item that touches a screen. An upgrade keeps the app's own `AGENTS.md` and `tools/check.cfg`; the layout lint never runs in the check.
+   5. Summarise what changed. Go to step 9.
 
    Fresh installs (fresh start, existing app) always run all steps.
 
@@ -122,6 +123,8 @@ Fill in `tools/check.cfg`:
 - `[data] dirs`: space-separated list of data-layer folders (e.g. `src/api src/repositories src/storage`).
 - `[scan] skip`: third-party folders, generated code (e.g. `node_modules dist build .dart_tool`).
 
+Fill in `tools/ui_capture.cfg` › `[web]` when the app has a web UI (Flutter web included): `base_url`, the address of its dev or test server on this machine (such as `http://localhost:5173`), and `start_command` if capture should start it. Leave `base_url` empty for a native Flutter, mobile or desktop app: capture isn't available for those yet. The catalog (`tools/ui/screens.mjs`) starts with the root route; capture needs Node 18 and, once per clone, `cd tools/ui && npm install && npx playwright install chromium`. Offer that install; it is never needed for the check.
+
 ## 8. Ownership and project rules
 
 ### Work-area ownership interview
@@ -130,6 +133,7 @@ For each area below, state the default and ask the human whether they want to ow
 | Area | Default | Agent placeholder when human owns it |
 |---|---|---|
 | **Frontend / UI code** | agent | minimal functional component, commented for redesign |
+| **UI / screen layout** | agent, or `director designs (director/ui/), agent builds` | minimal functional component, commented for redesign |
 | **Business logic / services** | agent | stub service returning hard-coded data with `// PLACEHOLDER` comment |
 | **Backend / API** | agent | stub endpoint returning mock data, documented |
 | **Database schema / migrations** | agent | schema with `// PLACEHOLDER` on new fields; migration stub |
@@ -138,6 +142,11 @@ For each area below, state the default and ask the human whether they want to ow
 | **Testing** | agent | tests written for every `(test)` outcome |
 | **Infrastructure / deployment** | human | config stub with `# PLACEHOLDER` on values the human must set |
 
+### Designing screens by drawing
+Ask once, in the UI / screen layout row of the table above: do they want to design screens by drawing over screenshots of the running app (`/ui-design`; free Excalidraw, no account)?
+- **Yes:** the row becomes `director designs (director/ui/), agent builds`, with the same placeholder. Offer `director/` (below) with `director/ui/`, and tell them the loop: `/ui-design capture` writes a starter drawing per screen, they draw and save it as `director/ui/<screen>.excalidraw`, and `/ui-design process <screen>` turns it into the screen's spec.
+- **No:** the row stays `agent` and nothing else changes. Capture, the layout lint and the catalog still work. No open question and no item is added: drawing is optional, never a prerequisite.
+
 ### Protected workspace
 If the human owns any area, or wants a space the agent will never touch: offer to create `director/`. The agent reads files there for context (mockups, brand assets, reference images, notes, third-party API specs) but never creates, modifies or deletes anything inside it.
 
@@ -145,6 +154,7 @@ If they want it:
 1. Create `director/` and `director/README.md` explaining what it is and that the agent won't touch it.
 2. Ask whether to gitignore it (for large binary assets) or commit it (for design docs and notes). Update `.gitignore` accordingly.
 3. Add a row to AGENTS.md › Ownership: `director/ (human's workspace, read-only for the agent)`.
+4. If they want to design screens by drawing over screenshots (`/ui-design`), also create `director/ui/`.
 
 ### Workflow defaults
 - Commits: the agent proposes and the human approves.
@@ -172,7 +182,7 @@ If the flows aren't decided yet, leave the placeholders and add an agent item "F
    - If the check fails, leave the hook off and add an item: "Install the pre-commit hook once the check passes (`bash tools/setup-clone.sh`)".
 7. **Tell the human:**
    - what needs their confirmation (inferred decisions, open questions);
-   - how to use it: "do the next task", "let's design…", "prepare an acceptance check", "check the docs are aligned", "research which library fits…" (in Claude Code also `/next-task`, `/design`, `/research`, `/acceptance`, `/align`, `/drift-reset`, `/prune`, `/release`);
+   - how to use it: "do the next task", "let's design…", "prepare an acceptance check", "check the docs are aligned", "research which library fits…", "capture the screens" (in Claude Code also `/next-task`, `/design`, `/research`, `/ui-design`, `/acceptance`, `/align`, `/drift-reset`, `/prune`, `/release`);
    - align often, and reset when you have to: a drift reset ("run a design drift reset") is for when the same conflict keeps coming back, and only they start one;
    - with the Claude adapter: to restart Claude Code, because skills, hooks and permissions load at session start;
    - that every new clone needs `bash tools/setup-clone.sh`.

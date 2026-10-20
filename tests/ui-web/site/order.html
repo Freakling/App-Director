@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Order</title></head>
+<body>
+<button data-testid="first">First</button>
+<button data-testid="third" tabindex="2">Third</button>
+<button data-testid="second" tabindex="1">Second</button>
+<button data-testid="trap">Trap</button>
+<button data-testid="after">After the trap</button>
+<script>
+  document.querySelector('[data-testid="trap"]').addEventListener("keydown", (event) => {
+    if (event.key === "Tab") { event.preventDefault(); document.querySelector('[data-testid="second"]').focus(); }
+  });
+</script>
+</body>
+</html>

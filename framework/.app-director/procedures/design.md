@@ -34,6 +34,7 @@ Brainstorm a topic, answer open design questions, or change how part of the app 
    - Leave `in-progress` items alone and tell the human about them, since another session may be working on them.
    - Suggest reorders; don't make them.
 5. **Numbers and thresholds** stay placeholders. Say what a value is for and how it should feel; the human sets it in config or environment variables.
+6. **Layout:** where things sit on a screen goes to `ui-design.md`. A design session settles what a screen is for, not where its elements are.
 
 ## Finish
 - Summarise what was decided, what's still open, and the next most useful question.
