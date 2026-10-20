@@ -161,6 +161,16 @@ grep -q '^### Your own product brief' "$src/ONBOARDING.md" && grep -q 'product/d
 grep -q 'product/director-brief\.md' "$src/README.md" || wired="$wired README.md"
 [ -z "$wired" ] && ok "the human-written product brief ships as a seed (and in the example) with the director's structure, and onboarding and the README present it" \
   || bad "the human-written product brief isn't wired into:$wired"
+# The start-here step in the README and the template's header link to the latest template at the
+# release tag. Both carry the same link, and its version is VERSION, as the fetch script's tag is.
+brief_link_re='https://raw\.githubusercontent\.com/Freakling/App-Director/v[0-9.]+/project/product/director-brief\.md'
+readme_link="$(grep -oE "$brief_link_re" "$src/README.md" | head -1)"
+seed_link="$(grep -oE "$brief_link_re" "$brief_seed" | head -1)"
+[ -n "$readme_link" ] && [ "$readme_link" = "$seed_link" ] \
+  && [ "$readme_link" = "https://raw.githubusercontent.com/Freakling/App-Director/v$version/project/product/director-brief.md" ] \
+  && grep -q '^\*\*Start here: write your product brief\.\*\*' "$src/README.md" \
+  && ok "the README's Start here step (first in Install) and the template's header link to the latest template at v<VERSION>" \
+  || bad "the latest-template link isn't at v<VERSION> in both the README and the template header (README: '$readme_link', header: '$seed_link', VERSION is $version)"
 
 unrouted=""
 for proc in "$src"/framework/.app-director/procedures/*.md; do
