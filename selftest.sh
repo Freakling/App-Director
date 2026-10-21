@@ -241,6 +241,28 @@ grep -qF 'git worktree add ../app-design' "$_wt_rule" && grep -qF 'bash tools/se
   && ok "sessions building at once each get a worktree, with the reason, in rules.md" \
   || bad "rules.md doesn't name the worktree rule for sessions building at once, with its reason"
 
+# Every subagent launch sets its model explicitly from the sizing table, so none inherits the session's
+# model. next-task.md says so for the builder, the reviewer, the researcher and an escalated retry;
+# rules.md states the rule the launches apply.
+_nt="$src/framework/.app-director/procedures/next-task.md"
+_rules_model="$src/framework/.app-director/rules.md"
+_launch_wording=""
+grep -qF 'Every subagent launch sets its model explicitly' "$_nt" || _launch_wording="$_launch_wording launch-rule"
+grep -qF "A launch never lets a subagent inherit the session's model" "$_nt" || _launch_wording="$_launch_wording no-inherit"
+grep -qF 'Where the table has no entry for the size, or model sizing is off, the launch passes the session model explicitly' "$_nt" \
+  || _launch_wording="$_launch_wording session-fallback"
+grep -qF 'the builder, the reviewer (step 6), the researcher (Research items) and an escalated retry' "$_nt" \
+  || _launch_wording="$_launch_wording launches"
+grep -qF 'Pass that model as `model:`' "$_nt" || _launch_wording="$_launch_wording builder-model"
+grep -qF 'retry once with its model set to the next size' "$_nt" || _launch_wording="$_launch_wording escalation"
+[ "$(grep -cF 'with its model set as section 3 says' "$_nt")" -ge 2 ] || _launch_wording="$_launch_wording reviewer-researcher"
+grep -qF 'model sizing on' "$_nt" && _launch_wording="$_launch_wording old-conditional"
+grep -qF "passes the entry for the current item's size as an explicit model on every subagent launch" "$_rules_model" \
+  || _launch_wording="$_launch_wording rules.md"
+[ -z "$_launch_wording" ] \
+  && ok "every subagent launch sets its model explicitly, and next-task.md and rules.md say so" \
+  || bad "the subagent model wording is missing or has drifted:$_launch_wording"
+
 # Model IDs must live only in the refresh-model-sizing procedure (single source of truth).
 _rms="$src/framework/.app-director/procedures/refresh-model-sizing.md"
 _rms_ids="$(grep -oE 'claude-[a-z0-9-]+' "$_rms" | sort -u | tr '\n' '|' | sed 's/|$//')"

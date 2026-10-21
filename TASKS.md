@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T16 · B8 · R1
+**Next IDs:** T17 · B8 · R1
 
 ## Queue
+
+### T16 · Every subagent launch passes its model explicitly · done · S · agent
+- Touches: framework/.app-director/procedures/next-task.md, framework/.app-director/rules.md, selftest.sh, CHANGELOG.md
+- Done when: next-task.md says the orchestrator passes the builder's, reviewer's and researcher's model explicitly from the sizing table on every launch and never lets a subagent inherit the session's model, with the session model only when the table has no entry for the size (check) · the selftest checks that wording (check)
+- Brief: -
+- Source: Director-Driven-Development T149
 
 ### T13 · The README starts with writing your own product brief · done · S · agent
 - Touches: README.md, project/product/director-brief.md, selftest.sh, CHANGELOG.md
