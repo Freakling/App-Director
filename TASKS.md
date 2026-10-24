@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T17 · B8 · R1
+**Next IDs:** T18 · B8 · R1
 
 ## Queue
+
+### T17 � The screen-design README is organised by feature � done � S � agent
+- Touches: project/product/ui/README.md, CHANGELOG.md
+- Done when: the README follows the section order and wording of Godot Director's design/ui README (workflow, what a capture gives you, boxes, colours, containment, patch or replace, re-arranging, states and sizes, processing, Excalidraw, files), with this framework's paths and setup, and says the grey boxes are locked and re-arranging is a blue box (check)
+- Brief: -
+- Source: Director-Driven-Development T181
 
 ### T16 · Every subagent launch passes its model explicitly · done · S · agent
 - Touches: framework/.app-director/procedures/next-task.md, framework/.app-director/rules.md, selftest.sh, CHANGELOG.md
