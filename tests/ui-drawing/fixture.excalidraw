@@ -562,6 +562,341 @@
    "link": null,
    "locked": false,
    "name": "hero_room"
+  },
+  {
+   "id": "tex6",
+   "type": "text",
+   "x": 114,
+   "y": 162,
+   "width": 90,
+   "height": 20,
+   "angle": 0,
+   "strokeColor": "#1e1e1e",
+   "backgroundColor": "transparent",
+   "fillStyle": "solid",
+   "strokeWidth": 2,
+   "strokeStyle": "solid",
+   "roughness": 1,
+   "opacity": 100,
+   "groupIds": [],
+   "frameId": "f1",
+   "index": "b02",
+   "roundness": null,
+   "seed": 105,
+   "version": 2,
+   "versionNonce": 905,
+   "isDeleted": false,
+   "boundElements": null,
+   "updated": 1,
+   "link": null,
+   "locked": false,
+   "fontSize": 20,
+   "fontFamily": 5,
+   "text": "Heading\nsize: fit",
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "containerId": "ex6",
+   "originalText": "Heading\nsize: fit",
+   "autoResize": true,
+   "lineHeight": 1.25,
+   "baseFontSize": null
+  },
+  {
+   "id": "ex6",
+   "type": "rectangle",
+   "x": 110,
+   "y": 160,
+   "width": 100,
+   "height": 20,
+   "angle": 0,
+   "strokeColor": "#868e96",
+   "backgroundColor": "transparent",
+   "fillStyle": "solid",
+   "strokeWidth": 1,
+   "strokeStyle": "solid",
+   "roughness": 1,
+   "opacity": 25,
+   "groupIds": [
+    "ddd-existing"
+   ],
+   "frameId": "f1",
+   "index": "b01",
+   "roundness": {
+    "type": 3
+   },
+   "seed": 306,
+   "version": 2,
+   "versionNonce": 904,
+   "isDeleted": false,
+   "boundElements": [
+    {
+     "id": "tex6",
+     "type": "text"
+    }
+   ],
+   "updated": 1,
+   "link": null,
+   "locked": false,
+   "customData": {
+    "ddd": "existing",
+    "n": 6,
+    "rect": [
+     10,
+     10,
+     100,
+     20
+    ]
+   }
+  },
+  {
+   "id": "tex6",
+   "type": "text",
+   "x": 114,
+   "y": 162,
+   "width": 90,
+   "height": 20,
+   "angle": 0,
+   "strokeColor": "#1e1e1e",
+   "backgroundColor": "transparent",
+   "fillStyle": "solid",
+   "strokeWidth": 2,
+   "strokeStyle": "solid",
+   "roughness": 1,
+   "opacity": 100,
+   "groupIds": [],
+   "frameId": "f1",
+   "index": "b09",
+   "roundness": null,
+   "seed": 105,
+   "version": 2,
+   "versionNonce": 905,
+   "isDeleted": false,
+   "boundElements": null,
+   "updated": 1,
+   "link": null,
+   "locked": false,
+   "fontSize": 20,
+   "fontFamily": 5,
+   "text": "Heading\nsize: fit",
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "containerId": "ex6",
+   "originalText": "Heading\nsize: fit",
+   "autoResize": true,
+   "lineHeight": 1.25,
+   "baseFontSize": null
+  },
+  {
+   "id": "ex4",
+   "type": "rectangle",
+   "x": 640,
+   "y": 200,
+   "width": 260,
+   "height": 150,
+   "angle": 0,
+   "strokeColor": "#868e96",
+   "backgroundColor": "transparent",
+   "fillStyle": "solid",
+   "strokeWidth": 1,
+   "strokeStyle": "solid",
+   "roughness": 1,
+   "opacity": 25,
+   "groupIds": [
+    "ddd-existing"
+   ],
+   "frameId": "f1",
+   "index": "b02",
+   "roundness": {
+    "type": 3
+   },
+   "seed": 304,
+   "version": 2,
+   "versionNonce": 904,
+   "isDeleted": false,
+   "boundElements": null,
+   "updated": 1,
+   "link": null,
+   "locked": false,
+   "customData": {
+    "ddd": "existing",
+    "n": 4,
+    "rect": [
+     540,
+     100,
+     220,
+     150
+    ]
+   }
+  },
+  {
+   "id": "ex3",
+   "type": "rectangle",
+   "x": 175,
+   "y": 200,
+   "width": 200,
+   "height": 100,
+   "angle": 0,
+   "strokeColor": "#868e96",
+   "backgroundColor": "transparent",
+   "fillStyle": "solid",
+   "strokeWidth": 1,
+   "strokeStyle": "solid",
+   "roughness": 1,
+   "opacity": 25,
+   "groupIds": [
+    "ddd-existing"
+   ],
+   "frameId": "f1",
+   "index": "b03",
+   "roundness": {
+    "type": 3
+   },
+   "seed": 303,
+   "version": 2,
+   "versionNonce": 904,
+   "isDeleted": false,
+   "boundElements": null,
+   "updated": 1,
+   "link": null,
+   "locked": false,
+   "customData": {
+    "ddd": "existing",
+    "n": 3,
+    "rect": [
+     75,
+     100,
+     200,
+     100
+    ]
+   }
+  },
+  {
+   "id": "ex2",
+   "type": "rectangle",
+   "x": 650,
+   "y": 130,
+   "width": 300,
+   "height": 330,
+   "angle": 0,
+   "strokeColor": "#868e96",
+   "backgroundColor": "transparent",
+   "fillStyle": "solid",
+   "strokeWidth": 1,
+   "strokeStyle": "solid",
+   "roughness": 1,
+   "opacity": 0,
+   "groupIds": [
+    "ddd-existing"
+   ],
+   "frameId": "f1",
+   "index": "b04",
+   "roundness": {
+    "type": 3
+   },
+   "seed": 302,
+   "version": 2,
+   "versionNonce": 904,
+   "isDeleted": false,
+   "boundElements": null,
+   "updated": 1,
+   "link": null,
+   "locked": false,
+   "customData": {
+    "ddd": "existing",
+    "n": 2,
+    "rect": [
+     500,
+     30,
+     300,
+     330
+    ]
+   }
+  },
+  {
+   "id": "ex5",
+   "type": "rectangle",
+   "x": 550,
+   "y": 500,
+   "width": 100,
+   "height": 50,
+   "angle": 0,
+   "strokeColor": "#868e96",
+   "backgroundColor": "transparent",
+   "fillStyle": "solid",
+   "strokeWidth": 1,
+   "strokeStyle": "solid",
+   "roughness": 1,
+   "opacity": 25,
+   "groupIds": [
+    "ddd-existing"
+   ],
+   "frameId": "f1",
+   "index": "b05",
+   "roundness": {
+    "type": 3
+   },
+   "seed": 305,
+   "version": 2,
+   "versionNonce": 904,
+   "isDeleted": true,
+   "boundElements": null,
+   "updated": 1,
+   "link": null,
+   "locked": false,
+   "customData": {
+    "ddd": "existing",
+    "n": 5,
+    "rect": [
+     400,
+     400,
+     100,
+     50
+    ]
+   }
+  },
+  {
+   "id": "exl3",
+   "type": "text",
+   "x": 177,
+   "y": 201,
+   "width": 14,
+   "height": 18,
+   "angle": 0,
+   "strokeColor": "#1e1e1e",
+   "backgroundColor": "transparent",
+   "fillStyle": "solid",
+   "strokeWidth": 2,
+   "strokeStyle": "solid",
+   "roughness": 1,
+   "opacity": 25,
+   "groupIds": [
+    "ddd-existing"
+   ],
+   "frameId": "f1",
+   "index": "b10",
+   "roundness": null,
+   "seed": 105,
+   "version": 2,
+   "versionNonce": 905,
+   "isDeleted": false,
+   "boundElements": null,
+   "updated": 1,
+   "link": null,
+   "locked": false,
+   "fontSize": 20,
+   "fontFamily": 5,
+   "text": "3",
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "containerId": null,
+   "originalText": "3",
+   "autoResize": true,
+   "lineHeight": 1.25,
+   "baseFontSize": null,
+   "customData": {
+    "ddd": "existing",
+    "n": 3
+   }
   }
  ],
  "appState": {

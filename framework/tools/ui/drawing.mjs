@@ -11,7 +11,8 @@
 // The starter drawing is what the human draws over. tools/ui/capture.mjs calls starterText() for the
 // default state at the default size; this writes the same from a capture's files:
 //   node tools/ui/drawing.mjs starter product/ui/captures/<id>@<W>x<H> <out>.excalidraw
-// Everything in the starter that isn't the human's carries customData.ddd, and the reader skips it.
+// Everything in the starter that isn't the human's carries customData.ddd, and the reader skips it,
+// except a grey `existing` box the human moved or resized (see Reading a drawing in ui-design.md).
 //
 // The same reader runs in every framework of the family (Godot Director's tools/ui_drawing.gd): the
 // same drawing gives the same drawing.json, byte for byte. Its geometry is computed in 32-bit floats,
@@ -38,6 +39,9 @@ const COMMENT_DISTANCE = 1.5;
 const OVERLAP_MIN = 0.2;
 // An arrow's end is on a note or a box when it is within this many pixels of it.
 const ARROW_REACH = 10.0;
+// A grey `existing` box counts as moved or resized when its position or size differs from the
+// rectangle it was drawn at by more than this many capture pixels.
+const MOVE_TOLERANCE = 2.0;
 // Keys a box may use; anything else in its text stays in `text`.
 const KEYS = ["shows", "does", "click", "key", "size", "stick", "scroll", "empty", "hidden when"];
 // Excalidraw's stroke colours (and the shades of the same families) by what they say.
@@ -55,6 +59,7 @@ const LEGEND = [
   "Details the agent understands: shows: does: click: key: size: stick: scroll: empty: hidden when:",
   "Colour says what changes: green new, blue keep but move or resize,",
   "red remove (or a red X), orange not sure, black as it should be.",
+  "Drag or resize a grey box to move that element.",
   "A box inside a box means it contains it.",
   "An arrow from a note to a box is a comment; from a box to a box, a flow.",
   "Text outside the frame is notes for the whole screen (mode: replace keeps only what you drew).",
@@ -268,6 +273,26 @@ function readMap(path) {
   return result;
 }
 
+// Whether a grey `existing` box was dragged or resized: unlocked, visible, carrying the rectangle it
+// was drawn at (customData.rect, capture pixels), and now differing from it by more than MOVE_TOLERANCE.
+function greyMoved(element, pixels) {
+  const data = element.customData;
+  if (element.locked || hidden(element) || !Array.isArray(data.rect) || data.rect.length < 4) return false;
+  const v = data.rect.map(Number);
+  const delta = Math.max(Math.abs(pixels.x - v[0]), Math.abs(pixels.y - v[1]), Math.abs(pixels.w - v[2]), Math.abs(pixels.h - v[3]));
+  return delta > MOVE_TOLERANCE;
+}
+
+// The map entry numbered n, or null.
+function entryOf(mapped, n) {
+  return mapped.find((entry) => entryNumber(entry) === n) || null;
+}
+
+// A box the human hid: fully transparent.
+function hidden(element) {
+  return element.opacity !== undefined && element.opacity !== null && number(element, "opacity") <= 0.0;
+}
+
 function mapRect(entry) {
   const values = Array.isArray(entry.rect) ? entry.rect : [0, 0, 0, 0];
   return rect(Number(values[0]), Number(values[1]), Number(values[2]), Number(values[3]));
@@ -378,7 +403,12 @@ export function readDrawing(source, path, sha1, screen, capturesDir) {
   const outside = [];
   for (const element of elements) {
     const kind = text(element, "type");
-    if (kind === "frame" || isOurs(element) || frameOf(element, allFrames, byId, 0) >= 0) continue;
+    if (kind === "frame" || frameOf(element, allFrames, byId, 0) >= 0) continue;
+    if (ours(element) === "existing" && kind === "rectangle" && !element.locked && !hidden(element) && Array.isArray(element.customData.rect)) {
+      outside.push([element._order, `grey box ${entryNumber(element.customData)} moved outside the frame`]);
+      continue;
+    }
+    if (isOurs(element)) continue;
     if (kind === "text" && text(element, "containerId") === "") {
       const note = noteText(element);
       if (note !== "") fileNotes.push(note);
@@ -432,11 +462,25 @@ function readFrame(frame, members, byId, files, fileNotes, outside, capturesDir,
   const boxOf = new Map();
   const texts = [];
   const linears = [];
+  let warnedNoMap = false;
   for (const element of members) {
-    if (isOurs(element)) continue;
+    let moved = null;
+    if (ours(element) === "existing" && text(element, "type") === "rectangle" && greyMoved(element, toPixels(bounds(element), origin, size))) {
+      const greyN = entryNumber(element.customData);
+      moved = entryOf(mapped, greyN);
+      if (mapped.length === 0) {
+        if (!warnedNoMap) {
+          warnedNoMap = true;
+          warnings.push(`${screen}: no element map ${mapName}, so the moved grey boxes are ignored`);
+        }
+      } else if (moved === null) {
+        warnings.push(`${screen}: grey box ${greyN} isn't in the element map`);
+      }
+    }
+    if (isOurs(element) && moved === null) continue;
     const kind = text(element, "type");
     if (kind === "rectangle") {
-      const box = { el: element, rect: bounds(element), id: `b${boxes.length + 1}`, comments: [], flows_to: [], labelEl: null };
+      const box = { el: element, rect: bounds(element), id: `b${boxes.length + 1}`, comments: [], flows_to: [], labelEl: null, moved };
       boxes.push(box);
       boxOf.set(text(element, "id"), box);
     } else if (kind === "text") {
@@ -472,6 +516,10 @@ function readFrame(frame, members, byId, files, fileNotes, outside, capturesDir,
     box.text = full;
     box.keys = keys;
     box.intent = intent(text(box.el, "strokeColor"));
+    if (box.moved !== null) {
+      box.label = entryId(box.moved);
+      box.intent = "keep";
+    }
     let parent = null;
     for (const other of boxes) {
       if (other !== box && area(other.rect) > area(box.rect) && encloses(grow(other.rect, 0.5), box.rect)) {
@@ -514,6 +562,26 @@ function readFrame(frame, members, byId, files, fileNotes, outside, capturesDir,
     }
   }
   removed.sort((a, b) => a.n - b.n);
+  // One element claimed twice: a moved grey box, a blue box named after it, a red X.
+  const claims = new Map();
+  const claim = (n, name, way) => {
+    if (!claims.has(n)) claims.set(n, [name, []]);
+    claims.get(n)[1].push(way);
+  };
+  for (const box of boxes) {
+    let byMap = box.moved;
+    let way = "a moved grey box";
+    if (byMap === null && box.intent === "keep") {
+      way = "a blue box named after it";
+      byMap = mapped.find((entry) => entryId(entry) === box.label) || null;
+    }
+    if (byMap !== null) claim(entryNumber(byMap), entryId(byMap), way);
+  }
+  for (const entry of removed) claim(entry.n, entry.name, "a red X");
+  for (const n of [...claims.keys()].sort((a, b) => a - b)) {
+    const [name, ways] = claims.get(n);
+    if (ways.length > 1) warnings.push(`${screen}: element ${n} (${name}) is claimed by ${ways.join(" and ")}`);
+  }
 
   // Other strokes: an arrow joining a note and a box is a comment, one joining two boxes is a flow.
   const consumed = new Set();
@@ -576,11 +644,16 @@ function readFrame(frame, members, byId, files, fileNotes, outside, capturesDir,
   unparsed.sort((a, b) => a[0] - b[0]);
   const boxRows = boxes.map((box) => {
     const unit = toUnit(box.rect, origin);
-    return {
+    const row = {
       id: box.id, label: box.label, text: box.text, keys: box.keys, intent: box.intent,
       rect_pct: [pct(unit.x), pct(unit.y), pct(unit.w), pct(unit.h)],
       parent: box.parent, comments: box.comments, flows_to: box.flows_to, overlaps: box.overlaps,
     };
+    if (box.moved !== null) {
+      row.from = "existing";
+      row.n = entryNumber(box.moved);
+    }
+    return row;
   });
   return {
     name: screen, state, size: [natural.x, natural.y], mode,
@@ -670,8 +743,8 @@ export function backgroundImage(source, screen, state) {
 // --- the starter drawing ------------------------------------------------------------------------
 
 // The starter drawing for a screen's default state: a frame named after the screen, exactly the size
-// of the capture, with the capture locked inside as the background; a faint, locked group of the
-// mapped elements (`existing`, numbered as in the map image) that can be hidden or deleted; and a
+// of the capture, with the capture locked inside as the background; a faint group of the
+// mapped elements (`existing`, numbered as in the map image) that can be dragged, resized, hidden or deleted; and a
 // legend outside the frame. Valid current-format Excalidraw JSON, deterministic for the same input.
 export function starterText(screen, size, png, mapped) {
   const fileId = createHash("sha1").update(png).digest("hex");
@@ -694,14 +767,12 @@ export function starterText(screen, size, png, mapped) {
     outline.strokeColor = "#868e96";
     outline.strokeWidth = 1;
     outline.opacity = 25;
-    outline.locked = true;
-    outline.groupIds = ["ddd-existing"];
-    outline.customData = { ddd: "existing", n };
+      outline.groupIds = ["ddd-existing"];
+    outline.customData = { ddd: "existing", n, rect: [at.x, at.y, Math.max(at.w, 1), Math.max(at.h, 1)] };
     items.push(outline);
     const label = textElement(`ddd-existing-label-${n}`, items.length, at.x + 2, at.y + 1, String(n), 14, frameId);
     label.strokeColor = "#868e96";
     label.opacity = 25;
-    label.locked = true;
     label.groupIds = ["ddd-existing"];
     label.customData = { ddd: "existing", n };
     items.push(label);

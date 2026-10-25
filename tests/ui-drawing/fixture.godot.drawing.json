@@ -46,7 +46,7 @@
               "name": "Panel"
             }
           ],
-          "parent": "b1",
+          "parent": "b5",
           "rect_pct": [54.0, 20.0, 22.0, 30.0],
           "text": "Gear list\nclick: opens Change"
         },
@@ -69,6 +69,47 @@
           "parent": null,
           "rect_pct": [5.0, 20.0, 20.0, 20.0],
           "text": "Hero sheet\nsize: fixed"
+        },
+        {
+          "comments": [],
+          "flows_to": [],
+          "from": "existing",
+          "id": "b4",
+          "intent": "keep",
+          "keys": {
+            "size": "fit"
+          },
+          "label": "TitleLabel",
+          "n": 6,
+          "overlaps": [],
+          "parent": null,
+          "rect_pct": [1.0, 12.0, 10.0, 4.0],
+          "text": "Heading\nsize: fit"
+        },
+        {
+          "comments": [],
+          "flows_to": [],
+          "from": "existing",
+          "id": "b5",
+          "intent": "keep",
+          "keys": {},
+          "label": "GearList",
+          "n": 4,
+          "overlaps": [
+            {
+              "iou": 0.85,
+              "n": 4,
+              "name": "GearList"
+            },
+            {
+              "iou": 0.39,
+              "n": 2,
+              "name": "Panel"
+            }
+          ],
+          "parent": "b1",
+          "rect_pct": [54.0, 20.0, 26.0, 30.0],
+          "text": ""
         }
       ],
       "mode": "replace",
@@ -87,6 +128,6 @@
     }
   ],
   "schema": 1,
-  "sha1": "172de70c3757d21006d9c5a125c4c3b131428fc7",
+  "sha1": "5ebdfc1fa196b51b9d2a09cfe8f58616cda3f875",
   "source": "drawing_fixtures/fixture.excalidraw"
 }

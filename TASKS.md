@@ -8,7 +8,7 @@ Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorde
 
 ## Queue
 
-### T17 · The screen-design README is organised by feature · done · S · agent
+### T17 Â· The screen-design README is organised by feature Â· done Â· S Â· agent
 - Touches: project/product/ui/README.md, CHANGELOG.md
 - Done when: the README follows the section order and wording of Godot Director's design/ui README (workflow, what a capture gives you, boxes, colours, containment, patch or replace, re-arranging, states and sizes, processing, Excalidraw, files), with this framework's paths and setup, and says the grey boxes are locked and re-arranging is a blue box (check)
 - Brief: -

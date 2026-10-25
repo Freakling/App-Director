@@ -4,7 +4,7 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
 
 ## Unreleased
 
-- **The screen-design README is organised by feature.** `product/ui/README.md` now follows the order of Godot Director's: the workflow, what a capture gives you, boxes, colours, containment, patch or replace, re-arranging a screen, other states and sizes, processing and verifying, Excalidraw and the files table. It also names the capture setup (Node 18 or newer, the catalog in `tools/ui/screens.mjs`, `tools/ui_capture.cfg`). The grey boxes are described as locked, a reference the agent doesn't read; re-arranging a screen means drawing a blue box where the element should now sit.
+- **The screen-design README is organised by feature.** `product/ui/README.md` now follows the order of Godot Director's: the workflow, what a capture gives you, boxes, colours, containment, patch or replace, re-arranging a screen, other states and sizes, processing and verifying, Excalidraw and the files table. It also names the capture setup (Node 18 or newer, the catalog in `tools/ui/screens.mjs`, `tools/ui_capture.cfg`). Re-arranging a screen is covered by the entry above.
 
 **Upgrade steps:**
 1. `product/ui/README.md` is an app-owned seed the installer leaves alone. Replace it with the source's `project/product/ui/README.md`, carrying over any notes you added.

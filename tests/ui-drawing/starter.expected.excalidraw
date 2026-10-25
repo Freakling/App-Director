@@ -47,7 +47,8 @@
       "created": null,
       "customData": {
         "ddd": "existing",
-        "n": 1
+        "n": 1,
+        "rect": [0, 0, 1000, 500]
       },
       "fillStyle": "solid",
       "frameId": "ddd-frame",
@@ -57,7 +58,7 @@
       "index": "a1",
       "isDeleted": false,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "roughness": 0,
       "roundness": null,
@@ -96,7 +97,7 @@
       "isDeleted": false,
       "lineHeight": 1.25,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "originalText": "1",
       "roughness": 0,
@@ -123,7 +124,8 @@
       "created": null,
       "customData": {
         "ddd": "existing",
-        "n": 2
+        "n": 2,
+        "rect": [500, 30, 300, 330]
       },
       "fillStyle": "solid",
       "frameId": "ddd-frame",
@@ -133,7 +135,7 @@
       "index": "a3",
       "isDeleted": false,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "roughness": 0,
       "roundness": null,
@@ -172,7 +174,7 @@
       "isDeleted": false,
       "lineHeight": 1.25,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "originalText": "2",
       "roughness": 0,
@@ -199,7 +201,8 @@
       "created": null,
       "customData": {
         "ddd": "existing",
-        "n": 3
+        "n": 3,
+        "rect": [75, 100, 200, 100]
       },
       "fillStyle": "solid",
       "frameId": "ddd-frame",
@@ -209,7 +212,7 @@
       "index": "a5",
       "isDeleted": false,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "roughness": 0,
       "roundness": null,
@@ -248,7 +251,7 @@
       "isDeleted": false,
       "lineHeight": 1.25,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "originalText": "3",
       "roughness": 0,
@@ -275,7 +278,8 @@
       "created": null,
       "customData": {
         "ddd": "existing",
-        "n": 4
+        "n": 4,
+        "rect": [540, 100, 220, 150]
       },
       "fillStyle": "solid",
       "frameId": "ddd-frame",
@@ -285,7 +289,7 @@
       "index": "a7",
       "isDeleted": false,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "roughness": 0,
       "roundness": null,
@@ -324,7 +328,7 @@
       "isDeleted": false,
       "lineHeight": 1.25,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "originalText": "4",
       "roughness": 0,
@@ -351,7 +355,8 @@
       "created": null,
       "customData": {
         "ddd": "existing",
-        "n": 5
+        "n": 5,
+        "rect": [400, 400, 100, 50]
       },
       "fillStyle": "solid",
       "frameId": "ddd-frame",
@@ -361,7 +366,7 @@
       "index": "a9",
       "isDeleted": false,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "roughness": 0,
       "roundness": null,
@@ -400,7 +405,7 @@
       "isDeleted": false,
       "lineHeight": 1.25,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "originalText": "5",
       "roughness": 0,
@@ -427,7 +432,8 @@
       "created": null,
       "customData": {
         "ddd": "existing",
-        "n": 6
+        "n": 6,
+        "rect": [10, 10, 100, 20]
       },
       "fillStyle": "solid",
       "frameId": "ddd-frame",
@@ -437,7 +443,7 @@
       "index": "aB",
       "isDeleted": false,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "roughness": 0,
       "roundness": null,
@@ -476,7 +482,7 @@
       "isDeleted": false,
       "lineHeight": 1.25,
       "link": null,
-      "locked": true,
+      "locked": false,
       "opacity": 25,
       "originalText": "6",
       "roughness": 0,
@@ -542,7 +548,7 @@
       "fontSize": 20,
       "frameId": null,
       "groupIds": [],
-      "height": 225,
+      "height": 250,
       "id": "ddd-legend",
       "index": "aE",
       "isDeleted": false,
@@ -550,14 +556,14 @@
       "link": null,
       "locked": false,
       "opacity": 100,
-      "originalText": "Draw over the screenshot, then save as director/ui/hero_room.excalidraw\nOne rectangle per thing you care about: its name on the first line, details below.\nDetails the agent understands: shows: does: click: key: size: stick: scroll: empty: hidden when:\nColour says what changes: green new, blue keep but move or resize,\nred remove (or a red X), orange not sure, black as it should be.\nA box inside a box means it contains it.\nAn arrow from a note to a box is a comment; from a box to a box, a flow.\nText outside the frame is notes for the whole screen (mode: replace keeps only what you drew).\nDelete this text when you like.",
+      "originalText": "Draw over the screenshot, then save as director/ui/hero_room.excalidraw\nOne rectangle per thing you care about: its name on the first line, details below.\nDetails the agent understands: shows: does: click: key: size: stick: scroll: empty: hidden when:\nColour says what changes: green new, blue keep but move or resize,\nred remove (or a red X), orange not sure, black as it should be.\nDrag or resize a grey box to move that element.\nA box inside a box means it contains it.\nAn arrow from a note to a box is a comment; from a box to a box, a flow.\nText outside the frame is notes for the whole screen (mode: replace keeps only what you drew).\nDelete this text when you like.",
       "roughness": 0,
       "roundness": null,
       "seed": 1110869,
       "strokeColor": "#1e1e1e",
       "strokeStyle": "solid",
       "strokeWidth": 2,
-      "text": "Draw over the screenshot, then save as director/ui/hero_room.excalidraw\nOne rectangle per thing you care about: its name on the first line, details below.\nDetails the agent understands: shows: does: click: key: size: stick: scroll: empty: hidden when:\nColour says what changes: green new, blue keep but move or resize,\nred remove (or a red X), orange not sure, black as it should be.\nA box inside a box means it contains it.\nAn arrow from a note to a box is a comment; from a box to a box, a flow.\nText outside the frame is notes for the whole screen (mode: replace keeps only what you drew).\nDelete this text when you like.",
+      "text": "Draw over the screenshot, then save as director/ui/hero_room.excalidraw\nOne rectangle per thing you care about: its name on the first line, details below.\nDetails the agent understands: shows: does: click: key: size: stick: scroll: empty: hidden when:\nColour says what changes: green new, blue keep but move or resize,\nred remove (or a red X), orange not sure, black as it should be.\nDrag or resize a grey box to move that element.\nA box inside a box means it contains it.\nAn arrow from a note to a box is a comment; from a box to a box, a flow.\nText outside the frame is notes for the whole screen (mode: replace keeps only what you drew).\nDelete this text when you like.",
       "textAlign": "left",
       "type": "text",
       "updated": 1,
