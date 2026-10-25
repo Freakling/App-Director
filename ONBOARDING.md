@@ -122,12 +122,13 @@ Fill in `tools/check.cfg`:
 - `[ui] dirs`: space-separated list of UI-layer folders (e.g. `src/screens src/pages src/components`).
 - `[data] dirs`: space-separated list of data-layer folders (e.g. `src/api src/repositories src/storage`).
 - `[scan] skip`: third-party folders, generated code (e.g. `node_modules dist build .dart_tool`).
+- `[security] every`: how many built items after the last security assessment `/next-task` proposes the next one (`.app-director/procedures/security.md`); the seed says 10. The human can decline a proposal. Leave it unless the human wants assessments proposed more or less often. An assessment also runs before a release when something was built since the last report, or when there is none yet.
 
 Fill in `tools/ui_capture.cfg` › `[web]` when the app has a web UI (Flutter web included): `base_url`, the address of its dev or test server on this machine (such as `http://localhost:5173`), and `start_command` if capture should start it. Leave `base_url` empty for a native Flutter, mobile or desktop app: capture isn't available for those yet. The catalog (`tools/ui/screens.mjs`) starts with the root route; capture needs Node 18 and, once per clone, `cd tools/ui && npm install && npx playwright install chromium`. Offer that install; it is never needed for the check.
 
 ## 8. Ownership and project rules
 
-Tell the human that the framework's rules include an OWASP baseline (the OWASP Top 10, and the API Security Top 10 for an API) that every app meets and no project setting turns off; only an accepted line in `product/decisions.md` naming the OWASP item and why can deviate from it. Don't offer it as a choice.
+Tell the human that the framework's rules include an OWASP baseline (the OWASP Top 10, and the API Security Top 10 for an API) that every app meets and no project setting turns off; only an accepted line in `product/decisions.md` naming the OWASP item and why can deviate from it. A security assessment (`/security`) checks what is built against it: `/next-task` proposes one every `[security] every` built items (the human can decline), and it runs before a release when something was built since the last report or none exists yet. Don't offer it as a choice.
 
 ### Work-area ownership interview
 For each area below, state the default and ask the human whether they want to own it. Record the result in AGENTS.md › Ownership (create that section now with a table). A human-owned area means the agent uses placeholders when it needs something from there; it never makes the real thing.
@@ -184,7 +185,7 @@ If the flows aren't decided yet, leave the placeholders and add an agent item "F
    - If the check fails, leave the hook off and add an item: "Install the pre-commit hook once the check passes (`bash tools/setup-clone.sh`)".
 7. **Tell the human:**
    - what needs their confirmation (inferred decisions, open questions);
-   - how to use it: "do the next task", "let's design…", "prepare an acceptance check", "check the docs are aligned", "research which library fits…", "capture the screens" (in Claude Code also `/next-task`, `/design`, `/research`, `/ui-design`, `/acceptance`, `/align`, `/drift-reset`, `/prune`, `/release`);
+   - how to use it: "do the next task", "let's design…", "prepare an acceptance check", "check the docs are aligned", "research which library fits…", "capture the screens", "run a security assessment" (in Claude Code also `/next-task`, `/design`, `/research`, `/ui-design`, `/acceptance`, `/align`, `/security`, `/drift-reset`, `/prune`, `/release`);
    - align often, and reset when you have to: a drift reset ("run a design drift reset") is for when the same conflict keeps coming back, and only they start one;
    - with the Claude adapter: to restart Claude Code, because skills, hooks and permissions load at session start;
    - that every new clone needs `bash tools/setup-clone.sh`.

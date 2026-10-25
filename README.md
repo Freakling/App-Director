@@ -88,6 +88,7 @@ Afterwards, restart Claude Code so the new commands load. Each new clone later n
 | "Check the docs are aligned" (`/align`) | A consistency pass. Drift gets fixed; gaps and conflicts come to you. |
 | "Run a design drift reset" (`/drift-reset`, later `/drift-reset postmortem`) | For when a principle has been built two ways: analyses the app as built, maps each principle's interpretations, has you rewrite the design, and plans the rebuild as tasks. Only you start it. Align often, reset when you have to. |
 | "Prune the task list" (`/prune`) | Moves done items to `TASKS-archive.md`. |
+| "Run a security assessment" (`/security`) | Checks what is built against the OWASP baseline: the dependency audit, the secrets scan and Semgrep where they are installed (never installed without asking), then a read-only reviewer through the OWASP checklist, citing file and line. Findings become bug items (high severity first), what only people can do (access reviews, incident response, key rotation) comes to you as a list, and a dated report in `product/security/` says what was verified, what couldn't be checked here, and what a clean run doesn't prove. It runs before a release when something was built since the last report (or there is none yet), and `/next-task` proposes it every 10 built items (`tools/check.cfg` › `[security] every`); you can decline. |
 | "Release to production" (`/release`) | Runs the check, builds for the target platform, and walks you through the deploy. |
 
 Two sessions that build at the same time each need their own git worktree; `.app-director/rules.md` (Sessions and context) gives the commands and the reason.
@@ -129,7 +130,8 @@ your-app/
 ├── product/director-brief.md   your own product brief, in your words (optional); onboarding reads it first and never edits it
 ├── product/decisions.md        why: one line per design decision
 ├── product/research/           dated research notes, one per topic; the decision line links to its note
-├── tools/check.cfg             check settings: stack, UI and data folders
+├── product/security/           dated security assessment reports, one per assessment
+├── tools/check.cfg             check settings: stack, UI and data folders, test time limit, security assessment cadence
 ├── tools/ui/screens.mjs        the screen catalog: every screen, its route, and how to seed each state
 ├── tools/ui_capture.cfg        capture sizes and seed, the app to open, lint thresholds, verify tolerance
 ├── product/ui/                 one spec per screen (and a gitignored captures/ folder); README.md says how to draw
@@ -139,9 +141,11 @@ your-app/
 │  App Director's, tool-neutral: updated on upgrade
 ├── .app-director/rules.md        the workflow rules, loaded through AGENTS.md
 ├── .app-director/tasks.md        the TASKS.md item format, read when items are written
-├── .app-director/procedures/     next-task · build · design · research · ui-design · review · align · drift-reset · prune · release · acceptance · refresh-model-sizing
+├── .app-director/procedures/     next-task · build · design · research · ui-design · review · security · align · drift-reset · prune · release · acceptance · refresh-model-sizing
 ├── .app-director/research-domain.md  what the researcher adds for apps: stacks and libraries, licences, app-store and platform requirements
+├── .app-director/reference/owasp.md  the OWASP checklist the security assessment reads, check by check
 ├── tools/check.sh              the check (UI purity, secrets, stack, custom)
+├── tools/security.sh           the security assessment's tools: dependency audit, secrets scan, Semgrep; and whether one is due
 ├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit hook
 ├── tools/stacks/               typescript.sh · flutter.sh · python.sh · none.sh
 ├── tools/ui_capture.sh, tools/ui/  screen capture, element map, layout lint, drawing reader, compare and verify (Node and Playwright)

@@ -2,6 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(bash tools/check.sh*)",
+      "Bash(bash tools/security.sh)",
+      "Bash(bash tools/security.sh --due)",
       "Bash(bash tools/ui_capture.sh*)",
       "Bash(node tools/ui/drawing.mjs *)",
       "Bash(node tools/ui/overlay.mjs *)",

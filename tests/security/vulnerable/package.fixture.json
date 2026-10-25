@@ -1,0 +1,10 @@
+{
+  "name": "notes-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Security assessment fixture; the selftest copies this file to package.json.",
+  "main": "src/server.js",
+  "dependencies": {
+    "lodash": "4.17.15"
+  }
+}

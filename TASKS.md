@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T22 · B8 · R1
+**Next IDs:** T23 · B8 · R1
 
 ## Queue
+
+### T22 · A recurring security assessment validates what is built against the OWASP baseline · done · L · agent
+- Touches: framework/.app-director/procedures/security.md (new), framework/.app-director/reference/owasp.md (new), framework/.claude/skills/security/SKILL.md (new), framework/tools/security.sh (new), framework/.app-director/procedures/release.md, framework/.app-director/procedures/next-task.md, framework/.app-director/rules.md, framework/.claude/agents/reviewer.md, framework/.claude/settings.json, project/tools/check.cfg, ONBOARDING.md, README.md, tests/security/ (new), selftest.sh, CHANGELOG.md
+- Done when: `/security` runs the tools (dependency audit, secrets scan, Semgrep when installed; each skipped with a note when missing, never installed without asking), then a reviewer pass through the OWASP checklist citing file and line; findings become bug items with OWASP item, severity, evidence and fix (high first); people and process items go to the director; the report in `product/security/YYYY-MM-DD.md` has the commit, what ran and was skipped, and a line per category, never marking one verified from a tool alone (check) · it runs on request, before a release is proposed, and when `/next-task` finds `[security] every` built items since the last report (check) · the selftest reports the seeded fixture's credential and vulnerable dependency with their OWASP items where the tools are available, and not the clean twin's; the reviewer's findings are a manual check in `tests/security/README.md` (check)
+- Brief: -
+- Source: Director-Driven-Development T202
 
 ### T21 · OWASP is a non-negotiable baseline · done · M · agent
 - Touches: framework/.app-director/rules.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/review.md, framework/tools/check.sh, ONBOARDING.md, selftest.sh, CHANGELOG.md
