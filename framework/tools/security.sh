@@ -104,12 +104,19 @@ run_tool() {
 }
 skip() { skipped=$((skipped + 1)); echo "security: $1: skipped: $2"; }
 last_line() { tr -d '\r' < "$out_file" | grep -v '^[[:space:]]*$' | tail -n 1; }
-couldnt() { # couldnt <label> [reason]: the reason defaults to the tool's last output line
+# why: the reason a tool couldn't run, from its output: the first line that names an error (a network
+# or restore failure), else its last line.
+why() {
+  local l; l="$(tr -d '\r' < "$out_file" | grep -m 1 -iE 'error|fail|unable|could not|timed out|ENOTFOUND|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN' | sed 's/^[[:space:]]*//')"
+  if [ -n "$l" ]; then printf '%s' "$l"; else last_line; fi
+}
+# couldnt <label> [reason]: the tool didn't exit 0 with its clean or finding output, or hit its time limit (124)
+couldnt() {
   skipped=$((skipped + 1))
   if [ "$rc" -eq 124 ] && [ -n "$timeout_cmd" ]; then
     echo "security: $1: couldn't run: no result within $TOOL_LIMIT s (output in $out_file)"
   else
-    echo "security: $1: couldn't run: ${2:-$(last_line)} (output in $out_file)"
+    echo "security: $1: couldn't run: ${2:-$(why)} (output in $out_file)"
   fi
 }
 
@@ -120,7 +127,8 @@ js_audit() { # <label> <name> <command...>
   local label="$1" name="$2"; shift 2
   run_tool "$name" "$@"
   local text; text="$(tr -d '\r' < "$out_file")"
-  if printf '%s\n' "$text" | grep -qE '^found 0 vulnerabilities|No known vulnerabilities found|^0 vulnerabilities found|No audit suggestions'; then
+  # Clean only when the audit exits 0 with its nothing-found output; that text with a non-zero exit is a failed run.
+  if [ "$rc" -eq 0 ] && printf '%s\n' "$text" | grep -qE '^found 0 vulnerabilities|No known vulnerabilities found|^0 vulnerabilities found|No audit suggestions'; then
     clean=$((clean + 1)); echo "security: $label: clean"
   elif printf '%s\n' "$text" | grep -qE '[0-9]+ (info|low|moderate|high|critical) severity vulnerabilit|[0-9]+ vulnerabilit(y|ies) found|^[0-9]+ vulnerabilities \(|^Severity: '; then
     found=$((found + 1))
@@ -171,7 +179,7 @@ if [ -f requirements.txt ] || [ -f pyproject.toml ]; then
     skip "$label" "requirements.txt has a requirement that isn't pinned with == ($unpinned), and auditing it would install packages and run their build code"
   elif command -v pip-audit >/dev/null 2>&1; then
     run_tool pip-audit pip-audit --progress-spinner off --disable-pip --no-deps -r requirements.txt
-    if grep -q 'No known vulnerabilities found' "$out_file"; then clean=$((clean + 1)); echo "security: $label: clean"
+    if [ "$rc" -eq 0 ] && grep -q 'No known vulnerabilities found' "$out_file"; then clean=$((clean + 1)); echo "security: $label: clean"
     elif grep -qE 'Found [0-9]+ known vulnerabilit' "$out_file"; then
       found=$((found + 1)); echo "security: $label: FINDINGS ($A06): $(grep -E 'Found [0-9]+ known vulnerabilit' "$out_file" | head -n 1 | tr -d '\r')"
     else couldnt "$label"; fi
@@ -198,8 +206,10 @@ if [ -f pubspec.yaml ]; then
   label="dependencies (flutter pub outdated)"
   if command -v flutter >/dev/null 2>&1; then
     run_tool flutter-outdated flutter pub outdated
-    skipped=$((skipped + 1))
-    echo "security: $label: information only, not a vulnerability audit: check the outdated packages in $out_file against their advisories"
+    if [ "$rc" -eq 0 ]; then
+      skipped=$((skipped + 1))
+      echo "security: $label: information only, not a vulnerability audit: check the outdated packages in $out_file against their advisories"
+    else couldnt "$label"; fi
   else skip "$label" "flutter isn't installed"; fi
 fi
 [ "$deps" -eq 1 ] || skip "dependencies" "no manifest this script audits (package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, .csproj, .sln, pubspec.yaml)"
@@ -209,7 +219,8 @@ label="secrets and UI purity (bash tools/check.sh --architecture)"
 if [ -f tools/check.sh ]; then
   run_tool check-architecture bash tools/check.sh --architecture
   case "$rc" in
-    0) clean=$((clean + 1)); echo "security: $label: clean" ;;
+    0) if grep -q 'check: PASS' "$out_file"; then clean=$((clean + 1)); echo "security: $label: clean"
+       else couldnt "$label" "exit 0 without the check's PASS line"; fi ;;
     1) found=$((found + 1)); echo "security: $label: FINDINGS (the OWASP item is on each line):"
        tr -d '\r' < "$out_file" | grep -E 'FAIL|found in:|^  [^ ]' | grep -vF 'FAIL (architecture only)' | sed 's/^ */  /' ;;
     *) couldnt "$label" "$(tr -d '\r' < "$out_file" | grep -m 1 'FAIL' | sed 's/^ *//')" ;;

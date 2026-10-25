@@ -20,7 +20,7 @@ Start from AGENTS.md › Architecture and `tools/check.cfg` (`[project] stack`, 
 - **python:** the routes or views (`urls.py` and views in Django, routers in FastAPI, blueprints in Flask); settings (`settings.py`, `config.py`, how the environment is loaded); the data layer for queries; `requirements.txt` or `pyproject.toml` and their lock files.
 - **none:** whatever the repository holds, such as static pages, scripts and hosting config (headers, redirects).
 
-## OWASP Top 10
+## OWASP Top 10 (2021)
 
 ### A01:2021 Broken Access Control
 - code: every route, handler or endpoint that reads or changes non-public data checks who is calling before it acts; look for routes registered without the auth middleware or decorator the others use [ASVS: Authorization].
@@ -82,7 +82,7 @@ Start from AGENTS.md › Architecture and `tools/check.cfg` (`[project] stack`, 
 - code: the server never fetches a URL taken from input without checking it against an allow list of hosts, and never follows one to internal addresses (localhost, private ranges, cloud metadata) [ASVS: Validation and Business Logic].
 - Not applicable when the server makes no outbound request built from input.
 
-## OWASP API Security Top 10
+## OWASP API Security Top 10 (2023)
 Only for an app that serves an API (its own backend, or routes another app calls).
 
 ### API1:2023 Broken Object Level Authorization
