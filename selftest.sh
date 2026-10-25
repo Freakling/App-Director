@@ -421,7 +421,7 @@ expect_status "installs from a folder inside the app" 0 $? "$out"
 snapshot_source() { # snapshot_source <folder> <CHANGELOG to use>
   rm -rf "$1" && mkdir -p "$1" \
     && cp -R "$src/framework" "$src/project" "$src/install.sh" "$src/VERSION" "$1/" \
-    && cp "$2" "$1/CHANGELOG.md" \
+    && cp "$2" "$1/CHANGELOG.md" && printf '1.8.0\n' > "$1/VERSION" \
     && (cd "$1" && git init -q && git config core.autocrlf false && git add -A && git_q commit -qm snapshot) >/dev/null 2>&1
 }
 printf '# Changelog\n\n## Unreleased\n\n- **New: a snapshot entry.**\n\n## 1.8.0 (2026-10-16)\n\n- Earlier.\n' > "$work/changelog-unreleased.md"
@@ -672,6 +672,29 @@ out="$(bash tools/check.sh 2>&1)"
 expect_status "exits 3 when the stack script is missing" 3 $? "$out"
 cp "$work/saved-cfg" tools/check.cfg
 
+# A test run past [tests] timeout exits 3 and says so; a failure seen before it still exits 1.
+# Needs GNU timeout (Windows' timeout.exe is not it); skipped without.
+_gnu_timeout=""
+for _c in timeout gtimeout; do
+  if "$_c" --version 2>/dev/null | grep -qi coreutils; then _gnu_timeout="$_c"; break; fi
+done
+if [ -n "$_gnu_timeout" ]; then
+  printf '#!/usr/bin/env bash\nsleep 20\n' > tools/stacks/slow.sh
+  printf '#!/usr/bin/env bash\nexit 1\n' > tools/stacks/failing.sh
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout = 1\n' > tools/check.cfg
+  out="$(bash tools/check.sh 2>&1)"
+  expect_status "exits 3 when the stack check outlasts [tests] timeout" 3 $? "$out"
+  printf '%s' "$out" | grep -q "timed out after 1 s" && ok "and says which run timed out and the limit" || bad "the timeout message" "$out"
+  printf '[project]\nstack = failing\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout = 1\n' > tools/check.cfg
+  printf '#!/usr/bin/env bash\nsleep 20\n' > tools/check.local.sh
+  out="$(bash tools/check.sh 2>&1)"
+  expect_status "exits 1, not 3, when a failure was seen before the timeout" 1 $? "$out"
+  rm -f tools/check.local.sh tools/stacks/slow.sh tools/stacks/failing.sh
+else
+  echo "  skip: no GNU timeout, so the check's test time limit isn't tested"
+fi
+cp "$work/saved-cfg" tools/check.cfg
+
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes again after faults removed" 0 $? "$out"
 
@@ -776,6 +799,36 @@ for cmd in \
     'cat .env.example'; do
   guard 0 "$cmd"
 done
+for cmd in \
+    $'python3 - <<\'EOF\' 2>/dev/null || echo "no python"\nEOF' \
+    $'python - <<EOF\nEOF' \
+    $'py.exe - <<-"EOF"\n  EOF' \
+    $'python3 - <<\'EOF\' 2>/dev/null || python - <<\'EOF2\'\nEOF\nprint(1)\nEOF2' \
+    'until grep -q "^exit" /tmp/x/tasks/abc.output; do sleep 5; done' \
+    'until test -f done.txt; do sleep 5; done' \
+    'while true; do sleep 2; done' \
+    'timeout 600 bash -c "until test -f x; do sleep 5; done"' \
+    'echo go && until test -f x; do sleep 1; done' \
+    'sleep 300' \
+    'sleep 5m'; do
+  guard 2 "$cmd"
+done
+for cmd in \
+    $'python3 - <<\'EOF\'\nprint("hi")\nEOF' \
+    $'python3 --version 2>/dev/null || echo "no python"' \
+    "timeout 240 bash -c 'until test -f x; do sleep 5; done'" \
+    '(timeout 4m bash -c "while true; do sleep 1; done")' \
+    'echo go && timeout 120s bash -c "until test -f x; do sleep 1; done"' \
+    'until grep -qE "exited with code|\[killed\]" /tmp/x/tasks/abc.output; do sleep 5; done' \
+    'sleep 5' \
+    'sleep 280' \
+    'git commit -m "until x; do sleep 3; done"'; do
+  guard 0 "$cmd"
+done
+grep -q '"matcher": "Bash|Monitor"' .claude/settings.json && ok "the guard is wired to Monitor too" || bad "the guard is wired to Monitor too"
+grep -q "Commands that may run long" .app-director/rules.md && grep -q "run_in_background" .app-director/rules.md \
+  && grep -q "empty heredoc" .app-director/rules.md && ok "rules.md gives the time-limit, background and empty-heredoc rules" \
+  || bad "rules.md gives the time-limit, background and empty-heredoc rules"
 
 # --- guard-protected hook -------------------------------------------------------------------------
 echo "guard-protected hook"

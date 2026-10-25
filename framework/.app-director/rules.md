@@ -63,7 +63,8 @@ Update the owning place in the same change that makes it untrue. Replace superse
   - `(check)`: a command you run and quote proves it, such as the check or a `grep`;
   - `(demo)`: a human verifies it in the next acceptance check.
 - **Done** means every `(test)` and `(check)` outcome holds, every `(demo)` outcome is implemented, and `bash tools/check.sh` exits 0. Never report done otherwise, and show the output of a failing check. Exit 3 means the check couldn't run, so say the work is unverified.
-- **Running the check.** Run it in the foreground with a long timeout (10 minutes or more).
+- **Running the check.** Run it in the foreground with a long timeout (10 minutes or more), or start it with `run_in_background` and keep working until its completion notice.
+- **Commands that may run long.** Give every command that may run long a time limit under five minutes (`timeout 240 ...`, at most 280 seconds), because a wait past five minutes lets the prompt cache expire and the next turn rewrites the whole context. Start a long check with `run_in_background` and keep working until its completion notice instead of polling it with `sleep` loops. Never probe for a tool with an empty heredoc (`python3 - <<'EOF'` followed by `EOF`): it waits for input and never returns, so use `python3 --version`. The command guard blocks these forms. `tools/check.sh` limits each test run to `[tests] timeout` in `tools/check.cfg` (600 seconds by default) and exits 3 when it hits the limit.
 - **Two failed attempts.** After two failed attempts at the same problem, stop and report instead of guessing further.
 
 ## Git
