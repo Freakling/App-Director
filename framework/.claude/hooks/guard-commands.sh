@@ -46,6 +46,68 @@ if reads_cred_file; then
   exit 2
 fi
 
+# --- Hangs ---------------------------------------------------------------------------------------
+# A command that never returns, or runs past five minutes, lets the prompt cache expire, and the next
+# turn rewrites the whole context. So: no empty-heredoc probes, no unbounded wait loops, no long sleeps.
+# Text matching only: a loop built another way isn't seen. The guard is also wired to Monitor.
+nl=$'\n'
+hang() {
+  echo "App Director: blocked: $1" >&2
+  echo "              $2" >&2
+  exit 2
+}
+limit_s=280
+
+# 1. `python - <<'EOF'` whose body is empty: Python waits for console input and never returns on
+#    Windows. Typically the "is Python here?" probe.
+text="${raw//\\r/}"; text="${text//\\n/$nl}"
+heredoc_re='(^|[^[:alnum:]_./-])(python3?|py)(\.exe)?[[:space:]]+-[[:space:]]*<<-?[[:space:]]*\\?["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
+IFS=$'\n' read -r -d '' -a lines <<<"$text" || true
+for ((i = 0; i + 1 < ${#lines[@]}; i++)); do
+  if [[ ${lines[i]} =~ $heredoc_re ]]; then
+    delim="${BASH_REMATCH[4]}"; next="${lines[i + 1]//[[:space:]]/}"
+    [ "$next" = "$delim" ] && hang "python reading an empty heredoc waits for console input and never returns (on Windows)." \
+      "To test whether Python is there, run: python3 --version"
+  fi
+done
+
+# 3. A lone sleep over 280 seconds.
+sleep_re='(^|[^[:alnum:]_./-])sleep[[:space:]]+([0-9]+)([smhd]?)([[:space:]]|$|[;&|)])'
+rest="$code"
+while [[ $rest =~ $sleep_re ]]; do
+  n="${BASH_REMATCH[2]}"; unit="${BASH_REMATCH[3]}"; secs=$((10#$n))
+  case "$unit" in m) secs=$((secs * 60)) ;; h) secs=$((secs * 3600)) ;; d) secs=$((secs * 86400)) ;; esac
+  [ "$secs" -gt "$limit_s" ] && hang "sleep $n$unit is longer than $limit_s seconds, and a wait past five minutes lets the prompt cache expire." \
+    "Start the work with run_in_background and keep working until its completion notice, or wait in steps of $limit_s seconds or less."
+  rest="${rest#*"${BASH_REMATCH[0]}"}"
+done
+
+# 2. until/while loops that sleep: under `timeout N` (N <= 280), or ended by the exit line Claude Code
+#    appends to a background command's output. A loop quoted into `bash -c '...'` is read from the raw text.
+scan="$code"
+[[ $code =~ (bash|sh|zsh)[[:space:]]+-[a-z]*c[[:space:]] ]] && scan="$raw"
+scan="${scan//\\n/$nl}"
+loop_re='(^|[^[:alnum:]_./-])(until|while)[[:space:]]'
+timeout_re="(^|[^[:alnum:]_./-])timeout[[:space:]]+(-[-[:alnum:]=]+[[:space:]]+)*([0-9]+)([sm]?)[[:space:]]+[^;&|$nl]*\$"
+rest="$scan"; before=""
+while [[ $rest =~ $loop_re ]]; do
+  before="$before${rest%%"${BASH_REMATCH[0]}"*}${BASH_REMATCH[1]}"
+  rest="${rest#*"${BASH_REMATCH[0]}"}"
+  loop="${rest%%[;[:space:]]done[;[:space:])\'\"]*}"
+  [[ $loop =~ (^|[^[:alnum:]_./-])sleep[[:space:]] ]] || continue
+  [[ $raw == *"exited with code"* || $raw == *"[killed]"* ]] && continue
+  covered=0
+  if [[ $before =~ $timeout_re ]]; then
+    secs=$((10#${BASH_REMATCH[3]})); [ "${BASH_REMATCH[4]}" = m ] && secs=$((secs * 60))
+    [ "$secs" -le "$limit_s" ] && covered=1
+  fi
+  [ "$covered" -eq 1 ] && continue
+  [[ $loop == *tasks/*.output* ]] && hang "this loop reads a background command's output without waiting for the line Claude Code appends when it ends, so it can wait forever." \
+    "Wait for \"exited with code\" or \"[killed]\" in the output file, or wrap the loop in: timeout 240 bash -c '...'"
+  hang "an until or while loop with sleep and no time limit can run for ever, and a wait past five minutes lets the prompt cache expire." \
+    "Put a limit on it: timeout 240 bash -c 'until ...; do sleep 5; done' (N of $limit_s or less), or start the work with run_in_background."
+done
+
 # --- git-specific rules --------------------------------------------------------------------------
 [[ $raw =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]] || exit 0
 

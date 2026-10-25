@@ -4,9 +4,21 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T18 · B8 · R1
+**Next IDs:** T20 · B8 · R1
 
 ## Queue
+
+### T19 · A screen is re-arranged by dragging its grey boxes · done · M · agent
+- Touches: framework/tools/ui/drawing.mjs, framework/.app-director/procedures/ui-design.md, project/product/ui/README.md, selftest.sh, tests/ui-drawing/*
+- Done when: the starter's grey boxes are unlocked and carry the rectangle they were drawn at; one dragged or resized is read as a blue keep box for that element; untouched, hidden, deleted, locked and older-starter boxes are ignored; notes for a missing map, a missing element and an element claimed twice; the shared fixtures match Godot Director 4.3.0's reader byte for byte (check)
+- Brief: -
+- Source: Director-Driven-Development T183, merged as #30 without this record
+
+### T18 · The Bash guard blocks hangs, and the check limits its test runs · done · M · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, framework/.app-director/rules.md, framework/tools/check.sh, project/tools/check.cfg, selftest.sh, CHANGELOG.md
+- Done when: the guard blocks an empty Python heredoc, an unbounded sleep loop, a loop reading a task's output without its exit line, and a sleep over 280 seconds, and passes the forms that work (check) · rules.md gives the time-limit, background and empty-heredoc rules (check) · `tools/check.sh` limits each test run with `[tests] timeout` and exits 3 on a timeout (check)
+- Brief: -
+- Source: Director-Driven-Development T164
 
 ### T17 · The screen-design README is organised by feature · done · S · agent
 - Touches: project/product/ui/README.md, CHANGELOG.md

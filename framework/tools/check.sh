@@ -6,7 +6,7 @@
 #   bash tools/check.sh --if-changed       repeat the last result at once if these exact files were checked with this gitleaks
 #   bash tools/check.sh --fingerprint      print the fingerprint of the current files (for hooks)
 #   bash tools/check.sh --architecture     run only the UI purity and secrets checks (fast, no build)
-# Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (gitleaks missing, old or unable to scan, or stack tool missing)
+# Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (gitleaks missing, old or unable to scan, stack tool missing, or a test run hit its time limit)
 #
 # Steps:
 #   1. UI purity: scan UI-layer files for imports from data-layer folders.
@@ -16,6 +16,9 @@
 #   4. Custom: run tools/check.local.sh, if the project has one.
 #
 # Settings are in tools/check.cfg. State is cached in .app-director/state/.
+# The stack check and tools/check.local.sh are each limited to [tests] timeout seconds from tools/check.cfg
+# (default 600; CHECK_TIMEOUT overrides it) when GNU timeout (or gtimeout) is available; a run that hits
+# the limit exits 3, unless a failure was already seen (then it exits 1).
 # gitleaks minimum version is read from check.cfg [gitleaks] min-version (default 8.18.0).
 
 set -u
@@ -204,6 +207,27 @@ if [ "$arch_only" -eq 1 ]; then
   exit 1
 fi
 
+# --- test time limit -----------------------------------------------------------------------------
+# [tests] timeout in tools/check.cfg (CHECK_TIMEOUT overrides it), default 600 seconds. GNU timeout only:
+# Windows' timeout.exe is something else. A run past the limit leaves exit status 124.
+limit="${CHECK_TIMEOUT:-}"
+[ -n "$limit" ] || limit="$(cfg_get tests timeout)"
+case "$limit" in ''|*[!0-9]*|0) limit=600 ;; esac
+timeout_cmd=""
+for candidate in timeout gtimeout; do
+  if "$candidate" --version 2>/dev/null | grep -qi coreutils; then timeout_cmd="$candidate"; break; fi
+done
+[ -n "$timeout_cmd" ] || echo "check: note: no GNU timeout found: a hung test can't be cut short"
+timed_out=""
+# run_limited <what> <command...>: run it under the limit; a timeout is noted, not counted as a failure.
+run_limited() {
+  local what="$1" rc; shift
+  if [ -n "$timeout_cmd" ]; then "$timeout_cmd" "$limit" "$@" </dev/null; else "$@"; fi
+  rc=$?
+  if [ "$rc" -eq 124 ] && [ -n "$timeout_cmd" ]; then timed_out="${timed_out:+$timed_out, }$what"; return 0; fi
+  return "$rc"
+}
+
 # --- 3. Stack check -------------------------------------------------------------------------------
 stack="$(cfg_get project stack)"
 if [ -z "$stack" ]; then
@@ -215,7 +239,7 @@ else
     exit 3
   fi
   echo "check: stack ($stack)"
-  if ! bash "$stack_script"; then
+  if ! run_limited "the stack check" bash "$stack_script"; then
     echo "check: stack check failed"
     failed=1
   fi
@@ -224,10 +248,17 @@ fi
 # --- 4. Custom check ------------------------------------------------------------------------------
 if [ -f tools/check.local.sh ]; then
   echo "check: running tools/check.local.sh"
-  if ! bash tools/check.local.sh; then
+  if ! run_limited "tools/check.local.sh" bash tools/check.local.sh; then
     echo "check: tools/check.local.sh failed"
     failed=1
   fi
+fi
+
+# --- a test run hit the limit ---------------------------------------------------------------------
+if [ -n "$timed_out" ]; then
+  echo "check: couldn't run to the end: $timed_out timed out after ${limit} s ([tests] timeout in tools/check.cfg, or CHECK_TIMEOUT)"
+  # A failure seen before the timeout wins and exits 1 below. Exit 3 only when none was seen.
+  if [ "$failed" -eq 0 ]; then rm -f "$state_dir/last-pass"; exit 3; fi
 fi
 
 # --- result ---------------------------------------------------------------------------------------
