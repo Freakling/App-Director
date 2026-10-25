@@ -26,7 +26,7 @@ A reader in a fresh context goes through `.app-director/reference/owasp.md`, cat
 - Read `rules.md` › OWASP baseline, the checklist's "Where to look" for the stack in `tools/check.cfg` › `[project] stack`, AGENTS.md › Architecture and Project facts, and the accepted deviations in `product/decisions.md` (lines that name an OWASP item).
 - The OWASP API Security Top 10 (2023) applies when the app serves an API (Project facts › API, or routes in the code); otherwise each of its categories is not applicable.
 - For each category, read the code and config each check concerns, and judge each `code` and `config` check: holds (cite where), broken (a finding), or not applicable (say what the app lacks). Skip `people` checks: they are step 4's. A tool's clean line is evidence for a check, never the whole answer: read the code too.
-- Report each finding with: the OWASP item (such as A03:2021 Injection), a severity by the rubric below, the evidence (`file:line` and what the code does; for a secret, `file:line` and its kind only), a concrete way it fails, and a proposed fix. A deviation with an accepted decision isn't a finding; name the decision instead.
+- Report each finding with: the OWASP item (such as A05:2025 Injection), a severity by the rubric below, the evidence (`file:line` and what the code does; for a secret, `file:line` and its kind only), a concrete way it fails, and a proposed fix. A deviation with an accepted decision isn't a finding; name the decision instead.
 - End with one line per category: **verified** (each applicable check was read and holds), **findings** (one or more broken), **not checkable here** (what it depends on isn't in the repository, such as a backend in another repository or the hosting's settings), or **not applicable**.
 
 Severity:
@@ -36,7 +36,7 @@ Severity:
 
 ## 3. Findings become bug items
 Each finding from step 1 or 2 becomes a bug item in TASKS.md, in the format of `.app-director/tasks.md` (an ID from `Next IDs`, then bump it):
-- the heading's title names the OWASP item, such as `### B4 · Notes search builds SQL from input (A03:2021 Injection) · todo · S · agent · high`;
+- the heading's title names the OWASP item, such as `### B4 · Notes search builds SQL from input (A05:2025 Injection) · todo · S · agent · high`;
 - `Repro:` the evidence as steps, expected and actual, with `file:line` (for a secret: `file:line` and its kind, never the value or its line);
 - `Found in:` the report and the finding's number, such as `product/security/2026-10-25.md › F2`, where the proposed fix is.
 
@@ -56,7 +56,7 @@ Write `product/security/YYYY-MM-DD.md` (today's date; a second assessment the sa
 - Reviewer: <subagent or tool, and model>
 
 ## Categories
-- A01:2021 Broken Access Control: verified | findings (F1, F3) | not checkable here (<why>) | not applicable (<why>)
+- A01:2025 Broken Access Control: verified | findings (F1, F3) | not checkable here (<why>) | not applicable (<why>)
 - ... one line for each of A01-A10, and API1-API10 (not applicable when the app serves no API)
 
 ## Findings

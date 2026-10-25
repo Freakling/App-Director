@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T24 · B8 · R1
+**Next IDs:** T25 · B8 · R1
 
 ## Queue
+
+### T24 · The OWASP baseline moves to the Top 10:2025 · done · M · agent
+- Touches: framework/.app-director/rules.md, framework/.app-director/reference/owasp.md, framework/.app-director/procedures/security.md, framework/.app-director/procedures/review.md, framework/tools/check.sh, framework/tools/security.sh, tests/security/README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md
+- Done when: the baseline, the checklist and the messages of `check.sh` and `security.sh` use the OWASP Top 10:2025 categories and names, with request forgery under Broken Access Control, the outdated-components checks under Software Supply Chain Failures and a new Mishandling of Exceptional Conditions section (check) · the CHANGELOG maps each 2021 category to its 2025 one (check)
+- Brief: -
+- Source: Director-Driven-Development T203
 
 ### T23 · The security assessment never quotes a secret, and names its OWASP editions · done · S · agent
 - Touches: framework/.app-director/procedures/security.md, framework/.app-director/reference/owasp.md, framework/.app-director/rules.md, framework/.app-director/procedures/release.md, framework/.app-director/procedures/review.md, framework/tools/security.sh, ONBOARDING.md, selftest.sh, CHANGELOG.md
