@@ -14,11 +14,14 @@ title = "{{APP_NAME}}"
 # Inherit all built-in gitleaks detection rules.
 useDefault = true
 
-# [allowlist]
-# description = "Project-level path or commit allowlist."
-# paths = [
-#   '''(?i)\.env\.example$''',
-# ]
+[allowlist]
+description = "Project-level path or commit allowlist."
+# Drawings in director/ui/ embed their screenshot as base64 in the JSON, and random base64 can match
+# a key rule. Only the drawings directly in that folder are allowlisted.
+paths = [
+  '''^director[\\/]ui[\\/][^\\/]*\.excalidraw$''',
+  # '''(?i)\.env\.example$''',
+]
 # commits = []
 
 # Add project-specific detection rules here, e.g.:

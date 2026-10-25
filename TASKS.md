@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T20 · B8 · R1
+**Next IDs:** T21 · B8 · R1
 
 ## Queue
+
+### T20 · The secrets scan doesn't flag drawings · done · S · agent
+- Touches: project/.gitleaks.toml, selftest.sh, CHANGELOG.md
+- Done when: a drawing in `director/ui/*.excalidraw` whose embedded base64 matches a key rule passes the secrets check, while the same string in another file still fails it (check)
+- Brief: -
+- Source: Director-Driven-Development T102
 
 ### T19 · A screen is re-arranged by dragging its grey boxes · done · M · agent
 - Touches: framework/tools/ui/drawing.mjs, framework/.app-director/procedures/ui-design.md, project/product/ui/README.md, selftest.sh, tests/ui-drawing/*
