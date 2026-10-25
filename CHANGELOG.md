@@ -2,6 +2,13 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
+## Unreleased
+
+- **The screen-design README is organised by feature.** `product/ui/README.md` now follows the order of Godot Director's: the workflow, what a capture gives you, boxes, colours, containment, patch or replace, re-arranging a screen, other states and sizes, processing and verifying, Excalidraw and the files table. It also names the capture setup (Node 18 or newer, the catalog in `tools/ui/screens.mjs`, `tools/ui_capture.cfg`). The grey boxes are described as locked, a reference the agent doesn't read; re-arranging a screen means drawing a blue box where the element should now sit.
+
+**Upgrade steps:**
+1. `product/ui/README.md` is an app-owned seed the installer leaves alone. Replace it with the source's `project/product/ui/README.md`, carrying over any notes you added.
+
 ## 1.8.0 (2026-10-23)
 
 - **New: `/ui-design`, screens you design by drawing** (`.app-director/procedures/ui-design.md`). The agent sees your web app's screens as a user does, layout bugs that tests can't see are caught, and you redesign a screen by drawing boxes over its screenshot instead of describing a layout. The workflow is the one Godot Director pilots, with a capture adapter for web apps: the same drawing conventions, the same `drawing.json`, the same screen spec, and the same element map and lint rules.
