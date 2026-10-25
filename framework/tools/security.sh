@@ -14,8 +14,8 @@
 #      (pnpm-lock.yaml), yarn's audit (yarn.lock), pip-audit (a requirements.txt with every package pinned by ==,
 #      read without installing anything; otherwise skipped), dotnet list
 #      <the .sln, or else the .csproj> package --vulnerable --include-transitive, and flutter pub outdated (pubspec.yaml) as
-#      information only, since it isn't a vulnerability audit. Serves OWASP A06:2021 Vulnerable and Outdated Components.
-#   2. The check's secrets scan and UI purity step (bash tools/check.sh --architecture). Serves A07:2021 and A01:2021.
+#      information only, since it isn't a vulnerability audit. Serves OWASP A03:2025 Software Supply Chain Failures.
+#   2. The check's secrets scan and UI purity step (bash tools/check.sh --architecture). Serves A07:2025 and A01:2025.
 #   3. Semgrep with the p/owasp-top-ten rules, when semgrep is installed. Each rule names its OWASP category.
 # A clean run proves only that these tools found nothing they look for. It never marks a category met.
 
@@ -120,7 +120,7 @@ couldnt() {
   fi
 }
 
-A06="OWASP A06:2021 Vulnerable and Outdated Components"
+A03="OWASP A03:2025 Software Supply Chain Failures"
 
 # Classify a JavaScript package manager's audit output.
 js_audit() { # <label> <name> <command...>
@@ -132,7 +132,7 @@ js_audit() { # <label> <name> <command...>
     clean=$((clean + 1)); echo "security: $label: clean"
   elif printf '%s\n' "$text" | grep -qE '[0-9]+ (info|low|moderate|high|critical) severity vulnerabilit|[0-9]+ vulnerabilit(y|ies) found|^[0-9]+ vulnerabilities \(|^Severity: '; then
     found=$((found + 1))
-    echo "security: $label: FINDINGS ($A06): $(printf '%s\n' "$text" | grep -E 'severity vulnerabilit|vulnerabilit(y|ies) found|^[0-9]+ vulnerabilities \(' | head -n 1)"
+    echo "security: $label: FINDINGS ($A03): $(printf '%s\n' "$text" | grep -E 'severity vulnerabilit|vulnerabilit(y|ies) found|^[0-9]+ vulnerabilities \(' | head -n 1)"
     printf '%s\n' "$text" | grep -E '^[@A-Za-z0-9][^ ]*  +[^ ]' | awk '!seen[$1]++ { print "  package: " $1 " " $2 }'
   else
     couldnt "$label"
@@ -181,7 +181,7 @@ if [ -f requirements.txt ] || [ -f pyproject.toml ]; then
     run_tool pip-audit pip-audit --progress-spinner off --disable-pip --no-deps -r requirements.txt
     if [ "$rc" -eq 0 ] && grep -q 'No known vulnerabilities found' "$out_file"; then clean=$((clean + 1)); echo "security: $label: clean"
     elif grep -qE 'Found [0-9]+ known vulnerabilit' "$out_file"; then
-      found=$((found + 1)); echo "security: $label: FINDINGS ($A06): $(grep -E 'Found [0-9]+ known vulnerabilit' "$out_file" | head -n 1 | tr -d '\r')"
+      found=$((found + 1)); echo "security: $label: FINDINGS ($A03): $(grep -E 'Found [0-9]+ known vulnerabilit' "$out_file" | head -n 1 | tr -d '\r')"
     else couldnt "$label"; fi
   else skip "$label" "pip-audit isn't installed (https://pypi.org/project/pip-audit/)"; fi
 fi
@@ -195,7 +195,7 @@ if [ -n "$dotnet_project" ]; then
   if command -v dotnet >/dev/null 2>&1; then
     run_tool dotnet-vulnerable dotnet list "$dotnet_project" package --vulnerable --include-transitive
     if grep -q 'has the following vulnerable packages' "$out_file"; then
-      found=$((found + 1)); echo "security: $label: FINDINGS ($A06): see $out_file"
+      found=$((found + 1)); echo "security: $label: FINDINGS ($A03): see $out_file"
     elif [ "$rc" -eq 0 ] && grep -q 'has no vulnerable packages' "$out_file"; then clean=$((clean + 1)); echo "security: $label: clean"
     else couldnt "$label"; fi
   else skip "$label" "dotnet isn't installed"; fi

@@ -299,12 +299,12 @@ done
 [ -z "$missing" ] && ok "the security assessment's files exist" || bad "security assessment files missing:$missing"
 owasp_ref="$adir/reference/owasp.md"
 _cats=""
-for n in 01 02 03 04 05 06 07 08 09 10; do grep -q "^### A$n:2021 " "$owasp_ref" || _cats="$_cats A$n"; done
+for n in 01 02 03 04 05 06 07 08 09 10; do grep -q "^### A$n:2025 " "$owasp_ref" || _cats="$_cats A$n"; done
 for n in 1 2 3 4 5 6 7 8 9 10; do grep -q "^### API$n:2023 " "$owasp_ref" || _cats="$_cats API$n"; done
-_unmarked="$(sed -n '/^## OWASP Top 10 (2021)$/,$p' "$owasp_ref" | grep '^- ' | grep -vE '^- (code|config|people): |^- Not applicable')"
+_unmarked="$(sed -n '/^## OWASP Top 10 (2025)$/,$p' "$owasp_ref" | grep '^- ' | grep -vE '^- (code|config|people): |^- Not applicable')"
 [ -z "$_cats" ] && [ -z "$_unmarked" ] && grep -q '^## Where to look, by stack' "$owasp_ref" \
   && [ "$(sed -n '/^## Where to look, by stack/,/^## OWASP/p' "$owasp_ref" | grep -cE '^- \*\*(typescript|flutter|python|none):\*\*')" -eq 4 ] \
-  && ok "the OWASP checklist has every OWASP Top 10 (2021) and API Security Top 10 (2023) category, each check marked code, config or people, and where to look per stack" \
+  && ok "the OWASP checklist has every OWASP Top 10 (2025) and API Security Top 10 (2023) category, each check marked code, config or people, and where to look per stack" \
   || bad "the OWASP checklist is missing categories:$_cats; unmarked checks: $_unmarked"
 wired=""
 secproc="$adir/procedures/security.md"
@@ -1504,7 +1504,7 @@ FAKE
 chmod +x "$_sec_bin"/*/*
 out="$(cd "$_sc" && PATH="$_sec_bin/vuln:$_sec_bin/semgrep:$_stop_path" bash tools/security.sh 2>&1)"; status=$?
 expect_status "the tool step exits 1 when a tool reports findings" 1 "$status" "$out"
-expect_output "a dependency audit's findings are labelled A06, with npm 7's summary" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A06:2021 Vulnerable and Outdated Components\): 3 vulnerabilities \(1 moderate, 2 high\)" "$out"
+expect_output "a dependency audit's findings are labelled A03, with npm 7's summary" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A03:2025 Software Supply Chain Failures\): 3 vulnerabilities \(1 moderate, 2 high\)" "$out"
 expect_output "and name the package" "  package: lodash <=4.17.20" "$out"
 expect_output "Semgrep's findings keep file, line, column and rule" "^  src/server\.js:20:24:javascript\.lang\.security\.audit\.sqli\.node-sqli$" "$out"
 expect_output "Semgrep's findings are reported as findings" "^security: semgrep \(p/owasp-top-ten\): FINDINGS" "$out"
@@ -1544,7 +1544,7 @@ expect_output "and for a pyproject.toml without pinned requirements" "^security:
 out_v="$(cd "$_sv" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"; status_v=$?
 out_c="$(cd "$_sc" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"; status_c=$?
 if [ "$_gl_ok" -eq 1 ]; then
-  expect_output "gitleaks finds the seeded credential under its OWASP item" "secrets FAIL \(OWASP Identification and Authentication Failures" "$out_v"
+  expect_output "gitleaks finds the seeded credential under its OWASP item" "secrets FAIL \(OWASP Authentication Failures" "$out_v"
   expect_output "and names its file" "  found in: src/payments\.js" "$out_v"
   expect_no_output "the clean twin has no credential finding" "secrets FAIL|found in:" "$out_c"
   expect_status "the seeded copy fails the tool step" 1 "$status_v" "$out_v"
@@ -1556,7 +1556,7 @@ if ! command -v npm >/dev/null 2>&1; then
 elif printf '%s' "$out_v" | grep -q "^security: dependencies (npm audit --omit=dev): couldn't run"; then
   echo "  skip  npm audit on the fixture (the registry didn't answer)"
 else
-  expect_output "npm audit finds the vulnerable lodash, labelled A06" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A06:2021" "$out_v"
+  expect_output "npm audit finds the vulnerable lodash, labelled A03" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A03:2025" "$out_v"
   expect_output "and names lodash" "  package: lodash " "$out_v"
   expect_output "the clean twin's audit is clean" "^security: dependencies \(npm audit --omit=dev\): clean" "$out_c"
 fi

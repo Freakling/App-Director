@@ -128,7 +128,7 @@ Fill in `tools/ui_capture.cfg` › `[web]` when the app has a web UI (Flutter we
 
 ## 8. Ownership and project rules
 
-Tell the human that the framework's rules include an OWASP baseline (the OWASP Top 10 (2021), and the API Security Top 10 (2023) for an API) that every app meets and no project setting turns off; only an accepted line in `product/decisions.md` naming the OWASP item and why can deviate from it. A security assessment (`/security`) checks what is built against it: `/next-task` proposes one every `[security] every` built items (the human can decline), and it runs before a release when something was built since the last report or none exists yet. Don't offer it as a choice.
+Tell the human that the framework's rules include an OWASP baseline (the OWASP Top 10 (2025), and the API Security Top 10 (2023) for an API) that every app meets and no project setting turns off; only an accepted line in `product/decisions.md` naming the OWASP item and why can deviate from it. A security assessment (`/security`) checks what is built against it: `/next-task` proposes one every `[security] every` built items (the human can decline), and it runs before a release when something was built since the last report or none exists yet. Don't offer it as a choice.
 
 ### Work-area ownership interview
 For each area below, state the default and ask the human whether they want to own it. Record the result in AGENTS.md › Ownership (create that section now with a table). A human-owned area means the agent uses placeholders when it needs something from there; it never makes the real thing.
