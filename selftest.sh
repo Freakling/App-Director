@@ -205,6 +205,7 @@ grep -q '`UI:`' "$proc/procedures/acceptance.md" && grep -q 'compare@' "$proc/pr
 grep -q -- '--missing' "$proc/procedures/align.md" && grep -q -- '--static' "$proc/procedures/align.md" \
   && grep -q '/product/ui/captures/' "$proc/procedures/align.md" || wired="$wired align.md"
 grep -q 'ui-design\.md' "$proc/procedures/design.md" || wired="$wired design.md"
+grep -q '^- \*\*OWASP baseline\.\*\*' "$proc/rules.md" && grep -q 'no project setting turns it off' "$proc/rules.md"   && grep -q 'OWASP' "$proc/procedures/design.md" && grep -q 'OWASP' "$proc/procedures/review.md"   && grep -q 'OWASP' "$src/ONBOARDING.md" && grep -q 'OWASP' "$src/framework/tools/check.sh" || wired="$wired OWASP baseline"
 grep -q '"Bash(bash tools/ui_capture.sh\*)"' "$settings" && grep -q '"Bash(node tools/ui/drawing.mjs \*)"' "$settings" \
   && grep -q '"Bash(node tools/ui/verify.mjs \*)"' "$settings" && ! grep -q '"Bash(node tools/ui/\*)"' "$settings" || wired="$wired settings.json"
 grep -q '/ui-design' "$src/README.md" && grep -q '/ui-design' "$src/ONBOARDING.md" && grep -q 'UI / screen layout' "$src/ONBOARDING.md" \
