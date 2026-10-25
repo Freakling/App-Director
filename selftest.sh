@@ -592,11 +592,27 @@ if [ "$_gl_ok" -eq 1 ]; then
   fi
 
   cp "$work/saved-svc" src/services/TodoService.ts
+
+  # A drawing in director/ui/ is allowlisted by path: its dataURL holds the marker string, which the
+  # secrets step flags in any other file (src/x.ts, the same line) and passes in the drawing.
+  _drawing_line="${_gl_marker_name} = '${_cred_val}'"
+  mkdir -p director/ui
+  printf '{\n  "type": "excalidraw",\n  "files": {\n    "f1": {\n      "dataURL": "%s"\n    }\n  }\n}\n' \
+    "$_drawing_line" > director/ui/x.excalidraw
+  out="$(bash tools/check.sh --architecture 2>&1)"
+  expect_status "a drawing in director/ui/ with a flagged string passes the secrets check" 0 $? "$out"
+  printf '%s\n' "$_drawing_line" > src/x.ts
+  out="$(bash tools/check.sh --architecture 2>&1)"
+  expect_status "the same string in src/x.ts still fails the secrets check" 1 $? "$out"
+  expect_output "names src/x.ts as the file with the secret" "found in: src/x.ts" "$out"
+  rm -rf director src/x.ts
 else
   echo "  skip  gitleaks secrets tests (gitleaks not found, below $_gl_min_req, or 8.19.0, which can't scan)"
   echo "  skip  secret value not in check output"
   echo "  skip  secret value not in state file"
   echo "  skip  allowlisted fingerprint passes"
+  echo "  skip  a drawing in director/ui/ passes the secrets check"
+  echo "  skip  the same string in src/x.ts still fails the secrets check"
 fi
 
 # Scan command by gitleaks version, with a test double, so it runs without real gitleaks: the double
