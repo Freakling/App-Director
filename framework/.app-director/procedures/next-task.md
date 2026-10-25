@@ -16,12 +16,13 @@ The request can be:
 1. **Find items without reading the whole file.** `grep -n '^### ' TASKS.md` lists every heading; then read only the candidates.
 2. **Is the tree clean?** If uncommitted changes from another item are in the working tree, don't start a new one. Ask the human whether to finish that item, commit it, or set it aside with `git stash push -- <paths>`.
 3. **Does the check pass now?** Run `bash tools/check.sh --if-changed`; it's instant after a passing commit. If it fails, say so, and offer the items that would fix it. Build others only if the human says to, telling the builder the failure was there before. A research item changes no code, so skip this for one.
-4. **Items already `in-progress`:**
+4. **Is a security assessment due?** Run `bash tools/security.sh --due`. When its line says `due` (no report in `product/security/` yet, or enough items built since the newest one, by `tools/check.cfg` › `[security] every`), propose an assessment (`security.md`) with that line, and run it before the next item if the human agrees; the human can decline. In a run of several items, don't stop or ask: carry on picking items, and only name the assessment in the final report.
+5. **Items already `in-progress`:**
    - **Claimed today:** another session may be working on it right now, so ask before touching it.
    - **Older:** a session probably ended mid-task. Read its `Note:`, look at `git status` and `git diff`, then resume it or set it back to `todo`, and say which.
-5. **Candidates** are `agent` items with status `todo` whose `Depends on` items are all `done`, research items included. IDs missing from TASKS.md are in `TASKS-archive.md`.
-6. **Order:** `high` bugs first, then everything else in file order. File order is the human's priority, so don't reorder.
-7. **Nothing ready?** Report what's blocked and on what (dependencies, `human` items, open questions), and stop.
+6. **Candidates** are `agent` items with status `todo` whose `Depends on` items are all `done`, research items included. IDs missing from TASKS.md are in `TASKS-archive.md`.
+7. **Order:** `high` bugs first, then everything else in file order. File order is the human's priority, so don't reorder.
+8. **Nothing ready?** Report what's blocked and on what (dependencies, `human` items, open questions), and stop.
 
 ## 2. Claim
 Set the item to `in-progress YYYY-MM-DD` (today).
@@ -88,7 +89,7 @@ Repeat steps 1-7 for each item, skipping `human` items as step 1 does. Report on
 
 A finished research item doesn't stop the run: it goes on with the next candidate.
 
-End with the list of items done, the questions that research has made ready for a design call, and what's next.
+End with the list of items done, a security assessment if Pick step 4 found one due, the questions that research has made ready for a design call, and what's next.
 
 ## Stopping partway through
 If you must stop before the item is done, add `- Note: <where it stands, what's next>` to the item.

@@ -12,10 +12,11 @@ These rules apply to any AI assistant working in this project. For each of these
 - **prune.md:** prune the task list.
 - **review.md:** review a finished change.
 - **release.md:** release to an environment or platform.
+- **security.md:** a security assessment (`/security`): the tools, then a fresh reader through the OWASP checklist in `.app-director/reference/owasp.md`; findings become bug items, people and process items go to the human, and a dated report goes in `product/security/`. It runs on request, before a release is proposed, and when `next-task.md` finds one due.
 - **ui-design.md:** capture the screens (`/ui-design`): a PNG per screen, state and size of the web app on this machine, with an element map, a numbered map image, layout lint and a starter drawing; process the human's Excalidraw drawing of a screen into a screen spec and items; verify a built screen against its spec and write compare images; list the screens in the catalog.
 - **refresh-model-sizing.md:** set or update the model sizing block in AGENTS.md › Project rules.
 
-In Claude Code these are also slash commands, and builds, reviews and research run as the `builder`, `reviewer` and `researcher` subagents.
+In Claude Code these are also slash commands, and builds, reviews (with the security assessment's reading pass) and research run as the `builder`, `reviewer` and `researcher` subagents.
 
 ## The human decides
 - The human owns product vision, design and priorities. You build, keep the records, and propose.
@@ -34,6 +35,7 @@ In Claude Code these are also slash commands, and builds, reviews and research r
 | What's undecided | brief › Open Questions |
 | Why a design decision was made | `product/decisions.md` (append-only) |
 | The evidence behind a design call | `product/research/`, one dated note per topic; the decision line links to it |
+| What the last security assessment found, and what it couldn't check | `product/security/YYYY-MM-DD.md`, one report per assessment (`procedures/security.md`) |
 | How the app was built before a design drift reset, and what drifted | `product/resets/YYYY-MM-DD/` (never deleted) |
 | Which systems exist and what each owns | `AGENTS.md` › Architecture |
 | How each screen is laid out | `product/ui/<screen>.md`, one spec per screen (`procedures/ui-design.md`) |
@@ -51,7 +53,7 @@ Update the owning place in the same change that makes it untrue. Replace superse
 - **New stored data fields.** When storage already holds data, a new required field needs a migration or a default. The check fails if it finds a new required field without one.
 - **Secrets.** Never in source code. Use `.env` files (gitignored) locally; platform secrets (e.g. environment variables set in the deploy environment) in production. The check runs gitleaks on the working tree (this serves the OWASP baseline's Identification and Authentication Failures); the pre-commit hook also scans staged changes. Both fail when a credential is found. To allowlist a false positive: propose adding its `Fingerprint` (from `.app-director/state/gitleaks.json`) to `.gitleaksignore` and a reason to `product/decisions.md`; never add either without the human's approval. Any committed credential is compromised regardless of whether the commit is later removed; rotating it is the human's action, never the agent's.
 - **No hard-coded IDs, user data or environment-specific values in source.** Use config or environment variables.
-- **OWASP baseline.** The OWASP Top 10, and the OWASP API Security Top 10 for anything that serves an API, is the baseline every app meets. It is framework-owned: no project setting turns it off, and a project rule in AGENTS.md can't relax it. A deviation is only ever an accepted decision, a line in `product/decisions.md` that names the OWASP item and why; without one it is a finding in `review.md`. `design.md` states each option's effect on the baseline, `review.md` checks each change against it, and the check serves only two parts of it, with no claim to cover the rest: the secrets scan (credentials in source, Identification and Authentication Failures) and UI purity (no direct data access from UI code, Broken Access Control).
+- **OWASP baseline.** The OWASP Top 10, and the OWASP API Security Top 10 for anything that serves an API, is the baseline every app meets. It is framework-owned: no project setting turns it off, and a project rule in AGENTS.md can't relax it. A deviation is only ever an accepted decision, a line in `product/decisions.md` that names the OWASP item and why; without one it is a finding in `review.md`. `design.md` states each option's effect on the baseline, `review.md` checks each change against it, `security.md` assesses everything built against it from time to time, and the check serves only two parts of it, with no claim to cover the rest: the secrets scan (credentials in source, Identification and Authentication Failures) and UI purity (no direct data access from UI code, Broken Access Control).
 - **Statically typed.** TypeScript `strict` mode, Flutter with sound null safety, Python with type annotations. The check fails on `any` casts that hide a type error or missing annotations on public API surfaces.
 
 ## Doing the work

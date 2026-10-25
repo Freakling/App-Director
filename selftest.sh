@@ -5,6 +5,8 @@
 # The /ui-design tests use Node when it's installed; the capture of the fixture web app also needs
 # Playwright with Chromium, once: cd tests/ui-web && npm install && npx playwright install chromium
 # (or ADIR_PLAYWRIGHT=<a node_modules folder that has playwright>). Without them they're skipped.
+# The security assessment's tests run npm audit on a fixture when npm is installed, which asks the
+# npm registry; without npm, or when the registry doesn't answer, that test is skipped with a note.
 #
 #   bash selftest.sh
 #
@@ -283,6 +285,45 @@ _dash_files="$(git -C "$src" grep --untracked -lP '[\x{2013}\x{2014}]' 2>/dev/nu
   && ok "no en or em dashes in tracked files" \
   || bad "en/em dashes found in: $_dash_files"
 
+# The security assessment: every piece exists and is wired in, the checklist covers every OWASP category
+# and marks each check, and the procedure keeps a tool's pass from marking a category met.
+adir="$src/framework/.app-director"
+missing=""
+for file in framework/.app-director/procedures/security.md framework/.app-director/reference/owasp.md \
+    framework/.claude/skills/security/SKILL.md framework/tools/security.sh tests/security/README.md \
+    tests/security/vulnerable/src/server.js tests/security/vulnerable/src/payments.js tests/security/vulnerable/package.fixture.json \
+    tests/security/vulnerable/package-lock.fixture.json tests/security/clean/src/server.js tests/security/clean/src/payments.js \
+    tests/security/clean/package.fixture.json tests/security/clean/package-lock.fixture.json; do
+  [ -f "$src/$file" ] || missing="$missing $file"
+done
+[ -z "$missing" ] && ok "the security assessment's files exist" || bad "security assessment files missing:$missing"
+owasp_ref="$adir/reference/owasp.md"
+_cats=""
+for n in 01 02 03 04 05 06 07 08 09 10; do grep -q "^### A$n:2021 " "$owasp_ref" || _cats="$_cats A$n"; done
+for n in 1 2 3 4 5 6 7 8 9 10; do grep -q "^### API$n:2023 " "$owasp_ref" || _cats="$_cats API$n"; done
+_unmarked="$(sed -n '/^## OWASP Top 10$/,$p' "$owasp_ref" | grep '^- ' | grep -vE '^- (code|config|people): |^- Not applicable')"
+[ -z "$_cats" ] && [ -z "$_unmarked" ] && grep -q '^## Where to look, by stack' "$owasp_ref" \
+  && [ "$(sed -n '/^## Where to look, by stack/,/^## OWASP/p' "$owasp_ref" | grep -cE '^- \*\*(typescript|flutter|python|none):\*\*')" -eq 4 ] \
+  && ok "the OWASP checklist has every Top 10 and API Security Top 10 category, each check marked code, config or people, and where to look per stack" \
+  || bad "the OWASP checklist is missing categories:$_cats; unmarked checks: $_unmarked"
+wired=""
+secproc="$adir/procedures/security.md"
+grep -q 'reference/owasp\.md' "$secproc" && grep -q 'bash tools/security\.sh' "$secproc" && grep -q 'product/security/YYYY-MM-DD\.md' "$secproc" \
+  && grep -q '`reviewer` subagent' "$secproc" && grep -q 'review\.md' "$secproc" && grep -q 'tasks\.md' "$secproc" \
+  && grep -q 'never install one without asking' "$secproc" && grep -q 'never marked verified from a tool passing alone' "$secproc" \
+  && grep -q "^## What a clean run doesn't prove" "$secproc" && grep -q '^- \*\*high:\*\*' "$secproc" && grep -q '^## 4\. People and process' "$secproc" || wired="$wired security.md"
+grep -q 'procedures/security\.md' "$src/framework/.claude/skills/security/SKILL.md" || wired="$wired SKILL.md"
+grep -q 'security\.md' "$src/framework/.claude/agents/reviewer.md" && grep -q 'reference/owasp\.md' "$src/framework/.claude/agents/reviewer.md" || wired="$wired reviewer.md"
+grep -q '^- \*\*security\.md:\*\*' "$adir/rules.md" && grep -q 'product/security/YYYY-MM-DD\.md' "$adir/rules.md" || wired="$wired rules.md"
+grep -q 'security\.md' "$adir/procedures/release.md" && grep -q 'blocks the release' "$adir/procedures/release.md" || wired="$wired release.md"
+grep -q 'bash tools/security\.sh --due' "$adir/procedures/next-task.md" && grep -q '\[security\] every' "$adir/procedures/next-task.md" || wired="$wired next-task.md"
+grep -qF '"Bash(bash tools/security.sh)",' "$settings" && grep -qF '"Bash(bash tools/security.sh --due)",' "$settings" \
+  && ! grep -qF '"Bash(bash tools/security.sh*)"' "$settings" || wired="$wired settings.json"
+sed -n '/^\[security\]$/,/^\[/p' "$src/project/tools/check.cfg" | grep -q '^every = 10$' || wired="$wired project/tools/check.cfg"
+grep -q '`/security`' "$src/ONBOARDING.md" && grep -q '`\[security\] every`' "$src/ONBOARDING.md" && grep -q '`/security`' "$src/README.md" || wired="$wired README.md/ONBOARDING.md"
+[ -z "$wired" ] && ok "the security assessment is wired into the rules, the reviewer, release, next-task, the settings, the check.cfg seed and the docs" \
+  || bad "the security assessment isn't wired into:$wired"
+
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
 app="$work/todo-web"
@@ -318,6 +359,12 @@ if [ -f .app-director/procedures/ui-design.md ] && [ -f .claude/skills/ui-design
   ok "installs /ui-design: procedure, skill, capture tools, catalog, settings and the drawing guide"
 else
   bad "installs /ui-design: procedure, skill, capture tools, catalog, settings and the drawing guide" "$out"
+fi
+if [ -f .app-director/procedures/security.md ] && [ -f .app-director/reference/owasp.md ] && [ -f .claude/skills/security/SKILL.md ] \
+    && [ -x tools/security.sh ]; then
+  ok "installs the security assessment: procedure, OWASP checklist, skill and tools/security.sh"
+else
+  bad "installs the security assessment: procedure, OWASP checklist, skill and tools/security.sh" "$out"
 fi
 grep -qx '/product/ui/captures/' .gitignore && grep -qx '/tools/ui/node_modules/' .gitignore && grep -qx '/tools/ui/.auth/' .gitignore \
   && grep -qx '/tools/ui/\*\* text eol=lf' .gitattributes \
@@ -1415,5 +1462,112 @@ EOF
   cp "$work/saved-ui-cfg" tools/ui_capture.cfg; cp "$work/saved-catalog" tools/ui/screens.mjs; cp "$work/saved-check-cfg" tools/check.cfg
   rm -rf product/ui/captures product/ui/clean.md uifixture tools/ui/node_modules src/ui/screens
 fi
+
+# --- security assessment --------------------------------------------------------------------------
+echo "security assessment"
+# The tool step (tools/security.sh) on the seeded fixture and its clean twin (tests/security/README.md).
+# Each copy gets the manifests under their real names, the check and the seed .gitleaks.toml. The
+# credential is assembled here at run time, so neither this file nor the fixture holds one.
+sec_copy() { # sec_copy <vulnerable|clean> -> $work/security/<name>
+  local dir="$work/security/$1"
+  rm -rf "$dir"; mkdir -p "$work/security"; cp -R "$src/tests/security/$1" "$dir"
+  mv "$dir/package.fixture.json" "$dir/package.json"; mv "$dir/package-lock.fixture.json" "$dir/package-lock.json"
+  mkdir -p "$dir/tools"; cp "$src/framework/tools/check.sh" "$src/framework/tools/security.sh" "$dir/tools/"
+  cp "$src/project/.gitleaks.toml" "$dir/.gitleaks.toml"
+  printf '[project]\nstack = none\n[gitleaks]\nmin-version = 8.18.0\n' > "$dir/tools/check.cfg"
+  (cd "$dir" && git init -q && git config core.autocrlf false && git add -A && git_q commit -qm "fixture")
+}
+sec_copy vulnerable; sec_copy clean
+_sv="$work/security/vulnerable"; _sc="$work/security/clean"
+_tk1="ghp_R8xK2mQ9vL4tW7nB3pZ6"; _tk2="cY1hJ5dF0sG8aE2u"
+sed "s/__SEEDED_SECRET__/${_tk1}${_tk2}/" "$_sv/src/payments.js" > "$work/payments.js" && cp "$work/payments.js" "$_sv/src/payments.js"
+grep -q "${_tk1}${_tk2}" "$_sv/src/payments.js" && ok "the seeded copy holds a generated credential" || bad "the seeded copy holds a generated credential"
+
+# Stand-ins: an npm whose audit reports lodash (or can't reach the registry), and a semgrep with one finding.
+_sec_bin="$work/security-bin"; mkdir -p "$_sec_bin/vuln" "$_sec_bin/offline" "$_sec_bin/semgrep"
+cat > "$_sec_bin/vuln/npm" << 'FAKE'
+#!/usr/bin/env bash
+[ "$1" = "audit" ] || exit 0
+printf '# npm audit report\n\nlodash  <=4.17.20\nSeverity: high\nPrototype Pollution in lodash\nnode_modules/lodash\n\n3 vulnerabilities (1 moderate, 2 high)\n'
+exit 1
+FAKE
+cat > "$_sec_bin/offline/npm" << 'FAKE'
+#!/usr/bin/env bash
+printf 'npm error code ENOTFOUND\nnpm error audit endpoint returned an error\n'
+exit 1
+FAKE
+cat > "$_sec_bin/semgrep/semgrep" << 'FAKE'
+#!/usr/bin/env bash
+printf 'src/server.js:20:24:error(javascript.lang.security.audit.sqli.node-sqli):Untrusted input in a SQL string MATCHED_SOURCE_TEXT\n'
+exit 1
+FAKE
+chmod +x "$_sec_bin"/*/*
+out="$(cd "$_sc" && PATH="$_sec_bin/vuln:$_sec_bin/semgrep:$_stop_path" bash tools/security.sh 2>&1)"; status=$?
+expect_status "the tool step exits 1 when a tool reports findings" 1 "$status" "$out"
+expect_output "a dependency audit's findings are labelled A06, with npm 7's summary" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A06:2021 Vulnerable and Outdated Components\): 3 vulnerabilities \(1 moderate, 2 high\)" "$out"
+expect_output "and name the package" "  package: lodash <=4.17.20" "$out"
+expect_output "Semgrep's findings keep file, line, column and rule" "^  src/server\.js:20:24:javascript\.lang\.security\.audit\.sqli\.node-sqli$" "$out"
+expect_output "Semgrep's findings are reported as findings" "^security: semgrep \(p/owasp-top-ten\): FINDINGS" "$out"
+expect_no_output "Semgrep's message and matched source aren't printed" "MATCHED_SOURCE_TEXT|Untrusted input" "$out"
+expect_no_output "or stored" "MATCHED_SOURCE_TEXT|Untrusted input" "$(cat "$_sc/.app-director/state/security/semgrep.txt" 2>/dev/null)"
+expect_output "the summary says a tool passing never marks a category met" "A tool passing never marks an OWASP category met" "$out"
+_no_sg_path=""
+_oldifs="$IFS"; IFS=':'
+for _d in $_stop_path; do [ -x "$_d/semgrep" ] || _no_sg_path="${_no_sg_path:+$_no_sg_path:}$_d"; done
+IFS="$_oldifs"
+out="$(cd "$_sc" && PATH="$_sec_bin/offline:$_no_sg_path" bash tools/security.sh 2>&1)"; status=$?
+expect_status "an audit that can't reach the registry isn't a finding" 0 "$status" "$out"
+expect_output "it is noted with its reason" "^security: dependencies \(npm audit --omit=dev\): couldn't run: npm error audit endpoint returned an error" "$out"
+expect_output "a tool that isn't installed is skipped with a note" "^security: semgrep \(p/owasp-top-ten\): skipped: semgrep isn't installed" "$out"
+
+# pip-audit only reads requirements that are all pinned with ==; otherwise it would install them.
+_sp="$work/security/python"; mkdir -p "$_sp/tools"; cp "$src/framework/tools/security.sh" "$_sp/tools/"
+printf 'requests==2.32.3\nflask>=3.0\n' > "$_sp/requirements.txt"
+out="$(cd "$_sp" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"
+expect_output "pip-audit is skipped, with the reason, for a requirement that isn't pinned" "^security: dependencies \(pip-audit\): skipped: requirements\.txt has a requirement that isn't pinned with == \(flask>=3\.0\)" "$out"
+rm -f "$_sp/requirements.txt"; printf '[project]\nname = "x"\n' > "$_sp/pyproject.toml"
+out="$(cd "$_sp" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"
+expect_output "and for a pyproject.toml without pinned requirements" "^security: dependencies \(pip-audit\): skipped: only pyproject\.toml" "$out"
+
+# The real tools: gitleaks when it can scan, npm when it's installed and the registry answers. Semgrep
+# is left out (the stand-in covers it): its rules could flag the clean twin's plain HTTP server.
+out_v="$(cd "$_sv" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"; status_v=$?
+out_c="$(cd "$_sc" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"; status_c=$?
+if [ "$_gl_ok" -eq 1 ]; then
+  expect_output "gitleaks finds the seeded credential under its OWASP item" "secrets FAIL \(OWASP Identification and Authentication Failures" "$out_v"
+  expect_output "and names its file" "  found in: src/payments\.js" "$out_v"
+  expect_no_output "the clean twin has no credential finding" "secrets FAIL|found in:" "$out_c"
+  expect_status "the seeded copy fails the tool step" 1 "$status_v" "$out_v"
+else
+  echo "  skip  the seeded credential (gitleaks not found, below $_gl_min_req, or 8.19.0)"
+fi
+if ! command -v npm >/dev/null 2>&1; then
+  echo "  skip  npm audit on the fixture (npm isn't installed)"
+elif printf '%s' "$out_v" | grep -q "^security: dependencies (npm audit --omit=dev): couldn't run"; then
+  echo "  skip  npm audit on the fixture (the registry didn't answer)"
+else
+  expect_output "npm audit finds the vulnerable lodash, labelled A06" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A06:2021" "$out_v"
+  expect_output "and names lodash" "  package: lodash " "$out_v"
+  expect_output "the clean twin's audit is clean" "^security: dependencies \(npm audit --omit=dev\): clean" "$out_c"
+fi
+expect_status "the clean twin passes the tool step" 0 "$status_c" "$out_c"
+expect_no_output "the clean twin has no finding" "FINDINGS" "$out_c"
+
+# --due: always due with no report yet; then it counts built items (subjects ending in (T<n>) or
+# (B<n>), also with a squash merge's " (#<pr>)") since the newest report's commit.
+(cd "$_sv" && for i in 1 2 3; do git_q commit -q --allow-empty -m "feat: item (T$i)"; done && git_q commit -q --allow-empty -m "docs: note (R1)")
+out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
+expect_output "--due: due when there is no report yet" "^security: due: no assessment yet \(no report in product/security/\), \[security\] every = 10" "$out"
+printf '[security]\nevery = 3\n' >> "$_sv/tools/check.cfg"
+mkdir -p "$_sv/product/security"
+printf '# Security assessment 2026-01-01\n\n- Commit: `%s`\n' "$(cd "$_sv" && git rev-parse --short HEAD~2)" > "$_sv/product/security/2026-01-01.md"
+out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
+expect_output "--due counts from the newest report's commit, research items left out" "^security: not due: built items since product/security/2026-01-01\.md \(commit [0-9a-f]+\): 1, \[security\] every = 3" "$out"
+(cd "$_sv" && git_q commit -q --allow-empty -m "feat: squashed item (T4) (#12)" && git_q commit -q --allow-empty -m "fix: squashed bug (B2) (#13)")
+out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
+expect_output "--due counts squash-merge subjects and is due at [security] every = 3" "^security: due: built items since product/security/2026-01-01\.md \(commit [0-9a-f]+\): 3, \[security\] every = 3" "$out"
+(cd "$_sv" && git_q commit -q --allow-empty -m "fix: B5 is mentioned (B5) but not at the end")
+out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
+expect_output "--due ignores an item ID that doesn't end the subject" ": 3, \[security\] every = 3" "$out"
 
 finish
