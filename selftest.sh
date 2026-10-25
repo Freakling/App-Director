@@ -301,10 +301,10 @@ owasp_ref="$adir/reference/owasp.md"
 _cats=""
 for n in 01 02 03 04 05 06 07 08 09 10; do grep -q "^### A$n:2021 " "$owasp_ref" || _cats="$_cats A$n"; done
 for n in 1 2 3 4 5 6 7 8 9 10; do grep -q "^### API$n:2023 " "$owasp_ref" || _cats="$_cats API$n"; done
-_unmarked="$(sed -n '/^## OWASP Top 10$/,$p' "$owasp_ref" | grep '^- ' | grep -vE '^- (code|config|people): |^- Not applicable')"
+_unmarked="$(sed -n '/^## OWASP Top 10 (2021)$/,$p' "$owasp_ref" | grep '^- ' | grep -vE '^- (code|config|people): |^- Not applicable')"
 [ -z "$_cats" ] && [ -z "$_unmarked" ] && grep -q '^## Where to look, by stack' "$owasp_ref" \
   && [ "$(sed -n '/^## Where to look, by stack/,/^## OWASP/p' "$owasp_ref" | grep -cE '^- \*\*(typescript|flutter|python|none):\*\*')" -eq 4 ] \
-  && ok "the OWASP checklist has every Top 10 and API Security Top 10 category, each check marked code, config or people, and where to look per stack" \
+  && ok "the OWASP checklist has every OWASP Top 10 (2021) and API Security Top 10 (2023) category, each check marked code, config or people, and where to look per stack" \
   || bad "the OWASP checklist is missing categories:$_cats; unmarked checks: $_unmarked"
 wired=""
 secproc="$adir/procedures/security.md"
@@ -1517,8 +1517,18 @@ for _d in $_stop_path; do [ -x "$_d/semgrep" ] || _no_sg_path="${_no_sg_path:+$_
 IFS="$_oldifs"
 out="$(cd "$_sc" && PATH="$_sec_bin/offline:$_no_sg_path" bash tools/security.sh 2>&1)"; status=$?
 expect_status "an audit that can't reach the registry isn't a finding" 0 "$status" "$out"
-expect_output "it is noted with its reason" "^security: dependencies \(npm audit --omit=dev\): couldn't run: npm error audit endpoint returned an error" "$out"
+expect_output "it is noted with its reason" "^security: dependencies \(npm audit --omit=dev\): couldn't run: npm error code ENOTFOUND" "$out"
 expect_output "a tool that isn't installed is skipped with a note" "^security: semgrep \(p/owasp-top-ten\): skipped: semgrep isn't installed" "$out"
+# A non-zero exit is never clean, even with the nothing-found line: a failed run is couldn't run.
+mkdir -p "$_sec_bin/failed"; cat > "$_sec_bin/failed/npm" << 'FAKE'
+#!/usr/bin/env bash
+printf 'npm error network request failed\nfound 0 vulnerabilities\n'
+exit 1
+FAKE
+chmod +x "$_sec_bin/failed/npm"
+out="$(cd "$_sc" && PATH="$_sec_bin/failed:$_no_sg_path" bash tools/security.sh 2>&1)"; status=$?
+expect_output "a failed audit with the nothing-found line is couldn't run, with its reason" "^security: dependencies \(npm audit --omit=dev\): couldn't run: npm error network request failed" "$out"
+expect_no_output "and isn't reported clean" "dependencies \(npm audit --omit=dev\): clean" "$out"
 
 # pip-audit only reads requirements that are all pinned with ==; otherwise it would install them.
 _sp="$work/security/python"; mkdir -p "$_sp/tools"; cp "$src/framework/tools/security.sh" "$_sp/tools/"

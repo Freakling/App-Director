@@ -9,7 +9,7 @@ The request names the target: `web`, `mobile` (iOS/Android), or `desktop`. The s
 1. The working tree is clean.
 2. `bash tools/check.sh` passes. If it fails, stop: the build isn't worth shipping.
 3. List what's in this release: the `done` items since the last release tag (`git log <last tag>..HEAD --oneline`). A `high` bug that's done but has no regression test goes into the next acceptance check.
-4. Run the security assessment (`security.md`) before you propose the release when there is no report in `product/security/` yet, or an item was built since the newest one (the count in the line `bash tools/security.sh --due` prints). Whether it ran or not, every open `high` bug item that names an OWASP item blocks the release, unless `product/decisions.md` has an accepted deviation that names that OWASP item and why. Tell the director the `med` and `low` findings with the release proposal; they don't block it.
+4. Run the security assessment (`security.md`) before you propose the release when there is no report in `product/security/` yet, or an item was built since the newest one (the count in the line `bash tools/security.sh --due` prints). Run it on `main` at the commit the release tag will point to (step 5), not on a detached checkout of a tag, so its report names that commit. Whether it ran or not, every open `high` bug item that names an OWASP item blocks the release, unless `product/decisions.md` has an accepted deviation that names that OWASP item and why. Tell the director the `med` and `low` findings with the release proposal; they don't block it.
 
 ## 2. Build
 

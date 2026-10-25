@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T23 · B8 · R1
+**Next IDs:** T24 · B8 · R1
 
 ## Queue
+
+### T23 · The security assessment never quotes a secret, and names its OWASP editions · done · S · agent
+- Touches: framework/.app-director/procedures/security.md, framework/.app-director/reference/owasp.md, framework/.app-director/rules.md, framework/.app-director/procedures/release.md, framework/.app-director/procedures/review.md, framework/tools/security.sh, ONBOARDING.md, selftest.sh, CHANGELOG.md
+- Done when: evidence, the report and bug items name a secret by `file:line` and its kind only (check) · a tool counts as clean only when it exits 0 with its nothing-found output; a timeout, a network or restore error or a failed scan is couldn't run, with its reason (test) · `owasp.md` and `rules.md` name the OWASP Top 10 (2021) and the API Security Top 10 (2023), and `release.md` runs the assessment on `main` at the release commit (check)
+- Brief: -
+- Source: Director-Driven-Development T205
 
 ### T22 · A recurring security assessment validates what is built against the OWASP baseline · done · L · agent
 - Touches: framework/.app-director/procedures/security.md (new), framework/.app-director/reference/owasp.md (new), framework/.claude/skills/security/SKILL.md (new), framework/tools/security.sh (new), framework/.app-director/procedures/release.md, framework/.app-director/procedures/next-task.md, framework/.app-director/rules.md, framework/.claude/agents/reviewer.md, framework/.claude/settings.json, project/tools/check.cfg, ONBOARDING.md, README.md, tests/security/ (new), selftest.sh, CHANGELOG.md

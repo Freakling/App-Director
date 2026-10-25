@@ -8,6 +8,9 @@ It runs:
 - in `release.md`, before a release is proposed;
 - when `next-task.md` proposes it, because `bash tools/security.sh --due` says one is due: no report yet, or enough items built since the last one (`tools/check.cfg` › `[security] every`, 10 by default); the human can decline.
 
+## Ground rule: a secret is never quoted
+Evidence, the report and bug items never quote a secret, token, key or password, nor the line that holds one. A secret is named only by `file:line` and its kind (such as "GitHub token" or "database password"). This applies to the reviewer's findings, the report's evidence and fix lines, a bug item's `Repro:` and `Found in:`, and the tool lines. A tool's output in `.app-director/state/security/` may contain one: cite it by file and line, never copy the value out of it.
+
 ## 1. Tools first
 Run `bash tools/security.sh`. It never installs anything, and a tool that isn't installed is skipped with a note; never install one without asking the human. It runs:
 - the dependency audit for the manifests it finds: `npm audit --omit=dev` (or `pnpm audit --prod`, or yarn's audit, by the lock file), `pip-audit` on a `requirements.txt` whose packages are all pinned with `==` (it is skipped otherwise, since resolving them would install packages and run their build code), `dotnet list package --vulnerable --include-transitive`, and `flutter pub outdated` as information only, since that one isn't a vulnerability audit;
@@ -19,10 +22,11 @@ Each tool gets one line: clean, FINDINGS (with the OWASP item, and the details b
 ## 2. Reviewer pass
 A reader in a fresh context goes through `.app-director/reference/owasp.md`, category by category: in Claude Code, the `reviewer` subagent; with other tools, the way `review.md` runs, in a subagent if the tool has them. Set its model as `next-task.md` section 3 says, using the `L` entry. Give it the tool lines from step 1, the commit (`git rev-parse --short HEAD`), and these instructions:
 - Read only; change nothing.
+- Never quote a secret, token, key or the line that holds one: give `file:line` and the kind of secret only (see the ground rule above).
 - Read `rules.md` › OWASP baseline, the checklist's "Where to look" for the stack in `tools/check.cfg` › `[project] stack`, AGENTS.md › Architecture and Project facts, and the accepted deviations in `product/decisions.md` (lines that name an OWASP item).
-- The API Security Top 10 applies when the app serves an API (Project facts › API, or routes in the code); otherwise each of its categories is not applicable.
+- The OWASP API Security Top 10 (2023) applies when the app serves an API (Project facts › API, or routes in the code); otherwise each of its categories is not applicable.
 - For each category, read the code and config each check concerns, and judge each `code` and `config` check: holds (cite where), broken (a finding), or not applicable (say what the app lacks). Skip `people` checks: they are step 4's. A tool's clean line is evidence for a check, never the whole answer: read the code too.
-- Report each finding with: the OWASP item (such as A03:2021 Injection), a severity by the rubric below, the evidence (`file:line` and what the code does), a concrete way it fails, and a proposed fix. A deviation with an accepted decision isn't a finding; name the decision instead.
+- Report each finding with: the OWASP item (such as A03:2021 Injection), a severity by the rubric below, the evidence (`file:line` and what the code does; for a secret, `file:line` and its kind only), a concrete way it fails, and a proposed fix. A deviation with an accepted decision isn't a finding; name the decision instead.
 - End with one line per category: **verified** (each applicable check was read and holds), **findings** (one or more broken), **not checkable here** (what it depends on isn't in the repository, such as a backend in another repository or the hosting's settings), or **not applicable**.
 
 Severity:
@@ -33,7 +37,7 @@ Severity:
 ## 3. Findings become bug items
 Each finding from step 1 or 2 becomes a bug item in TASKS.md, in the format of `.app-director/tasks.md` (an ID from `Next IDs`, then bump it):
 - the heading's title names the OWASP item, such as `### B4 · Notes search builds SQL from input (A03:2021 Injection) · todo · S · agent · high`;
-- `Repro:` the evidence as steps, expected and actual, with `file:line`;
+- `Repro:` the evidence as steps, expected and actual, with `file:line` (for a secret: `file:line` and its kind, never the value or its line);
 - `Found in:` the report and the finding's number, such as `product/security/2026-10-25.md › F2`, where the proposed fix is.
 
 A finding that already has an open item gets no second one; name the existing item in the report. Severity `high` items go at the top of the queue (and `next-task.md` picks `high` bugs first); the others go at the end of the queue unless the director places them. A committed credential also needs rotating, which is the human's action (`rules.md` › Secrets): add a `human` item for it.
@@ -57,7 +61,7 @@ Write `product/security/YYYY-MM-DD.md` (today's date; a second assessment the sa
 
 ## Findings
 ### F1 · <title> · <OWASP item> · high | med | low · <B-item>
-- Evidence: <file:line, what the code does>
+- Evidence: <file:line, what the code does; for a secret, file:line and its kind only>
 - Fails when: <how it is exploited or breaks>
 - Fix: <the proposed fix>
 
