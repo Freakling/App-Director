@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T21 · B8 · R1
+**Next IDs:** T22 · B8 · R1
 
 ## Queue
+
+### T21 · OWASP is a non-negotiable baseline · done · M · agent
+- Touches: framework/.app-director/rules.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/review.md, framework/tools/check.sh, ONBOARDING.md, selftest.sh, CHANGELOG.md
+- Done when: `rules.md` states the OWASP Top 10 (and the API Security Top 10 for an API) as a framework-owned baseline that no project setting turns off, with deviations only as accepted `product/decisions.md` lines naming the item and why; `design.md` and `review.md` name it; the check's secrets and UI purity messages name the category they serve (check)
+- Brief: -
+- Source: Director-Driven-Development T199
 
 ### T20 · The secrets scan doesn't flag drawings · done · S · agent
 - Touches: project/.gitleaks.toml, selftest.sh, CHANGELOG.md

@@ -9,8 +9,9 @@
 # Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (gitleaks missing, old or unable to scan, stack tool missing, or a test run hit its time limit)
 #
 # Steps:
-#   1. UI purity: scan UI-layer files for imports from data-layer folders.
-#   2. Secrets: run gitleaks dir --redact on the working tree (detect --no-git before 8.19.1;
+#   1. UI purity: scan UI-layer files for imports from data-layer folders (serves OWASP Broken Access
+#      Control: no direct data access from UI code).
+#   2. Secrets (serves OWASP Identification and Authentication Failures: no credentials in source): run gitleaks dir --redact on the working tree (detect --no-git before 8.19.1;
 #      8.19.0 can't scan at all, so the check exits 3).
 #   3. Stack check: source tools/stacks/<stack>.sh and run it.
 #   4. Custom: run tools/check.local.sh, if the project has one.
@@ -134,7 +135,7 @@ if [ -n "$ui_dirs" ] && [ -n "$data_dirs" ]; then
           fi
         done)"
     if [ -n "$violations" ]; then
-      echo "check: UI purity FAIL: data-layer imports in UI files:"
+      echo "check: UI purity FAIL (OWASP Broken Access Control, direct data access from UI code): data-layer imports in UI files:"
       printf '%s\n' "$violations" | sed 's/^/  /'
       failed=1
     fi
@@ -180,7 +181,7 @@ gl_out="$(gl_scan)"; gl_rc=$?
 if [ "$gl_rc" -eq 0 ]; then
   rm -f "$gl_report"
 elif grep -qs '"File"' "$gl_report"; then
-  echo "check: secrets FAIL: gitleaks found credentials in the working tree."
+  echo "check: secrets FAIL (OWASP Identification and Authentication Failures, credentials in source): gitleaks found credentials in the working tree."
   # Name each file with a finding. Only paths are printed; the values stay redacted in the report.
   # awk keeps the first of repeated paths, so a file with several findings is listed once.
   sed -n 's/.*"File"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p' "$gl_report" 2>/dev/null \

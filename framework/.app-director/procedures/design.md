@@ -21,6 +21,7 @@ Brainstorm a topic, answer open design questions, or change how part of the app 
    - The result is a note in `product/research/` and a done `R<n>` item. Tell the human where the researcher's assumptions are, since those are the first thing to check.
    - The researcher's recommendation is one option, shown with its reason like any other. It informs; the human decides.
 2. Offer 2-4 concrete options. For each: what the user experiences, what it would take to build (which systems in AGENTS.md › Architecture), and how it fits the product goals.
+   Where an option touches security (input, authentication, authorization, sessions, secrets, data access, file or network access, dependencies), state its effect on the OWASP baseline in `rules.md` › Architecture defaults: the item it touches (such as Broken Access Control) and whether it meets, strengthens or would deviate from it. An option that would deviate is shown with the accepted decision it needs, and never recommended without saying so.
 3. Recommend one, with a one-line reason.
 4. Wait for the human. If they answer only part, record only that part. If you had to interpret the answer, write down your reading and ask them to confirm it.
 
