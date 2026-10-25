@@ -2,12 +2,14 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.9.0 (2026-10-25)
 
+- **A screen is re-arranged by dragging its grey boxes.** The starter drawing's grey numbered boxes are no longer locked. Drag or resize one and the reader takes it as a blue `keep` box for that element, named after it, at its new place, with any keys typed into it, marked `"from": "existing"` with the element's number `n` in `drawing.json`. Each grey box records the rectangle it was drawn at and is compared with that (within 2 pixels), so a recapture doesn't turn untouched boxes into moves. Untouched, deleted, hidden or locked boxes and boxes from an older starter are ignored, as are the number labels. With no element map, or when it no longer has the element, a moved grey box is skipped with a note; one dragged outside the frame is reported; an element claimed twice (moved grey box, blue box, red X) gets a note. A new blue box named after the element still works. The legend, `product/ui/README.md` and the procedure say so. The shared reader fixtures are at Godot Director 4.3.0, and Godot's reader output matches this reader byte for byte.
 - **The screen-design README is organised by feature.** `product/ui/README.md` now follows the order of Godot Director's: the workflow, what a capture gives you, boxes, colours, containment, patch or replace, re-arranging a screen, other states and sizes, processing and verifying, Excalidraw and the files table. It also names the capture setup (Node 18 or newer, the catalog in `tools/ui/screens.mjs`, `tools/ui_capture.cfg`). Re-arranging a screen is covered by the entry above.
 
 **Upgrade steps:**
 1. `product/ui/README.md` is an app-owned seed the installer leaves alone. Replace it with the source's `project/product/ui/README.md`, carrying over any notes you added.
+2. Recapture the screens so the starters are regenerated unlocked.
 
 ## 1.8.0 (2026-10-23)
 
