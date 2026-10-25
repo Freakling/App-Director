@@ -1,6 +1,6 @@
 <!-- Your product, in your own words. This file is yours: fill it in before onboarding, after it, or
 whenever you like, for a new app or one that's already underway.
-The latest template is at https://raw.githubusercontent.com/Freakling/App-Director/v1.10.0/project/product/director-brief.md
+The latest template is at https://raw.githubusercontent.com/Freakling/App-Director/v1.11.0/project/product/director-brief.md
 
 - Write as much or as little as you want, and leave a section blank if you haven't decided. Your
   own words are the point; no need to match the style of the other files.

@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.11.0 (2026-10-25)
 
 - **The OWASP baseline is the Top 10:2025.** `rules.md`, the checklist (`.app-director/reference/owasp.md`), the procedures, the messages of `tools/check.sh` and `tools/security.sh` and the self-test fixture notes use the OWASP Top 10 (2025) in place of the 2021 edition; the API Security Top 10 stays at 2023. Server-Side Request Forgery is now part of Broken Access Control, so its checks sit under A01. Vulnerable and Outdated Components becomes Software Supply Chain Failures and widens to what an agent can check in a repository: a committed lock file, pinned versions, known package sources, and CI and build files that install only from them, next to the dependency audit. New is Mishandling of Exceptional Conditions (A10): errors that leak internals to users, failing open on an exception in an authorization or validation path, swallowed errors and unhandled rejections, and resource cleanup on the error path. `tools/security.sh` labels dependency findings A03:2025 Software Supply Chain Failures.
   - **Upgrade steps:** the rules, procedures, checklist and tools are framework-owned and replaced by the upgrade. A project that names a 2021 category in a `product/decisions.md` deviation or in a bug item's title can re-label it with this table:
