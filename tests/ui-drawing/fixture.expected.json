@@ -55,7 +55,7 @@
       22,
       30
      ],
-     "parent": "b1",
+     "parent": "b5",
      "comments": [
       "scroll if more than 8 slots"
      ],
@@ -97,6 +97,57 @@
        "iou": 0.78
       }
      ]
+    },
+    {
+     "id": "b4",
+     "label": "TitleLabel",
+     "text": "Heading\nsize: fit",
+     "keys": {
+      "size": "fit"
+     },
+     "intent": "keep",
+     "rect_pct": [
+      1,
+      12,
+      10,
+      4
+     ],
+     "parent": null,
+     "comments": [],
+     "flows_to": [],
+     "overlaps": [],
+     "from": "existing",
+     "n": 6
+    },
+    {
+     "id": "b5",
+     "label": "GearList",
+     "text": "",
+     "keys": {},
+     "intent": "keep",
+     "rect_pct": [
+      54,
+      20,
+      26,
+      30
+     ],
+     "parent": "b1",
+     "comments": [],
+     "flows_to": [],
+     "overlaps": [
+      {
+       "n": 4,
+       "name": "GearList",
+       "iou": 0.85
+      },
+      {
+       "n": 2,
+       "name": "Panel",
+       "iou": 0.39
+      }
+     ],
+     "from": "existing",
+     "n": 4
     }
    ],
    "removed": [
