@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T27 · B8 · R1
+**Next IDs:** T28 · B8 · R1
 
 ## Queue
+
+### T27 · An upgrade adds a missing `.gitignore` line under the existing heading · done · XS · agent
+- Touches: install.sh, selftest.sh, CHANGELOG.md
+- Done when: an upgrade that adds a missing `.gitignore` line puts it under the app's existing `# App Director` heading instead of writing a second heading at the end, and the selftest's upgrade fixture finds one heading (check)
+- Brief: -
+- Source: Director-Driven-Development T217
 
 ### T26 · The installer ignores `.claude/settings.local.json`, as the README says · done · S · agent
 - Touches: install.sh, selftest.sh, CHANGELOG.md

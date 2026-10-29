@@ -504,10 +504,12 @@ cmp -s "$upgraded/product/director-brief.md" "$src/project/product/director-brie
 
 # An app whose .gitignore predates the settings line gets it on upgrade, and only once. The line is taken
 # out of a fresh install's .gitignore to stand for that app: the source is this same version, so no older
-# release is needed.
+# release is needed. The app's own line sits after a blank line, so the check shows where the App Director
+# block ends.
 gi_app="$work/gitignore-app"; new_repo "$gi_app"
 bash "$src/install.sh" "$gi_app" >/dev/null 2>&1
 grep -vxF '/.claude/settings.local.json' "$gi_app/.gitignore" > "$work/gitignore-old" && cp "$work/gitignore-old" "$gi_app/.gitignore"
+printf '\ndist/\n' >> "$gi_app/.gitignore"
 git -C "$gi_app" check-ignore -q .claude/settings.local.json \
   && bad "the setup removes the settings line from .gitignore" "$(cat "$gi_app/.gitignore")"
 out="$(bash "$src/install.sh" "$gi_app" 2>&1)"; expect_status "upgrades an app whose .gitignore lacks the settings line" 0 $? "$out"
@@ -517,6 +519,18 @@ git -C "$gi_app" check-ignore -q .claude/settings.local.json \
 [ "$(grep -cxF '/.claude/settings.local.json' "$gi_app/.gitignore")" -eq 1 ] \
   && ok "the settings line is in .gitignore once after the upgrade" \
   || bad "the settings line is in .gitignore once after the upgrade" "$(cat "$gi_app/.gitignore")"
+[ "$(grep -cxF '# App Director' "$gi_app/.gitignore")" -eq 1 ] \
+  && ok "the upgrade leaves one # App Director heading in .gitignore" \
+  || bad "the upgrade leaves one # App Director heading in .gitignore" "$(cat "$gi_app/.gitignore")"
+sed -n '/^# App Director$/,/^$/p' "$gi_app/.gitignore" | grep -qxF '/.claude/settings.local.json' \
+  && ok "the settings line goes under that heading, before the app's own lines" \
+  || bad "the settings line goes under that heading, before the app's own lines" "$(cat "$gi_app/.gitignore")"
+# .gitattributes gets its lines the same way, so an upgrade that adds one keeps one heading there too.
+grep -vxF '/tools/ui/** text eol=lf' "$gi_app/.gitattributes" > "$work/gitattributes-old" && cp "$work/gitattributes-old" "$gi_app/.gitattributes"
+out="$(bash "$src/install.sh" "$gi_app" 2>&1)"; expect_status "upgrades an app whose .gitattributes lacks a line" 0 $? "$out"
+[ "$(grep -cxF '/tools/ui/** text eol=lf' "$gi_app/.gitattributes")" -eq 1 ] && [ "$(grep -cxF '# App Director' "$gi_app/.gitattributes")" -eq 1 ] \
+  && ok "the upgrade's .gitattributes line goes under the one # App Director heading" \
+  || bad "the upgrade's .gitattributes line goes under the one # App Director heading" "$(cat "$gi_app/.gitattributes")"
 
 inside="$work/inside"; new_repo "$inside"
 cp -R "$adir_clone" "$inside/App-Director"; rm -rf "$inside/App-Director/.git"

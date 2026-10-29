@@ -190,20 +190,41 @@ done
 if [ "$#" -gt 0 ]; then chmod +x "$@"; fi
 
 # --- .gitignore / .gitattributes ------------------------------------------------------------------
+# ensure_lines <file> <line>...: adds the lines the file lacks. When the file has an "# App Director"
+# heading, they go directly after the last line of its block (the block runs to the next blank line or
+# comment line), so an upgrade doesn't write a second heading. Otherwise the heading and the lines go
+# at the end.
 ensure_lines() {
-  local file="$1" line content added=0
+  local file="$1" line content
   shift
   [ -f "$file" ] || : > "$file"
   content="$(tr -d '\r' < "$file")"
+  : > "$tmp/missing"
   for line in "$@"; do
     case "$nl$content$nl" in *"$nl$line$nl"*) continue ;; esac
-    if [ "$added" -eq 0 ]; then
+    printf '%s\n' "$line" >> "$tmp/missing"
+  done
+  [ -s "$tmp/missing" ] || return 0
+  case "$nl$content$nl" in
+    *"$nl# App Director$nl"*)
+      awk -v missing="$tmp/missing" '
+        BEGIN { while ((getline text < missing) > 0) add = add text "\n" }
+        {
+          bare = $0; sub(/\r$/, "", bare)
+          if (inblock && (bare ~ /^[[:space:]]*$/ || bare ~ /^#/)) { printf "%s", add; inblock = 0; done = 1 }
+          print
+          if (!done && bare == "# App Director") inblock = 1
+        }
+        END { if (inblock) printf "%s", add }
+      ' "$file" > "$tmp/edited"
+      cat "$tmp/edited" > "$file"
+      ;;
+    *)
       if [ -s "$file" ] && [ -n "$(tail -c 1 "$file")" ]; then echo >> "$file"; fi
       echo "# App Director" >> "$file"
-      added=1
-    fi
-    echo "$line" >> "$file"
-  done
+      cat "$tmp/missing" >> "$file"
+      ;;
+  esac
 }
 ensure_lines "$dest/.gitignore" \
   ".app-director/state/" "*.adir-new" ".env" "*.local" "/.claude/settings.local.json" \
