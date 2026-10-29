@@ -13,7 +13,7 @@ Requests:
 ## The catalog
 `tools/ui/screens.mjs` (project-owned) lists every screen: an `id`, a `title`, the `route` capture opens, and optionally `states` (such as `default` and `empty`), `auth` (a test account's saved sign-in in the gitignored `tools/ui/.auth/`), `source` (the file that renders it) and `animate` (for a screen whose animations can't be stopped). The entry format and the state functions are documented at the top of the file. A state seeds its data through the app's public API (the `api` helper it is given), never real user data; it can open the screen itself and prepare it, such as opening a dialog. If the screen you're asked about has no entry, add one first (`rules.md` › Architecture defaults › UI layer). Sizes, the seed, the lint thresholds, the app to open and screens never captured are in `tools/ui_capture.cfg`.
 
-`tools/ui_capture.sh` runs Node and Playwright, kept apart from the app in `tools/ui/` (its own `package.json`). It needs Node 18 or newer, and once per clone: `cd tools/ui && npm install && npx playwright install chromium`. The app's own check never needs them.
+`tools/ui_capture.sh` runs Node and Playwright, kept apart from the app in `tools/ui/` (its own `package.json`). It needs Node 20 or newer, and once per clone: `cd tools/ui && npm install && npx playwright install chromium`. The app's own check never needs them.
 
 Capture opens only the app on this machine: `tools/ui_capture.cfg` › `[web] base_url` (or `baseUrl` in the catalog), which must be `localhost`, `127.0.0.1` or a host in `[web] allow_hosts`; it refuses any other, so it never opens a deployed site. `[web] start_command` starts the app when nothing answers (its output goes to `.app-director/state/ui_app.log`), and capture stops it afterwards; if a capture was killed before it could, the next capture stops that app first. An app with no web UI (native Flutter, mobile or desktop) leaves `base_url` empty: capture isn't available for it yet, while `list`, `process` and verify's check of the spec's names still work.
 
@@ -24,7 +24,7 @@ Capture opens only the app on this machine: `tools/ui_capture.cfg` › `[web] ba
 
 ## capture
 1. Run `bash tools/ui_capture.sh <screen>`, or `--all`. `--state <name>` narrows it; `--size <W>x<H>` captures one size, listed in `tools/ui_capture.cfg` or not. Chromium runs headless, so no display is needed.
-   - Exit 3: say capture couldn't run and why, and stop. The causes: no Node 18, Playwright or Chromium not installed in `tools/ui` (it prints the command), no web app to open (`base_url` empty), a host that isn't this machine, or the app that didn't start. It wrote nothing.
+   - Exit 3: say capture couldn't run and why, and stop. The causes: no Node 20 or newer, Playwright or Chromium not installed in `tools/ui` (it prints the command), no web app to open (`base_url` empty), a host that isn't this machine, or the app that didn't start. It wrote nothing.
    - Exit 1: something failed, and the run went on with everything else. The causes, each named in a `FAIL` line:
      - a screen's page threw an error (it is still captured, with the error at the top of its `.lint.txt`), its route answered with an error, its state threw, or it didn't finish within `[capture] setup_timeout` seconds (the error is its whole `.lint.txt`);
      - a catalog entry has a problem, or `tools/ui/screens.mjs` doesn't load (when you capture one screen, a problem in another entry is only noted);

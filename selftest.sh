@@ -225,6 +225,13 @@ _pw_range() { sed -n 's/.*"playwright"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/
 [ "$(_pw_range "$src/framework/tools/ui/package.json")" = "$(_pw_range "$src/tests/ui-web/package.json")" ] \
   && ok "the selftest's Playwright is the version range capture asks for" \
   || bad "framework/tools/ui/package.json and tests/ui-web/package.json ask for different Playwright versions"
+# One exact version, not a range: no lock file ships, so the pin is what fixes the installed tree (framework/tools/ui/.npmrc).
+pw_exact=1
+for pw_file in "$src/framework/tools/ui/package.json" "$src/tests/ui-web/package.json"; do
+  _pw_range "$pw_file" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || pw_exact=0
+done
+[ "$pw_exact" -eq 1 ] && ok "Playwright is pinned to one exact version in both package.json files (no ^ or ~)" \
+  || bad "Playwright is a range in framework/tools/ui/package.json or tests/ui-web/package.json (pin one exact version: no lock file ships)"
 
 unrouted=""
 for proc in "$src"/framework/.app-director/procedures/*.md; do
@@ -324,6 +331,48 @@ grep -q '`/security`' "$src/ONBOARDING.md" && grep -q '`\[security\] every`' "$s
 [ -z "$wired" ] && ok "the security assessment is wired into the rules, the reviewer, release, next-task, the settings, the check.cfg seed and the docs" \
   || bad "the security assessment isn't wired into:$wired"
 
+# Agent permissions: the template's allow rules run without a prompt. A generic code runner with a
+# wildcard runs any code, so a prompt-injected page could push or read credentials (the docs repo's
+# security assessment, product/security/2026-10-26.md, F1). A rule that names a script under tools/
+# passes, with or without a wildcard (`bash tools/check.sh*`, `node tools/ui/capture.mjs *`), and so
+# does an exact command (`flutter test`). A runner followed by a wildcard fails (`npm *`,
+# `npm run build *`, `python -m *`, `node*`, `bash -c *`), and so does a rule that allows every
+# command (`Bash(*)`, or a bare `"Bash"`).
+perm_runners='npm|npx|pnpm|yarn|bun|deno|node|flutter|dart|dotnet|python3?|pip3?|pipx|uv|ruby|perl|php|go|cargo|make|sh|bash|zsh|env|xargs'
+perm_bad='"Bash\(('"$perm_runners"')( [^ /*()]+)*( ?\*)\)"|"Bash\(:?\*\)"|^ *"Bash",?[[:space:]]*$'
+perm_hits() { grep -nE "$perm_bad" "$1" || true; }
+if [ ! -f "$settings" ]; then
+  bad "the settings template is missing, so the agent's permissions can't be checked"
+elif [ -n "$(perm_hits "$settings")" ]; then
+  bad "the settings template allows a generic code runner or every command with a wildcard (allow the exact commands instead):" "$(perm_hits "$settings")"
+else
+  ok "the settings template allows no generic code runner or every command with a wildcard"
+fi
+# The check is tested on planted rules, so a change that stops it flagging one fails here.
+planted=""
+for perm_rule in 'Bash(npm *)' 'Bash(npx *)' 'Bash(pnpm *)' 'Bash(yarn *)' 'Bash(flutter *)' 'Bash(python *)' 'Bash(pip *)' \
+    'Bash(npm run build *)' 'Bash(python -m *)' 'Bash(node*)' 'Bash(bash -c *)' 'Bash(*)' 'Bash(:*)' 'Bash'; do
+  printf '{\n  "permissions": {\n    "allow": [\n      "%s"\n    ]\n  }\n}\n' "$perm_rule" > "$work/permissions-rule.json"
+  [ -n "$(perm_hits "$work/permissions-rule.json")" ] || planted="$planted $perm_rule"
+done
+[ -z "$planted" ] && ok "the permission check flags every generic runner with a wildcard, and every rule for every command" \
+  || bad "the permission check doesn't flag:$planted"
+cat > "$work/permissions-named.json" << 'EOF'
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash tools/check.sh*)",
+      "Bash(bash tools/stacks/*.sh*)",
+      "Bash(node tools/ui/capture.mjs *)",
+      "Bash(flutter test)",
+      "WebSearch"
+    ]
+  }
+}
+EOF
+[ -z "$(perm_hits "$work/permissions-named.json")" ] && ok "the permission check passes the named commands and an exact command" \
+  || bad "the permission check flags a named command or an exact one" "$(perm_hits "$work/permissions-named.json")"
+
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
 app="$work/todo-web"
@@ -369,6 +418,9 @@ fi
 grep -qx '/product/ui/captures/' .gitignore && grep -qx '/tools/ui/node_modules/' .gitignore && grep -qx '/tools/ui/.auth/' .gitignore \
   && grep -qx '/tools/ui/\*\* text eol=lf' .gitattributes \
   && ok "ignores captures, the capture tools' packages and saved sign-ins" || bad "the /ui-design .gitignore and .gitattributes lines" "$(cat .gitignore)"
+# The personal settings file is ignored, as the README says. `*.local` doesn't reach it (its name ends in .json).
+git check-ignore -q .claude/settings.local.json && ok "ignores .claude/settings.local.json, the personal settings file" \
+  || bad "ignores .claude/settings.local.json, the personal settings file" "$(cat .gitignore)"
 grep -q "$(printf '\t')tools/ui/capture.mjs$" .app-director/manifest && ! grep -q "$(printf '\t')tools/ui/screens.mjs$" .app-director/manifest \
   && ok "the manifest lists the capture tools, not the app's own catalog" || bad "the manifest lists the capture tools, not the app's own catalog"
 
@@ -456,6 +508,36 @@ out="$(bash "$src/install.sh" "$upgraded" 2>&1)"; expect_status "upgrades an app
 cmp -s "$upgraded/product/director-brief.md" "$src/project/product/director-brief.md" \
   && ok "an upgraded app gets the product brief template" \
   || bad "an upgraded app gets the product brief template" "$out"
+
+# An app whose .gitignore predates the settings line gets it on upgrade, and only once. The line is taken
+# out of a fresh install's .gitignore to stand for that app: the source is this same version, so no older
+# release is needed. The app's own line sits after a blank line, so the check shows where the App Director
+# block ends.
+gi_app="$work/gitignore-app"; new_repo "$gi_app"
+bash "$src/install.sh" "$gi_app" >/dev/null 2>&1
+grep -vxF '/.claude/settings.local.json' "$gi_app/.gitignore" > "$work/gitignore-old" && cp "$work/gitignore-old" "$gi_app/.gitignore"
+printf '\ndist/\n' >> "$gi_app/.gitignore"
+git -C "$gi_app" check-ignore -q .claude/settings.local.json \
+  && bad "the setup removes the settings line from .gitignore" "$(cat "$gi_app/.gitignore")"
+out="$(bash "$src/install.sh" "$gi_app" 2>&1)"; expect_status "upgrades an app whose .gitignore lacks the settings line" 0 $? "$out"
+git -C "$gi_app" check-ignore -q .claude/settings.local.json \
+  && ok "the upgrade adds the settings line, so .claude/settings.local.json is ignored" \
+  || bad "the upgrade adds the settings line, so .claude/settings.local.json is ignored" "$(cat "$gi_app/.gitignore")"
+[ "$(grep -cxF '/.claude/settings.local.json' "$gi_app/.gitignore")" -eq 1 ] \
+  && ok "the settings line is in .gitignore once after the upgrade" \
+  || bad "the settings line is in .gitignore once after the upgrade" "$(cat "$gi_app/.gitignore")"
+[ "$(grep -cxF '# App Director' "$gi_app/.gitignore")" -eq 1 ] \
+  && ok "the upgrade leaves one # App Director heading in .gitignore" \
+  || bad "the upgrade leaves one # App Director heading in .gitignore" "$(cat "$gi_app/.gitignore")"
+sed -n '/^# App Director$/,/^$/p' "$gi_app/.gitignore" | grep -qxF '/.claude/settings.local.json' \
+  && ok "the settings line goes under that heading, before the app's own lines" \
+  || bad "the settings line goes under that heading, before the app's own lines" "$(cat "$gi_app/.gitignore")"
+# .gitattributes gets its lines the same way, so an upgrade that adds one keeps one heading there too.
+grep -vxF '/tools/ui/** text eol=lf' "$gi_app/.gitattributes" > "$work/gitattributes-old" && cp "$work/gitattributes-old" "$gi_app/.gitattributes"
+out="$(bash "$src/install.sh" "$gi_app" 2>&1)"; expect_status "upgrades an app whose .gitattributes lacks a line" 0 $? "$out"
+[ "$(grep -cxF '/tools/ui/** text eol=lf' "$gi_app/.gitattributes")" -eq 1 ] && [ "$(grep -cxF '# App Director' "$gi_app/.gitattributes")" -eq 1 ] \
+  && ok "the upgrade's .gitattributes line goes under the one # App Director heading" \
+  || bad "the upgrade's .gitattributes line goes under the one # App Director heading" "$(cat "$gi_app/.gitattributes")"
 
 inside="$work/inside"; new_repo "$inside"
 cp -R "$adir_clone" "$inside/App-Director"; rm -rf "$inside/App-Director/.git"
@@ -1277,7 +1359,11 @@ else
     [ -x "$_dir/node" ] || [ -x "$_dir/node.exe" ] || _no_node_path="${_no_node_path:+$_no_node_path:}$_dir"
   done
   out="$(PATH="$_no_node_path" bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 without Node" 3 $? "$out"
-  expect_output "and says it needs Node 18" "needs Node 18 or newer" "$out"
+  expect_output "and says it needs Node 20" "needs Node 20 or newer" "$out"
+  # The floor is Node 20, the lowest that Playwright 1.64.1 declares: a Node 19 is refused, not run.
+  mkdir -p "$work/node19" && printf '#!/bin/sh\ncase "$1" in -p) echo 19 ;; --version) echo v19.9.0 ;; esac\n' > "$work/node19/node" && chmod +x "$work/node19/node"
+  out="$(PATH="$work/node19:$PATH" bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 on Node 19, below the floor" 3 $? "$out"
+  expect_output "and says it needs Node 20 or newer, and which Node it found" "needs Node 20 or newer; this is v19.9.0" "$out"
   [ ! -e product/ui/captures ] && ok "writes nothing when it can't run" || bad "writes nothing when it can't run" "$(ls product/ui/captures)"
   out="$(PATH="$_no_node_path" bash tools/check.sh 2>&1)"; expect_status "the check passes without Node" 0 $? "$out"
   fingerprint="$(bash tools/check.sh --fingerprint)"

@@ -25,7 +25,7 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 
 ## Install
 
-**Start here: write your product brief.** Before you install, describe your app in your own words in a copy of the [product brief template](https://raw.githubusercontent.com/Freakling/App-Director/v1.11.0/project/product/director-brief.md), saved as `product/director-brief.md` in your app. Fill in what you know and leave the rest blank. Then install: onboarding reads your brief and asks only what you left open.
+**Start here: write your product brief.** Before you install, describe your app in your own words in a copy of the [product brief template](https://raw.githubusercontent.com/Freakling/App-Director/v1.12.0/project/product/director-brief.md), saved as `product/director-brief.md` in your app. Fill in what you know and leave the rest blank. Then install: onboarding reads your brief and asks only what you left open.
 
 > You've read this far, so App Director may be what you're looking for. It's free and open source, and if it helps you build your app, a tip on Ko-fi or a sponsorship on GitHub helps me keep building it. I greatly appreciate your support.
 >

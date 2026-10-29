@@ -4,9 +4,39 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T25 · B8 · R1
+**Next IDs:** T30 · B8 · R1
 
 ## Queue
+
+### T29 · The screen-capture tooling asks for Node 20, as Playwright does · done · XS · agent
+- Touches: framework/tools/ui/package.json, framework/tools/ui/capture.mjs, framework/tools/ui_capture.sh, framework/.app-director/procedures/ui-design.md, project/product/ui/README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md
+- Done when: `engines.node` in `framework/tools/ui/package.json`, the Node check in `framework/tools/ui_capture.sh` and the message in `framework/tools/ui/capture.mjs` say Node 20 or newer, the lowest Node that `playwright` 1.64.1 declares (`npm view playwright@1.64.1 engines`) (check) · the docs, onboarding and selftest say Node 20 everywhere they named the old floor, and the selftest refuses a Node 19 with that wording (check)
+- Brief: -
+- Source: Director-Driven-Development T220
+
+### T28 · The screen-capture tooling pins Playwright to one exact version · done · XS · agent
+- Touches: framework/tools/ui/package.json, framework/tools/ui/.npmrc, tests/ui-web/package.json, selftest.sh, CHANGELOG.md
+- Done when: `framework/tools/ui/package.json` and `tests/ui-web/package.json` pin `playwright` to one exact version with no `^` or `~`, and the tree it installs is exact, so `framework/tools/ui/.npmrc` keeps `package-lock=false` and says why (check) · the selftest fails when either pin is a range (check)
+- Brief: -
+- Source: Director-Driven-Development B13
+
+### T27 · An upgrade adds a missing `.gitignore` line under the existing heading · done · XS · agent
+- Touches: install.sh, selftest.sh, CHANGELOG.md
+- Done when: an upgrade that adds a missing `.gitignore` line puts it under the app's existing `# App Director` heading instead of writing a second heading at the end, and the selftest's upgrade fixture finds one heading (check)
+- Brief: -
+- Source: Director-Driven-Development T217
+
+### T26 · The installer ignores `.claude/settings.local.json`, as the README says · done · S · agent
+- Touches: install.sh, selftest.sh, CHANGELOG.md
+- Done when: an install and an upgrade of an app whose `.gitignore` lacked the line both leave `.claude/settings.local.json` ignored by git, checked with `git check-ignore` in the selftest's install fixture (check) · the README's sentence that the file is gitignored stays true (check)
+- Brief: -
+- Source: Director-Driven-Development T215
+
+### T25 · The settings template allows no generic code runner · done · S · agent
+- Touches: framework/.claude/settings.json, selftest.sh, CHANGELOG.md
+- Done when: the allow list drops `npm`, `npx`, `pnpm`, `yarn`, `flutter`, `python` and `pip` with any arguments, keeping the `bash tools/...` and `node tools/ui/...` commands, and `selftest.sh` fails when the template allows a generic runner or every command with a wildcard (check) · the CHANGELOG says apps get the narrower list on upgrade and that a stack command not named there now asks first (check)
+- Brief: -
+- Source: Director-Driven-Development T213
 
 ### T24 · The OWASP baseline moves to the Top 10:2025 · done · M · agent
 - Touches: framework/.app-director/rules.md, framework/.app-director/reference/owasp.md, framework/.app-director/procedures/security.md, framework/.app-director/procedures/review.md, framework/tools/check.sh, framework/tools/security.sh, tests/security/README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md

@@ -4,7 +4,7 @@
 # It fetches the release tagged v<version>, the one this script belongs to. A folder left by an
 # earlier run moves to that release.
 set -euo pipefail
-tag=v1.11.0
+tag=v1.12.0
 ADIR="${TMPDIR:-/tmp}/app-director"
 if [ -d "$ADIR/.git" ]; then
   git -C "$ADIR" fetch -q --depth 1 origin "+refs/tags/$tag:refs/tags/$tag"

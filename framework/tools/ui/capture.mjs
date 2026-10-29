@@ -478,7 +478,7 @@ async function run(args) {
   try {
     ({ chromium } = await import("playwright"));
   } catch {
-    throw new CannotRun(`Playwright isn't installed in tools/ui. Install it once (it needs Node 18 or newer): ${INSTALL_HINT}`);
+    throw new CannotRun(`Playwright isn't installed in tools/ui. Install it once (it needs Node 20 or newer): ${INSTALL_HINT}`);
   }
   if (!existsSync(chromium.executablePath())) {
     throw new CannotRun(`Playwright's Chromium isn't installed. Install it once: ${INSTALL_HINT}`);
