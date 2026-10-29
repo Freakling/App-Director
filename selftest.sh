@@ -324,6 +324,48 @@ grep -q '`/security`' "$src/ONBOARDING.md" && grep -q '`\[security\] every`' "$s
 [ -z "$wired" ] && ok "the security assessment is wired into the rules, the reviewer, release, next-task, the settings, the check.cfg seed and the docs" \
   || bad "the security assessment isn't wired into:$wired"
 
+# Agent permissions: the template's allow rules run without a prompt. A generic code runner with a
+# wildcard runs any code, so a prompt-injected page could push or read credentials (the docs repo's
+# security assessment, product/security/2026-10-26.md, F1). A rule that names a script under tools/
+# passes, with or without a wildcard (`bash tools/check.sh*`, `node tools/ui/capture.mjs *`), and so
+# does an exact command (`flutter test`). A runner followed by a wildcard fails (`npm *`,
+# `npm run build *`, `python -m *`, `node*`, `bash -c *`), and so does a rule that allows every
+# command (`Bash(*)`, or a bare `"Bash"`).
+perm_runners='npm|npx|pnpm|yarn|bun|deno|node|flutter|dart|dotnet|python3?|pip3?|pipx|uv|ruby|perl|php|go|cargo|make|sh|bash|zsh|env|xargs'
+perm_bad='"Bash\(('"$perm_runners"')( [^ /*()]+)*( ?\*)\)"|"Bash\(:?\*\)"|^ *"Bash",?[[:space:]]*$'
+perm_hits() { grep -nE "$perm_bad" "$1" || true; }
+if [ ! -f "$settings" ]; then
+  bad "the settings template is missing, so the agent's permissions can't be checked"
+elif [ -n "$(perm_hits "$settings")" ]; then
+  bad "the settings template allows a generic code runner or every command with a wildcard (allow the exact commands instead):" "$(perm_hits "$settings")"
+else
+  ok "the settings template allows no generic code runner or every command with a wildcard"
+fi
+# The check is tested on planted rules, so a change that stops it flagging one fails here.
+planted=""
+for perm_rule in 'Bash(npm *)' 'Bash(npx *)' 'Bash(pnpm *)' 'Bash(yarn *)' 'Bash(flutter *)' 'Bash(python *)' 'Bash(pip *)' \
+    'Bash(npm run build *)' 'Bash(python -m *)' 'Bash(node*)' 'Bash(bash -c *)' 'Bash(*)' 'Bash(:*)' 'Bash'; do
+  printf '{\n  "permissions": {\n    "allow": [\n      "%s"\n    ]\n  }\n}\n' "$perm_rule" > "$work/permissions-rule.json"
+  [ -n "$(perm_hits "$work/permissions-rule.json")" ] || planted="$planted $perm_rule"
+done
+[ -z "$planted" ] && ok "the permission check flags every generic runner with a wildcard, and every rule for every command" \
+  || bad "the permission check doesn't flag:$planted"
+cat > "$work/permissions-named.json" << 'EOF'
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash tools/check.sh*)",
+      "Bash(bash tools/stacks/*.sh*)",
+      "Bash(node tools/ui/capture.mjs *)",
+      "Bash(flutter test)",
+      "WebSearch"
+    ]
+  }
+}
+EOF
+[ -z "$(perm_hits "$work/permissions-named.json")" ] && ok "the permission check passes the named commands and an exact command" \
+  || bad "the permission check flags a named command or an exact one" "$(perm_hits "$work/permissions-named.json")"
+
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
 app="$work/todo-web"

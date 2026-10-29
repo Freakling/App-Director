@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T25 · B8 · R1
+**Next IDs:** T26 · B8 · R1
 
 ## Queue
+
+### T25 · The settings template allows no generic code runner · done · S · agent
+- Touches: framework/.claude/settings.json, selftest.sh, CHANGELOG.md
+- Done when: the allow list drops `npm`, `npx`, `pnpm`, `yarn`, `flutter`, `python` and `pip` with any arguments, keeping the `bash tools/...` and `node tools/ui/...` commands, and `selftest.sh` fails when the template allows a generic runner or every command with a wildcard (check) · the CHANGELOG says apps get the narrower list on upgrade and that a stack command not named there now asks first (check)
+- Brief: -
+- Source: Director-Driven-Development T213
 
 ### T24 · The OWASP baseline moves to the Top 10:2025 · done · M · agent
 - Touches: framework/.app-director/rules.md, framework/.app-director/reference/owasp.md, framework/.app-director/procedures/security.md, framework/.app-director/procedures/review.md, framework/tools/check.sh, framework/tools/security.sh, tests/security/README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md
