@@ -225,6 +225,13 @@ _pw_range() { sed -n 's/.*"playwright"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/
 [ "$(_pw_range "$src/framework/tools/ui/package.json")" = "$(_pw_range "$src/tests/ui-web/package.json")" ] \
   && ok "the selftest's Playwright is the version range capture asks for" \
   || bad "framework/tools/ui/package.json and tests/ui-web/package.json ask for different Playwright versions"
+# One exact version, not a range: no lock file ships, so the pin is what fixes the installed tree (framework/tools/ui/.npmrc).
+pw_exact=1
+for pw_file in "$src/framework/tools/ui/package.json" "$src/tests/ui-web/package.json"; do
+  _pw_range "$pw_file" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || pw_exact=0
+done
+[ "$pw_exact" -eq 1 ] && ok "Playwright is pinned to one exact version in both package.json files (no ^ or ~)" \
+  || bad "Playwright is a range in framework/tools/ui/package.json or tests/ui-web/package.json (pin one exact version: no lock file ships)"
 
 unrouted=""
 for proc in "$src"/framework/.app-director/procedures/*.md; do

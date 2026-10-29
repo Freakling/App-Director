@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T28 · B8 · R1
+**Next IDs:** T29 · B8 · R1
 
 ## Queue
+
+### T28 · The screen-capture tooling pins Playwright to one exact version · done · XS · agent
+- Touches: framework/tools/ui/package.json, framework/tools/ui/.npmrc, tests/ui-web/package.json, selftest.sh, CHANGELOG.md
+- Done when: `framework/tools/ui/package.json` and `tests/ui-web/package.json` pin `playwright` to one exact version with no `^` or `~`, and the tree it installs is exact, so `framework/tools/ui/.npmrc` keeps `package-lock=false` and says why (check) · the selftest fails when either pin is a range (check)
+- Brief: -
+- Source: Director-Driven-Development B13
 
 ### T27 · An upgrade adds a missing `.gitignore` line under the existing heading · done · XS · agent
 - Touches: install.sh, selftest.sh, CHANGELOG.md
