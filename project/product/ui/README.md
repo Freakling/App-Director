@@ -3,7 +3,7 @@
 This folder holds your drawings of the screens and the agent's records of them. You draw; the agent reads your drawing, asks about what it can't tell, and builds the screen.
 
 ## The workflow
-1. **Capture.** Ask the agent to capture the screens (`/ui-design capture`). Capture needs Node 18 or newer, and once per clone: `cd tools/ui && npm install && npx playwright install chromium`. The screens it captures are the ones listed in `tools/ui/screens.mjs`; its sizes are in `tools/ui_capture.cfg`.
+1. **Capture.** Ask the agent to capture the screens (`/ui-design capture`). Capture needs Node 20 or newer, and once per clone: `cd tools/ui && npm install && npx playwright install chromium`. The screens it captures are the ones listed in `tools/ui/screens.mjs`; its sizes are in `tools/ui_capture.cfg`.
 2. **Draw.** Open the starter file in Excalidraw (see "Excalidraw" below) and draw over the screenshot.
 3. **Save.** Save it as `director/ui/<screen>.excalidraw`.
 4. **Process.** Ask the agent to process it (`/ui-design process <screen>`). After the build, `/ui-design verify <screen>` checks the built screen against the spec.

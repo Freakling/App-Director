@@ -13,7 +13,7 @@
 # For every screen in tools/ui/screens.mjs, state and size in tools/ui_capture.cfg, it writes
 # <id>[.<state>]@<W>x<H> .png, .elements.json, .map.png and .lint.txt to product/ui/captures/
 # (.app-director/procedures/ui-design.md). It opens the app on this machine in headless Chromium
-# (Playwright, installed once in tools/ui), so it needs no display. It needs Node 18 or newer; the
+# (Playwright, installed once in tools/ui), so it needs no display. It needs Node 20 or newer; the
 # project's own check (bash tools/check.sh) never does.
 # Without a web app to capture (native Flutter, mobile or desktop), --verify still checks that the
 # spec's names are in the source, and exits 3: the screen's position and focus stay unverified.
@@ -41,15 +41,15 @@ if [ "$verify" -eq 1 ] && { [ -z "$screen_arg" ] || [ "$screen_arg" = "all" ] ||
   exit 1
 fi
 
-# --- Node 18 or newer ---------------------------------------------------------------------------
+# --- Node 20 or newer ---------------------------------------------------------------------------
 if ! command -v node >/dev/null 2>&1; then
-  echo "ui_capture: needs Node 18 or newer (https://nodejs.org), then once: cd tools/ui && npm install && npx playwright install chromium" >&2
+  echo "ui_capture: needs Node 20 or newer (https://nodejs.org), then once: cd tools/ui && npm install && npx playwright install chromium" >&2
   exit 3
 fi
 major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null | tr -d '\r')"
 case "$major" in ''|*[!0-9]*) major=0 ;; esac
-if [ "$major" -lt 18 ]; then
-  echo "ui_capture: needs Node 18 or newer; this is $(node --version 2>/dev/null | tr -d '\r')." >&2
+if [ "$major" -lt 20 ]; then
+  echo "ui_capture: needs Node 20 or newer; this is $(node --version 2>/dev/null | tr -d '\r')." >&2
   exit 3
 fi
 if [ ! -f tools/ui/capture.mjs ]; then

@@ -124,7 +124,7 @@ Fill in `tools/check.cfg`:
 - `[scan] skip`: third-party folders, generated code (e.g. `node_modules dist build .dart_tool`).
 - `[security] every`: how many built items after the last security assessment `/next-task` proposes the next one (`.app-director/procedures/security.md`); the seed says 10. The human can decline a proposal. Leave it unless the human wants assessments proposed more or less often. An assessment also runs before a release when something was built since the last report, or when there is none yet.
 
-Fill in `tools/ui_capture.cfg` › `[web]` when the app has a web UI (Flutter web included): `base_url`, the address of its dev or test server on this machine (such as `http://localhost:5173`), and `start_command` if capture should start it. Leave `base_url` empty for a native Flutter, mobile or desktop app: capture isn't available for those yet. The catalog (`tools/ui/screens.mjs`) starts with the root route; capture needs Node 18 and, once per clone, `cd tools/ui && npm install && npx playwright install chromium`. Offer that install; it is never needed for the check.
+Fill in `tools/ui_capture.cfg` › `[web]` when the app has a web UI (Flutter web included): `base_url`, the address of its dev or test server on this machine (such as `http://localhost:5173`), and `start_command` if capture should start it. Leave `base_url` empty for a native Flutter, mobile or desktop app: capture isn't available for those yet. The catalog (`tools/ui/screens.mjs`) starts with the root route; capture needs Node 20 or newer and, once per clone, `cd tools/ui && npm install && npx playwright install chromium`. Offer that install; it is never needed for the check.
 
 ## 8. Ownership and project rules
 

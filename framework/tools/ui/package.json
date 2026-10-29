@@ -3,7 +3,7 @@
   "private": true,
   "description": "App Director screen capture (framework-owned: replaced on upgrade). Install once with: npm install && npx playwright install chromium",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "playwright": "1.64.1"
