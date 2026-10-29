@@ -373,6 +373,40 @@ EOF
 [ -z "$(perm_hits "$work/permissions-named.json")" ] && ok "the permission check passes the named commands and an exact command" \
   || bad "the permission check flags a named command or an exact one" "$(perm_hits "$work/permissions-named.json")"
 
+# The wildcard git rules take any flag, and some git flags write a file (--output), read a file
+# outside the repository (--no-index, commit -F and --file) or run a configured command
+# (--ext-diff), none of which should run without the human (the docs repo's security assessment,
+# product/security/2026-10-29.md, F1). A template that allows a wildcard git rule has to carry all
+# four deny rules; the guard hook's tests (below, "guard-commands hook") cover the rest.
+git_deny_missing() { # git_deny_missing <settings file>: the deny rules it lacks, when it allows a wildcard git rule
+  local rule deny
+  sed -n '/"allow": *\[/,/\]/p' "$1" | grep -qE '"Bash\(git (diff|log|show|stash|commit) \*\)"' || return 0
+  deny="$(sed -n '/"deny": *\[/,/\]/p' "$1")"
+  for rule in 'Bash(git *--output*)' 'Bash(git *--no-index*)' 'Bash(git *--ext-diff*)' 'Bash(git commit *--file*)'; do
+    printf '%s\n' "$deny" | grep -qF "\"$rule\"" || printf '%s\n' "$rule"
+  done
+}
+if [ ! -f "$settings" ]; then
+  bad "the settings template is missing, so its git deny rules can't be checked"
+elif [ -n "$(git_deny_missing "$settings")" ]; then
+  bad "the settings template allows a wildcard git rule but doesn't deny these (git flags that write or read any file):" "$(git_deny_missing "$settings")"
+else
+  ok "the settings template denies git's file-writing, file-reading and external-command flags next to its wildcard git rules"
+fi
+# The check is tested on planted settings, so a change that stops it flagging a missing rule fails here.
+git_planted=""
+printf '{\n  "permissions": {\n    "allow": [\n      "Bash(git diff *)"\n    ],\n    "deny": [\n      "Read(.env)"\n    ]\n  }\n}\n' > "$work/git-deny-none.json"
+[ "$(git_deny_missing "$work/git-deny-none.json" | wc -l | tr -d ' ')" = 4 ] || git_planted="$git_planted none"
+for git_rule in 'git log' 'git show' 'git stash' 'git commit'; do
+  printf '{\n  "permissions": {\n    "allow": [\n      "Bash(%s *)"\n    ],\n    "deny": [\n      "Bash(git *--output*)"\n    ]\n  }\n}\n' \
+    "$git_rule" > "$work/git-deny-one.json"
+  [ "$(git_deny_missing "$work/git-deny-one.json" | wc -l | tr -d ' ')" = 3 ] || git_planted="$git_planted $git_rule"
+done
+printf '{\n  "permissions": {\n    "allow": [\n      "Bash(git status)",\n      "Bash(git add *)"\n    ]\n  }\n}\n' > "$work/git-deny-no-wildcard.json"
+[ -z "$(git_deny_missing "$work/git-deny-no-wildcard.json")" ] || git_planted="$git_planted no-wildcard"
+[ -z "$git_planted" ] && ok "the git deny check flags each missing deny rule, and passes settings with no wildcard git rule" \
+  || bad "the git deny check misses a planted case:$git_planted"
+
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
 app="$work/todo-web"
@@ -905,7 +939,7 @@ expect_status "passes again once the UI violation is removed" 0 $? "$out"
 echo "guard-commands hook"
 guard() { # guard <expected-exit> <command>
   local escaped="${2//\\/\\\\}"
-  escaped="${escaped//\"/\\\"}"
+  escaped="${escaped//\"/\\\"}"; escaped="${escaped//$'\n'/\\n}"; escaped="${escaped//$'\t'/\\t}"
   printf '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"%s","description":"run"}}' \
     "$escaped" | bash .claude/hooks/guard-commands.sh >/dev/null 2>&1
   local got=$?
@@ -969,6 +1003,56 @@ for cmd in \
     'sleep 5' \
     'sleep 280' \
     'git commit -m "until x; do sleep 3; done"'; do
+  guard 0 "$cmd"
+done
+# The wildcard git allow rules (`git diff *`, `git log *`, `git show *`, `git stash *`, `git commit *`)
+# take any flag, and some flags write a file (--output), read a file outside the repository
+# (--no-index, commit -F and --file, a `git diff` of a path outside it) or run a configured command
+# (--ext-diff), with no prompt. The hook reads the command as the shell hands it to git, so a flag
+# that is quoted, escaped, attached to a short option or hidden behind another command is still seen,
+# and a flag named inside a commit message or a heredoc body is not. The deny rules in settings.json
+# cover the plain forms; the hook covers the rest, and commit -F, where a rule can't tell
+# `-F <path>` from `-F -` (the docs repo's security assessment, product/security/2026-10-29.md, F1).
+for cmd in \
+    'git log -1 --format=probe --output=/tmp/probe.txt' \
+    'git log --output /tmp/probe.txt' \
+    'git show --output /tmp/probe.txt HEAD' \
+    'git diff --output=probe.txt' \
+    'git stash show --output=/tmp/probe.txt' \
+    "git log '--output=/tmp/probe.txt'" \
+    'git log "--no-index"' \
+    'git log --out\put=/tmp/probe.txt' \
+    'git log --output="/tmp/my probe.txt"' \
+    'git diff --no-index a b' \
+    'git diff --no-index /dev/null /etc/hosts' \
+    'git log -p --ext-diff' \
+    'git diff --ext-diff' \
+    'git diff /etc/hosts README.md' \
+    'git diff ../other.txt README.md' \
+    'git commit -F /tmp/msg.txt' \
+    'git commit -F/tmp/msg.txt' \
+    'git commit -aF /tmp/msg.txt' \
+    'git commit -F "/tmp/my msg.txt"' \
+    'git commit --file /tmp/msg.txt' \
+    'git commit --file=/tmp/msg.txt' \
+    'git commit -F - -F /tmp/msg.txt' \
+    'git add -A && git commit -F /tmp/msg.txt' \
+    'git -C work/App-Director log --output=/tmp/probe.txt' \
+    $'git commit -q -F - <<\'EOF\'\nmsg\nEOF\ngit log --output=/tmp/probe.txt'; do
+  guard 2 "$cmd"
+done
+for cmd in \
+    'git log --oneline -5' \
+    'git diff HEAD' \
+    'git diff --cached --stat' \
+    'git diff origin/main..HEAD -- docs/index.md' \
+    'git show HEAD:README.md' \
+    'git commit -m "fix the --output handling"' \
+    'git commit -F -' \
+    'git commit --file=-' \
+    $'git commit -q -F - <<\'EOF\'\nfix the --output and --no-index handling, not -F /tmp/x\nEOF' \
+    'git stash list' \
+    'git worktree list'; do
   guard 0 "$cmd"
 done
 grep -q '"matcher": "Bash|Monitor"' .claude/settings.json && ok "the guard is wired to Monitor too" || bad "the guard is wired to Monitor too"

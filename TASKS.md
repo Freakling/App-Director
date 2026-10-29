@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T30 · B8 · R1
+**Next IDs:** T31 · B8 · R1
 
 ## Queue
+
+### T30 · The guard blocks the git flags that write or read any file · done · M · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, selftest.sh, CHANGELOG.md
+- Done when: the guard hook blocks the git flags that write a file (`--output`), read a file outside the repository (`--no-index`, `commit -F` and `--file`, a `git diff` of a path outside it) or run a configured command (`--ext-diff`), and passes the plain forms the procedures use (`git commit -F -`, `git commit -m "..."`) (check) · the settings template denies `Bash(git *--output*)`, `Bash(git *--no-index*)`, `Bash(git *--ext-diff*)` and `Bash(git commit *--file*)` (check) · `selftest.sh` feeds the hook each case, and fails when the template allows a wildcard git rule (`git diff *`, `git log *`, `git show *`, `git stash *`, `git commit *`) without all four deny rules (check)
+- Brief: -
+- Source: Director-Driven-Development T233
 
 ### T29 · The screen-capture tooling asks for Node 20, as Playwright does · done · XS · agent
 - Touches: framework/tools/ui/package.json, framework/tools/ui/capture.mjs, framework/tools/ui_capture.sh, framework/.app-director/procedures/ui-design.md, project/product/ui/README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md
