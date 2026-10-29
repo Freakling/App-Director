@@ -7,6 +7,11 @@
 # skipping the check. It pattern-matches the text, so it's a strong safety net, not a guarantee.
 # It starts no other processes (it runs on every Bash call).
 #
+# It also blocks the git flags that write a file, read a file outside the repository or run a
+# configured command (--output, --no-index, --ext-diff, commit -F and --file), because the allow
+# rules in settings.json let `git diff *`, `git log *`, `git show *`, `git commit *` and
+# `git stash *` run with any flag. See the section "git: flags that write a file" below.
+#
 # Also blocks shell commands that read credential files (.env, *.pem, *.key) directly. This is a
 # guardrail, not a guarantee: complex pipelines or indirect reads are not detected. The Read-tool
 # deny rules in settings.json cover the most common path.
@@ -126,5 +131,99 @@ seg='[^;&|]*'
 [[ $code =~ (checkout|restore)${seg}[[:space:]](--[[:space:]]+)?\.([[:space:]]|$) ]] && block "this discards every uncommitted change"
 [[ $code =~ stash[[:space:]]+(drop|clear) ]] && block "this deletes stashed work"
 [[ $code =~ branch${seg}[[:space:]]-D([[:space:]]|$) ]] && block "git branch -D deletes unmerged work"
+
+# --- git: flags that write a file, read outside the repository or run a configured command --------
+# settings.json allows `git diff *`, `git log *`, `git show *`, `git commit *` and `git stash *` without
+# a prompt, so every flag after them runs without one too. These turn them into a file write
+# (--output), a read of any file on the machine (--no-index; a `git diff` of a path outside the
+# repository, which git treats as --no-index; commit -F and --file) or the run of a configured command
+# (--ext-diff). The command is read as the shell hands it to git: '--output=x', "--output"=x and
+# --out\put=x are the flag, while a flag named inside a quoted message or a heredoc body is not.
+# Variables and $(...) outside quotes are not expanded, so this is a text match like the rest.
+bs='\'; sq1="'"
+real="${raw//\\\\/$'\x01'}"; real="${real//\\\"/\"}"; real="${real//\\n/$nl}"
+real="${real//\\t/ }"; real="${real//\\r/}"; real="${real//$'\x01'/$bs}"
+
+# Cut out the heredoc bodies (git commit -F - <<'EOF' ...). A quoted delimiter makes the body plain
+# text; an unquoted one expands $(...) and backticks, so a body with those stays.
+hre='(^|[^<])<<-?[[:space:]]*(\\?["'"'"']?)([A-Za-z_][A-Za-z0-9_]*)'
+gtext=""; delim=""; hquote=""; body=""
+while IFS= read -r line || [ -n "$line" ]; do
+  if [ -n "$delim" ]; then
+    if [ "${line#"${line%%[![:space:]]*}"}" = "$delim" ]; then
+      delim=""
+      [[ -n $hquote || ( $body != *'$('* && $body != *'`'* ) ]] || gtext+="$body"
+      body=""
+    else body+="$line$nl"; fi
+    continue
+  fi
+  gtext+="$line$nl"
+  [[ $line =~ $hre ]] && { delim="${BASH_REMATCH[3]}"; hquote="${BASH_REMATCH[2]}"; }
+done <<<"$real"
+gtext+="$body"   # a heredoc that never closes keeps its text: a false block beats a miss
+
+# Walk the quoted strings from the left. One that is a flag by itself ('--output=x') or sits inside
+# a word (--out"put"=x) is unquoted so the flag shows; any other is message text and is blanked.
+# A "..." holding $(...) or backticks runs a command, so its text stays and is read again.
+qre='^(([^"'$sq1'\\]|\\.)*)("(([^"\\]|\\.)*)"|'$sq1'([^'$sq1']*)'$sq1')'
+glued='^[^[:space:];&|<>)]'
+gcode=""; rest="$gtext"
+while [[ $rest =~ $qre ]]; do
+  pre="${BASH_REMATCH[1]}"; quoted="${BASH_REMATCH[3]}"; rest="${rest:${#BASH_REMATCH[0]}}"
+  inner="${quoted:1:${#quoted}-2}"
+  if [[ $pre == *'$' && $pre != *'\$' ]]; then   # $'...' and $"...": drop the $
+    pre="${pre%?}"
+    [[ $quoted == "'"* && $inner =~ \\[xuU0-7] ]] && block "ANSI-C quoting with a numeric escape (\$'\\055') can spell any flag past this check"
+  fi
+  pre="${pre//\\$nl/}"; pre="${pre//\\/}"        # outside quotes a backslash only escapes the next character
+  gcode+="$pre"
+  word="${gcode##*[[:space:];&|]}"               # the word so far
+  if [[ $inner =~ ^--?[A-Za-z] ]]; then gcode+="$inner"
+  elif [[ $inner != *[[:space:]]* && ( -n $word || $rest =~ $glued ) ]]; then gcode+="$inner"
+  elif [[ -n $word && $word =~ ^--[^=]*$ ]]; then gcode+="$inner"
+  elif [[ $quoted == '"'* && ( $inner == *'$('* || $inner == *'`'* ) ]]; then rest="$inner $rest"
+  else gcode+=" Q "; fi
+done
+rest="${rest//\\$nl/}"; rest="${rest//\\/}"; gcode+="${rest//[\"$sq1]/}"   # a quote left over never closes
+gcode="${gcode//$nl/;}"; gcode="${gcode//>&/> }"; gcode="${gcode//&>/> }"
+
+gitre='(^|[^[:alnum:]_./-])git[[:space:]]'
+gitflag() { [[ $gcode =~ $gitre($seg[[:space:]])?$1 ]]; }
+gitflag '--output([[:space:]=;&|]|$)' && block "--output writes a file to any path, such as one a later command runs"
+gitflag '--no-index([[:space:]=;&|]|$)' && block "--no-index reads any file on the machine"
+gitflag '--ext' && block "--ext-diff runs a configured external command"
+
+# Per command: git commit -F and --file read any file (the message may come from stdin: -F -), and a
+# git diff of a path outside the repository reads it too. The subcommand is the first word after git
+# that isn't an option, so `git log --grep commit -F` is not a commit.
+outre='^(/|~|[A-Za-z]:|\$[A-Za-z_{])|(^|/)\.\.(/|$)'
+brackets='[(){}`]'
+IFS=';&|' read -r -d '' -a gsegs <<<"$gcode" || true
+for gs in "${gsegs[@]}"; do
+  gs="${gs//$brackets/ }"
+  read -ra w <<<"$gs"
+  n=${#w[@]}; k=0
+  while ((k < n)) && [[ ${w[k]} != git ]]; do ((k++)); done
+  ((k++))
+  while ((k < n)); do
+    case ${w[k]} in -C|-c) ((k += 2)) ;; -*) ((k++)) ;; *) break ;; esac
+  done
+  case ${w[k]:-} in
+    commit)
+      for ((k++; k < n; k++)); do
+        a="${w[k]}"
+        if [[ $a =~ ^-[aeinopqsvz]*F(.*)$ ]]; then v="${BASH_REMATCH[1]:-${w[k+1]:-}}"
+        elif [[ $a =~ ^--fil(e?)(=(.*))?$ ]]; then
+          if [[ -n ${BASH_REMATCH[2]} ]]; then v="${BASH_REMATCH[3]}"; else v="${w[k+1]:-}"; fi
+        else continue; fi
+        [[ $v == - ]] || block "git commit -F and --file read any file on the machine; give the message on stdin: git commit -F - <<'EOF'"
+      done ;;
+    diff)
+      for ((k++; k < n; k++)); do
+        [[ ${w[k]} == -* ]] && continue
+        [[ ${w[k]} =~ $outre ]] && block "git diff of a path outside the repository reads any file on the machine"
+      done ;;
+  esac
+done
 
 exit 0

@@ -33,7 +33,11 @@
       "Read(*.pem)",
       "Read(**/*.pem)",
       "Read(*.key)",
-      "Read(**/*.key)"
+      "Read(**/*.key)",
+      "Bash(git *--output*)",
+      "Bash(git *--no-index*)",
+      "Bash(git *--ext-diff*)",
+      "Bash(git commit *--file*)"
     ]
   },
   "hooks": {
