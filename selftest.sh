@@ -411,6 +411,9 @@ fi
 grep -qx '/product/ui/captures/' .gitignore && grep -qx '/tools/ui/node_modules/' .gitignore && grep -qx '/tools/ui/.auth/' .gitignore \
   && grep -qx '/tools/ui/\*\* text eol=lf' .gitattributes \
   && ok "ignores captures, the capture tools' packages and saved sign-ins" || bad "the /ui-design .gitignore and .gitattributes lines" "$(cat .gitignore)"
+# The personal settings file is ignored, as the README says. `*.local` doesn't reach it (its name ends in .json).
+git check-ignore -q .claude/settings.local.json && ok "ignores .claude/settings.local.json, the personal settings file" \
+  || bad "ignores .claude/settings.local.json, the personal settings file" "$(cat .gitignore)"
 grep -q "$(printf '\t')tools/ui/capture.mjs$" .app-director/manifest && ! grep -q "$(printf '\t')tools/ui/screens.mjs$" .app-director/manifest \
   && ok "the manifest lists the capture tools, not the app's own catalog" || bad "the manifest lists the capture tools, not the app's own catalog"
 
@@ -498,6 +501,22 @@ out="$(bash "$src/install.sh" "$upgraded" 2>&1)"; expect_status "upgrades an app
 cmp -s "$upgraded/product/director-brief.md" "$src/project/product/director-brief.md" \
   && ok "an upgraded app gets the product brief template" \
   || bad "an upgraded app gets the product brief template" "$out"
+
+# An app whose .gitignore predates the settings line gets it on upgrade, and only once. The line is taken
+# out of a fresh install's .gitignore to stand for that app: the source is this same version, so no older
+# release is needed.
+gi_app="$work/gitignore-app"; new_repo "$gi_app"
+bash "$src/install.sh" "$gi_app" >/dev/null 2>&1
+grep -vxF '/.claude/settings.local.json' "$gi_app/.gitignore" > "$work/gitignore-old" && cp "$work/gitignore-old" "$gi_app/.gitignore"
+git -C "$gi_app" check-ignore -q .claude/settings.local.json \
+  && bad "the setup removes the settings line from .gitignore" "$(cat "$gi_app/.gitignore")"
+out="$(bash "$src/install.sh" "$gi_app" 2>&1)"; expect_status "upgrades an app whose .gitignore lacks the settings line" 0 $? "$out"
+git -C "$gi_app" check-ignore -q .claude/settings.local.json \
+  && ok "the upgrade adds the settings line, so .claude/settings.local.json is ignored" \
+  || bad "the upgrade adds the settings line, so .claude/settings.local.json is ignored" "$(cat "$gi_app/.gitignore")"
+[ "$(grep -cxF '/.claude/settings.local.json' "$gi_app/.gitignore")" -eq 1 ] \
+  && ok "the settings line is in .gitignore once after the upgrade" \
+  || bad "the settings line is in .gitignore once after the upgrade" "$(cat "$gi_app/.gitignore")"
 
 inside="$work/inside"; new_repo "$inside"
 cp -R "$adir_clone" "$inside/App-Director"; rm -rf "$inside/App-Director/.git"

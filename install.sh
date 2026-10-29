@@ -206,7 +206,7 @@ ensure_lines() {
   done
 }
 ensure_lines "$dest/.gitignore" \
-  ".app-director/state/" "*.adir-new" ".env" "*.local" \
+  ".app-director/state/" "*.adir-new" ".env" "*.local" "/.claude/settings.local.json" \
   "/product/ui/captures/" "/tools/ui/node_modules/" "/tools/ui/.auth/"
 ensure_lines "$dest/.gitattributes" \
   "*.sh text eol=lf" "/.githooks/** text eol=lf" "/.app-director/** text eol=lf" \

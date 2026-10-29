@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T26 · B8 · R1
+**Next IDs:** T27 · B8 · R1
 
 ## Queue
+
+### T26 · The installer ignores `.claude/settings.local.json`, as the README says · done · S · agent
+- Touches: install.sh, selftest.sh, CHANGELOG.md
+- Done when: an install and an upgrade of an app whose `.gitignore` lacked the line both leave `.claude/settings.local.json` ignored by git, checked with `git check-ignore` in the selftest's install fixture (check) · the README's sentence that the file is gitignored stays true (check)
+- Brief: -
+- Source: Director-Driven-Development T215
 
 ### T25 · The settings template allows no generic code runner · done · S · agent
 - Touches: framework/.claude/settings.json, selftest.sh, CHANGELOG.md
