@@ -34,10 +34,19 @@
       "Read(**/*.pem)",
       "Read(*.key)",
       "Read(**/*.key)",
+      "Read(~/.ssh/**)",
+      "Read(~/.git-credentials)",
+      "Read(~/.config/git/credentials)",
+      "Read(~/.config/gh/**)",
+      "Read(~/AppData/Roaming/GitHub CLI/**)",
       "Bash(git *--output*)",
       "Bash(git *--no-index*)",
       "Bash(git *--ext-diff*)",
-      "Bash(git commit *--file*)"
+      "Bash(git commit *--file*)",
+      "Bash(git grep *--open*)",
+      "Bash(git grep *-O*)",
+      "Bash(git tag *--file*)",
+      "Bash(bash tools/*..*)"
     ]
   },
   "hooks": {

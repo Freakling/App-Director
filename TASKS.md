@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T31 · B8 · R1
+**Next IDs:** T32 · B8 · R1
 
 ## Queue
+
+### T31 · The guard closes the git grep pager, the credential stores and the unscanned commits · done · M · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, framework/.githooks/pre-commit, selftest.sh, CHANGELOG.md
+- Done when: the guard hook blocks `git grep -O` and `--open-files-in-pager` in every spelling, a tag message read from a file (`git tag -F` and `--file`) and a `bash` or `sh` script path under `tools/` that leaves it with `..`, and passes the plain forms the procedures use (`git grep -n`, `git tag -a v1 -m ...`, `git tag -F -`, `bash tools/check.sh`) (check) · the settings template denies `Read` of `~/.ssh`, git's credential files and the gh CLI's token store, and the hook blocks shell reads of them and `gh auth token`, `gh auth status -t` and `git credential fill` or `get` (check) · the pre-commit hook scans the staged changes for secrets on every commit, a staged Markdown file holding a token included (check) · `selftest.sh` feeds the hook each case, fails when the template allows a wildcard `git grep *`, `git tag *` or `bash tools/` rule without its deny rules or lacks the five `Read` rules, and passes (check)
+- Brief: -
+- Source: Director-Driven-Development T240
 
 ### T30 · The guard blocks the git flags that write or read any file · done · M · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, selftest.sh, CHANGELOG.md

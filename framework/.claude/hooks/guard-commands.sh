@@ -8,13 +8,17 @@
 # It starts no other processes (it runs on every Bash call).
 #
 # It also blocks the git flags that write a file, read a file outside the repository or run a
-# configured command (--output, --no-index, --ext-diff, commit -F and --file), because the allow
-# rules in settings.json let `git diff *`, `git log *`, `git show *`, `git commit *` and
-# `git stash *` run with any flag. See the section "git: flags that write a file" below.
+# configured command (--output, --no-index, --ext-diff, commit and tag -F and --file, grep -O and
+# --open-files-in-pager), because the allow rules in settings.json let `git diff *`, `git log *`,
+# `git show *`, `git commit *`, `git tag *`, `git grep *` and `git stash *` run with any flag. See the
+# section "git: flags that write a file" below. And a `bash` or `sh` command whose script path under
+# tools/ leaves it with `..`, because `bash tools/stacks/*.sh*` would match `tools/stacks/../../x.sh`.
 #
-# Also blocks shell commands that read credential files (.env, *.pem, *.key) directly. This is a
-# guardrail, not a guarantee: complex pipelines or indirect reads are not detected. The Read-tool
-# deny rules in settings.json cover the most common path.
+# Also blocks shell commands that read credential files directly (.env, *.pem, *.key, ~/.ssh, git's
+# credentials files, the gh CLI's hosts.yml) and the commands that print a stored credential (gh auth
+# token, gh auth status -t, git credential fill or get). This is a guardrail, not a guarantee: complex
+# pipelines or indirect reads are not detected. The Read-tool deny rules in settings.json cover the
+# most common path.
 
 IFS= read -r -d '' input || true
 re='"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
@@ -34,14 +38,29 @@ block() {
 }
 
 # --- Credential file reads ------------------------------------------------------------------------
-# Block direct shell reads of .env, *.pem, *.key: these files may hold live credentials.
-# Any credential read in a conversation context must be considered compromised and rotated.
-# This is a best-effort check on the command text; indirect reads are not detected.
+# Block direct shell reads of .env, *.pem and *.key, and of the credential stores: ~/.ssh (any key,
+# known_hosts too), git's credentials files, and the gh CLI's hosts.yml (.config/gh, or AppData's
+# GitHub CLI). A path is blocked when it is one of those or sits inside one, however it is written:
+# ~/, $HOME/, ${HOME}/, /c/Users/<name>/, C:\Users\<name>\ or relative. The commands that print a
+# stored credential are blocked as well (gh auth token, gh auth status -t, git credential fill or get).
+# These files may hold live credentials. Any credential read in a conversation context must be
+# considered compromised and rotated. This is a best-effort check on the command text; indirect
+# reads are not detected.
+cred_end="([[:space:]\"';&|)]|\$)"
+cred_store_re='\.ssh([/\\]|'"$cred_end"')|\.git-credentials|\.config[/\\]git[/\\]credentials|\.config[/\\]gh([/\\]|'"$cred_end"')|GitHub CLI([/\\]|'"$cred_end"')'
 reads_cred_file() {
-  local cmd="$raw"
+  # The command as the shell reads it: JSON escapes undone (\\ is one backslash, so C:\Users\V
+  # works) and the \n that separates commands becomes ;. Bash expansions only, so no process starts.
+  local cmd="${raw//\\\\/$'\x01'}" bs='\'
+  cmd="${cmd//\\\"/\"}"; cmd="${cmd//\\n/;}"; cmd="${cmd//$'\x01'/$bs}"
+  # A store read: the command word, then a path that is a store, or has one after a character that
+  # isn't part of a name, so ~/.ssh, $HOME/.ssh and "C:\...\.ssh" match, and x.ssh doesn't.
+  local store_read_re='(^|[[:space:]|;&(])(cat|head|tail|less|more|strings)[[:space:]]+([^;&|]*[^[:alnum:]_.-])?('"$cred_store_re"')'
   # Commands that print file contents
-  [[ $cmd =~ (^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+(\.\/)?\.env([[:space:]|;&]|$) ]] && return 0
-  [[ $cmd =~ (^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+[^[:space:]]*(\.pem|\.key)([[:space:]|;&]|$) ]] && return 0
+  # A path in quotes counts too: "x.pem" and '.env' reach the command as x.pem and .env.
+  [[ $cmd =~ (^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+[\"\']?(\.\/)?\.env([[:space:]|;&\"\']|$) ]] && return 0
+  [[ $cmd =~ (^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+[^[:space:]]*(\.pem|\.key)([[:space:]|;&\"\']|$) ]] && return 0
+  [[ $cmd =~ $store_read_re ]] && return 0
   return 1
 }
 if reads_cred_file; then
@@ -50,6 +69,12 @@ if reads_cred_file; then
   echo "              Any credential read in a conversation must be treated as compromised and rotated." >&2
   exit 2
 fi
+# gh auth token, gh auth status -t and git credential fill or get print a stored credential. Matched on
+# code (the command with its quoted text blanked), so a commit message that names them isn't blocked.
+gh_print_re='(^|[^[:alnum:]_./-])gh[[:space:]]+auth[[:space:]]+(token([[:space:]]|$|[;&|)])|status[^;&|]*[[:space:]](-[[:alpha:]]*t[[:alpha:]]*|--show-token)([[:space:]]|$|[;&|)]))'
+git_print_re='(^|[^[:alnum:]_./-])git[[:space:]]+([^;&|]*[[:space:]])?credential[[:space:]]+(fill|get)([[:space:]]|$|[;&|)])'
+[[ $code =~ $gh_print_re ]] && block "gh auth token and gh auth status -t print the gh CLI's stored token"
+[[ $code =~ $git_print_re ]] && block "git credential fill and get print a credential from git's credential store"
 
 # --- Hangs ---------------------------------------------------------------------------------------
 # A command that never returns, or runs past five minutes, lets the prompt cache expire, and the next
@@ -114,23 +139,27 @@ while [[ $rest =~ $loop_re ]]; do
 done
 
 # --- git-specific rules --------------------------------------------------------------------------
-[[ $raw =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]] || exit 0
-
-shopt -s nocasematch
-[[ $raw =~ core\.hookspath ]] && block "changing core.hooksPath switches the pre-commit hook off"
-shopt -u nocasematch
+isgit=0; [[ $raw =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]] && isgit=1
+isbash=0; [[ $raw =~ (^|[^[:alnum:]_.-])(ba)?sh([[:space:]]|$) ]] && isbash=1
+((isgit || isbash)) || exit 0
 
 seg='[^;&|]*'
-[[ $raw =~ --no-veri ]] && block "--no-verify skips the project check"
-[[ $code =~ commit${seg}[[:space:]]-[a-mo-zA-Z]*n[a-zA-Z]*([[:space:]]|$) ]] && block "git commit -n skips the project check"
-[[ $code =~ push${seg}[[:space:]](--force|--force-with-lease|--force-if-includes|-[a-zA-Z]*f[a-zA-Z]*)([[:space:]=]|$) ]] && block "force-push rewrites shared history"
-[[ $code =~ push${seg}[[:space:]]\+[^[:space:]] ]] && block "a +refspec force-pushes"
-[[ $code =~ reset${seg}[[:space:]]--ha ]] && block "git reset --hard discards uncommitted work"
-[[ $code =~ clean${seg}[[:space:]](-[a-zA-Z]*f|--force) ]] && block "git clean -f deletes untracked files"
-[[ $code =~ (checkout|switch)${seg}[[:space:]](-f|--force|--discard-changes)([[:space:]]|$) ]] && block "this discards uncommitted changes"
-[[ $code =~ (checkout|restore)${seg}[[:space:]](--[[:space:]]+)?\.([[:space:]]|$) ]] && block "this discards every uncommitted change"
-[[ $code =~ stash[[:space:]]+(drop|clear) ]] && block "this deletes stashed work"
-[[ $code =~ branch${seg}[[:space:]]-D([[:space:]]|$) ]] && block "git branch -D deletes unmerged work"
+if ((isgit)); then
+  shopt -s nocasematch
+  [[ $raw =~ core\.hookspath ]] && block "changing core.hooksPath switches the pre-commit hook off"
+  shopt -u nocasematch
+
+  [[ $raw =~ --no-veri ]] && block "--no-verify skips the project check"
+  [[ $code =~ commit${seg}[[:space:]]-[a-mo-zA-Z]*n[a-zA-Z]*([[:space:]]|$) ]] && block "git commit -n skips the project check"
+  [[ $code =~ push${seg}[[:space:]](--force|--force-with-lease|--force-if-includes|-[a-zA-Z]*f[a-zA-Z]*)([[:space:]=]|$) ]] && block "force-push rewrites shared history"
+  [[ $code =~ push${seg}[[:space:]]\+[^[:space:]] ]] && block "a +refspec force-pushes"
+  [[ $code =~ reset${seg}[[:space:]]--ha ]] && block "git reset --hard discards uncommitted work"
+  [[ $code =~ clean${seg}[[:space:]](-[a-zA-Z]*f|--force) ]] && block "git clean -f deletes untracked files"
+  [[ $code =~ (checkout|switch)${seg}[[:space:]](-f|--force|--discard-changes)([[:space:]]|$) ]] && block "this discards uncommitted changes"
+  [[ $code =~ (checkout|restore)${seg}[[:space:]](--[[:space:]]+)?\.([[:space:]]|$) ]] && block "this discards every uncommitted change"
+  [[ $code =~ stash[[:space:]]+(drop|clear) ]] && block "this deletes stashed work"
+  [[ $code =~ branch${seg}[[:space:]]-D([[:space:]]|$) ]] && block "git branch -D deletes unmerged work"
+fi
 
 # --- git: flags that write a file, read outside the repository or run a configured command --------
 # settings.json allows `git diff *`, `git log *`, `git show *`, `git commit *` and `git stash *` without
@@ -193,35 +222,75 @@ gitflag '--output([[:space:]=;&|]|$)' && block "--output writes a file to any pa
 gitflag '--no-index([[:space:]=;&|]|$)' && block "--no-index reads any file on the machine"
 gitflag '--ext' && block "--ext-diff runs a configured external command"
 
-# Per command: git commit -F and --file read any file (the message may come from stdin: -F -), and a
-# git diff of a path outside the repository reads it too. The subcommand is the first word after git
-# that isn't an option, so `git log --grep commit -F` is not a commit.
+# Per command: git commit and git tag -F and --file read any file (the message may come from stdin:
+# -F -; `git tag -n` prints a tag's message), a git diff of a path outside the repository reads it too,
+# and git grep -O and --open-files-in-pager run a command as the pager. The subcommand is the first word
+# after git that isn't an option, so `git log --grep commit -F` is not a commit.
+#
+# And bash or sh: a script path under tools/, the first word that isn't an option, must not leave it
+# with a .. segment. `Bash(bash tools/stacks/*.sh*)` matches `bash tools/stacks/../../x.sh`, and a * in
+# a permission rule matches any characters, so the rule alone doesn't keep a script inside tools/. A
+# path outside tools/ matches no allow rule, so it asks the human anyway.
 outre='^(/|~|[A-Za-z]:|\$[A-Za-z_{])|(^|/)\.\.(/|$)'
+dotsre='(^|/)\.\.(/|$)'
 brackets='[(){}`]'
 IFS=';&|' read -r -d '' -a gsegs <<<"$gcode" || true
 for gs in "${gsegs[@]}"; do
   gs="${gs//$brackets/ }"
   read -ra w <<<"$gs"
   n=${#w[@]}; k=0
+  # bash or sh as the command word (after VAR=x, env, time, nohup, exec, command and sudo)
+  while ((k < n)) && [[ ${w[k]} =~ ^([A-Za-z_][A-Za-z0-9_]*=.*|\$|env|time|nohup|exec|command|sudo)$ ]]; do ((k++)); done
+  if ((k < n)) && [[ ${w[k]} =~ (^|/)(ba)?sh$ ]]; then
+    for ((k++; k < n; k++)); do
+      case ${w[k]} in -o|-O|+o|+O|--rcfile|--init-file) ((k++)); continue ;; -*|+*) continue ;; esac
+      [[ ${w[k]} =~ ^(\./)?tools/ && ${w[k]} =~ $dotsre ]] && block "a bash script path with a .. segment can run a script outside the allowed ones"
+      break
+    done
+  fi
+  k=0
   while ((k < n)) && [[ ${w[k]} != git ]]; do ((k++)); done
   ((k++))
   while ((k < n)); do
     case ${w[k]} in -C|-c) ((k += 2)) ;; -*) ((k++)) ;; *) break ;; esac
   done
   case ${w[k]:-} in
-    commit)
+    commit|tag)
+      sub="${w[k]}"
       for ((k++; k < n; k++)); do
         a="${w[k]}"
-        if [[ $a =~ ^-[aeinopqsvz]*F(.*)$ ]]; then v="${BASH_REMATCH[1]:-${w[k+1]:-}}"
-        elif [[ $a =~ ^--fil(e?)(=(.*))?$ ]]; then
+        if [[ $a =~ ^-[adefilnopqsvz]*F(.*)$ ]]; then v="${BASH_REMATCH[1]:-${w[k+1]:-}}"
+        elif [[ $a =~ ^--fi(l|le)?(=(.*))?$ ]]; then
           if [[ -n ${BASH_REMATCH[2]} ]]; then v="${BASH_REMATCH[3]}"; else v="${w[k+1]:-}"; fi
         else continue; fi
-        [[ $v == - ]] || block "git commit -F and --file read any file on the machine; give the message on stdin: git commit -F - <<'EOF'"
+        [[ $v == - ]] || block "git $sub -F and --file read any file on the machine; give the message on stdin: git $sub -F - <<'EOF'"
       done ;;
     diff)
       for ((k++; k < n; k++)); do
         [[ ${w[k]} == -* ]] && continue
         [[ ${w[k]} =~ $outre ]] && block "git diff of a path outside the repository reads any file on the machine"
+      done ;;
+    grep)
+      # -O takes its command attached (-Ovim; -O alone runs the configured pager), and git reads it inside a
+      # cluster too (-iO, -nOvim). -e -f -A -B -C -m take the rest of the word, or the next word, as their
+      # value, so a -O after them is a value (-eO is the pattern O). After -- come paths. --open-files-in-pager
+      # may be shortened to any prefix git accepts, --op and longer.
+      for ((k++; k < n; k++)); do
+        a="${w[k]}"
+        [[ $a == -- ]] && break
+        if [[ $a == --* ]]; then
+          name="${a%%=*}"
+          [[ $name == --op* && --open-files-in-pager == "$name"* ]] && block "git grep --open-files-in-pager runs a command as the pager"
+        elif [[ $a == -* ]]; then
+          cl="${a#-}"
+          while [[ -n $cl ]]; do
+            c="${cl:0:1}"; cl="${cl:1}"
+            case $c in
+              O) block "git grep -O runs a command as the pager" ;;
+              [efABCm]) [[ -n $cl ]] || ((k++)); break ;;
+            esac
+          done
+        fi
       done ;;
   esac
 done
