@@ -14,7 +14,7 @@
 # section "git: flags that write a file" below. And a `bash` or `sh` command whose script path under
 # tools/ leaves it with `..`, because `bash tools/stacks/*.sh*` would match `tools/stacks/../../x.sh`.
 #
-# Also blocks shell commands that read credential files directly (.env, *.pem, *.key, ~/.ssh, git's
+# Also blocks shell commands that read credential files directly (.env and .env.<suffix>, *.pem, *.key, ~/.ssh, git's
 # credentials files, the gh CLI's hosts.yml) and the commands that print a stored credential (gh auth
 # token, gh auth status -t, git credential fill or get). This is a guardrail, not a guarantee: complex
 # pipelines or indirect reads are not detected. The Read-tool deny rules in settings.json cover the
@@ -38,7 +38,8 @@ block() {
 }
 
 # --- Credential file reads ------------------------------------------------------------------------
-# Block direct shell reads of .env, *.pem and *.key, and of the credential stores: ~/.ssh (any key,
+# Block direct shell reads of .env and .env.<suffix> (not the templates .env.example, .env.sample,
+# .env.template and .env.dist), of *.pem and *.key, and of the credential stores: ~/.ssh (any key,
 # known_hosts too), git's credentials files, and the gh CLI's hosts.yml (.config/gh, or AppData's
 # GitHub CLI). A path is blocked when it is one of those or sits inside one, however it is written:
 # ~/, $HOME/, ${HOME}/, /c/Users/<name>/, C:\Users\<name>\ or relative. The commands that print a
@@ -59,6 +60,18 @@ reads_cred_file() {
   # Commands that print file contents
   # A path in quotes counts too: "x.pem" and '.env' reach the command as x.pem and .env.
   [[ $cmd =~ (^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+[\"\']?(\.\/)?\.env([[:space:]|;&\"\']|$) ]] && return 0
+  # A .env.<suffix> file, quoted or not (.env.local, ./.env.production, "config/.env.staging"). The folder
+  # isn't checked, so a path into another folder that ends in .env.<suffix> is blocked too. A suffix of
+  # example, sample, template or dist is a committed template with no values, and stays readable. Bash
+  # regexes have no negative lookahead: the path is matched first, then its suffix is tested, and every
+  # match in the command is tested in turn. Options before the path are skipped (tail -n 20 .env.local).
+  local env_re='(^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+((-[^[:space:];&|]*|[0-9]+)[[:space:]]+)*["'"'"']?([^[:space:]"'"'"';&|<>()]*/)?\.env\.([^[:space:]"'"'"';&|<>()/]+)'
+  local env_rest="$cmd" env_suffix
+  while [[ $env_rest =~ $env_re ]]; do
+    env_suffix="${BASH_REMATCH[6]}"
+    case $env_suffix in example|sample|template|dist) ;; *) return 0 ;; esac
+    env_rest="${env_rest#*"${BASH_REMATCH[0]}"}"
+  done
   [[ $cmd =~ (^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+[^[:space:]]*(\.pem|\.key)([[:space:]|;&\"\']|$) ]] && return 0
   [[ $cmd =~ $store_read_re ]] && return 0
   return 1

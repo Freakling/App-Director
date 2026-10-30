@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T32 · B8 · R1
+**Next IDs:** T33 · B8 · R1
 
 ## Queue
+
+### T32 · The .env rules cover .env.local and the other .env.* files · done · S · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, selftest.sh, CHANGELOG.md
+- Done when: the guard hook blocks a shell read (`cat`, `head`, `tail`, `less`, `more`, `strings`) of `.env.local`, `.env.production` and the other `.env.<suffix>` files, and passes `.env.example`, `.env.sample`, `.env.template` and `.env.dist` (check) · the settings template denies the Read tool `.env.local`, `.env.development`, `.env.production`, `.env.staging`, `.env.test` and `.env.*.local`, each in its plain and `**/` form, which leaves the committed templates readable (check) · `selftest.sh` feeds the hook each case, fails when the template lacks one of the twelve Read rules, and passes (check)
+- Brief: -
+- Source: Director-Driven-Development T252
 
 ### T31 · The guard closes the git grep pager, the credential stores and the unscanned commits · done · M · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, framework/.githooks/pre-commit, selftest.sh, CHANGELOG.md
