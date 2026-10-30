@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.12.3 (2026-10-30)
 
 - **The .env rules cover `.env.local` and the other `.env.<suffix>` files.** The Read rules and the guard's credential check named `.env` exactly, so the local and per-environment variants that hold real values could be read without a prompt. `settings.json` now denies the Read tool `.env.local`, `.env.development`, `.env.production`, `.env.staging`, `.env.test` and `.env.*.local`, each in its plain and `**/` form, since a broader pattern would also deny the committed `.env.example`, and a deny rule has no exception. The guard hook (`guard-commands.sh`) blocks a shell read (`cat`, `head`, `tail`, `less`, `more`, `strings`) of any `.env.<suffix>` file, quoted or not and in any folder, except the `example`, `sample`, `template` and `dist` ones, which stay readable. `selftest.sh` feeds the hook each case and fails when the template lacks one of the twelve Read rules.
   - **Upgrade steps:** the hook and `.claude/settings.json` are framework-owned and arrive with the upgrade (if you edited `.claude/settings.json`, merge its `.adir-new` file). Restart Claude Code so the new deny rules load.
