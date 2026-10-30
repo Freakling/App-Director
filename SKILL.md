@@ -5,7 +5,7 @@ license: MIT
 compatibility: 'Any app with a git repository. Needs bash (Git Bash on Windows) and network access to fetch App Director from GitHub unless it is already present.'
 metadata:
   author: Freakling
-  version: 1.12.1
+  version: 1.12.2
   repository: https://github.com/Freakling/App-Director
 ---
 
@@ -14,7 +14,7 @@ Step 1: Find App Director (`$ADIR`), the folder that holds `ONBOARDING.md` and `
 - An `App-Director/` folder next to the project root (manual install)
 - Otherwise (installed with `npx skills add`), clone this skill's release into a temporary folder outside the project, and use that. Never clone it into the project.
   ```
-  dir="$(mktemp -d)" && git -c advice.detachedHead=false clone -q --depth 1 --branch v1.12.1 https://github.com/Freakling/App-Director.git "$dir/App-Director" && echo "$dir/App-Director"
+  dir="$(mktemp -d)" && git -c advice.detachedHead=false clone -q --depth 1 --branch v1.12.2 https://github.com/Freakling/App-Director.git "$dir/App-Director" && echo "$dir/App-Director"
   ```
   `$ADIR` is the folder it prints. If the clone fails (no network, no git), tell the human and stop.
 

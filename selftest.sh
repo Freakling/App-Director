@@ -374,26 +374,49 @@ EOF
   || bad "the permission check flags a named command or an exact one" "$(perm_hits "$work/permissions-named.json")"
 
 # The wildcard git rules take any flag, and some git flags write a file (--output), read a file
-# outside the repository (--no-index, commit -F and --file) or run a configured command
-# (--ext-diff), none of which should run without the human (the docs repo's security assessment,
-# product/security/2026-10-29.md, F1). A template that allows a wildcard git rule has to carry all
-# four deny rules; the guard hook's tests (below, "guard-commands hook") cover the rest.
-git_deny_missing() { # git_deny_missing <settings file>: the deny rules it lacks, when it allows a wildcard git rule
+# outside the repository (--no-index, commit and tag -F and --file) or run a configured command
+# (--ext-diff, grep -O), none of which should run without the human (the docs repo's security
+# assessment, product/security/2026-10-29.md, F1; B14). A * in `bash tools/stacks/*.sh*` matches `..`
+# too, so a script path can leave tools/. A template that allows a wildcard rule has to carry the deny
+# rules for it; the guard hook's tests (below, "guard-commands hook") cover the rest. And the Read tool
+# may not open the credential stores (B15): five Read rules, always required.
+deny_needs() { # deny_needs <settings file> <allow rule pattern> <deny rule>...: the deny rules it lacks, when it allows that rule
+  local file="$1" pattern="$2" rule deny
+  sed -n '/"allow": *\[/,/\]/p' "$file" | grep -qE "$pattern" || return 0
+  deny="$(sed -n '/"deny": *\[/,/\]/p' "$file")"
+  shift 2
+  for rule in "$@"; do
+    printf '%s\n' "$deny" | grep -qF "\"$rule\"" || printf '%s\n' "$rule"
+  done
+}
+git_deny_missing() { # git_deny_missing <settings file>: the deny rules it lacks, for each wildcard rule it allows
+  deny_needs "$1" '"Bash\(git (diff|log|show|stash|commit) \*\)"' \
+    'Bash(git *--output*)' 'Bash(git *--no-index*)' 'Bash(git *--ext-diff*)' 'Bash(git commit *--file*)'
+  deny_needs "$1" '"Bash\(git grep \*\)"' 'Bash(git grep *--open*)' 'Bash(git grep *-O*)'
+  deny_needs "$1" '"Bash\(git tag \*\)"' 'Bash(git tag *--file*)'
+  deny_needs "$1" '"Bash\(bash tools/[^"]*\*' 'Bash(bash tools/*..*)'
+}
+read_deny_missing() { # read_deny_missing <settings file>: the credential-store Read rules it doesn't deny
   local rule deny
-  sed -n '/"allow": *\[/,/\]/p' "$1" | grep -qE '"Bash\(git (diff|log|show|stash|commit) \*\)"' || return 0
   deny="$(sed -n '/"deny": *\[/,/\]/p' "$1")"
-  for rule in 'Bash(git *--output*)' 'Bash(git *--no-index*)' 'Bash(git *--ext-diff*)' 'Bash(git commit *--file*)'; do
+  for rule in 'Read(~/.ssh/**)' 'Read(~/.git-credentials)' 'Read(~/.config/git/credentials)' \
+      'Read(~/.config/gh/**)' 'Read(~/AppData/Roaming/GitHub CLI/**)'; do
     printf '%s\n' "$deny" | grep -qF "\"$rule\"" || printf '%s\n' "$rule"
   done
 }
 if [ ! -f "$settings" ]; then
   bad "the settings template is missing, so its git deny rules can't be checked"
 elif [ -n "$(git_deny_missing "$settings")" ]; then
-  bad "the settings template allows a wildcard git rule but doesn't deny these (git flags that write or read any file):" "$(git_deny_missing "$settings")"
+  bad "the settings template allows a wildcard rule but doesn't deny these (git flags that write, read or run, and script paths that leave tools/):" "$(git_deny_missing "$settings")"
 else
-  ok "the settings template denies git's file-writing, file-reading and external-command flags next to its wildcard git rules"
+  ok "the settings template denies git's file-writing, file-reading and external-command flags and script paths outside tools/ next to its wildcard rules"
 fi
-# The check is tested on planted settings, so a change that stops it flagging a missing rule fails here.
+if [ -f "$settings" ] && [ -n "$(read_deny_missing "$settings")" ]; then
+  bad "the settings template doesn't deny the Read tool these credential stores (the gh CLI's, git's credentials, ~/.ssh):" "$(read_deny_missing "$settings")"
+elif [ -f "$settings" ]; then
+  ok "the settings template denies the Read tool the gh CLI's, git's and SSH credential stores"
+fi
+# The checks are tested on planted settings, so a change that stops them flagging a missing rule fails here.
 git_planted=""
 printf '{\n  "permissions": {\n    "allow": [\n      "Bash(git diff *)"\n    ],\n    "deny": [\n      "Read(.env)"\n    ]\n  }\n}\n' > "$work/git-deny-none.json"
 [ "$(git_deny_missing "$work/git-deny-none.json" | wc -l | tr -d ' ')" = 4 ] || git_planted="$git_planted none"
@@ -402,10 +425,28 @@ for git_rule in 'git log' 'git show' 'git stash' 'git commit'; do
     "$git_rule" > "$work/git-deny-one.json"
   [ "$(git_deny_missing "$work/git-deny-one.json" | wc -l | tr -d ' ')" = 3 ] || git_planted="$git_planted $git_rule"
 done
+# git grep needs two deny rules, git tag one, and a `bash tools/` rule with a wildcard one; an exact
+# `bash tools/` rule needs none.
+for git_case in 'Bash(git grep *)|2' 'Bash(git tag *)|1' 'Bash(bash tools/stacks/*.sh*)|1' 'Bash(bash tools/check.sh*)|1' 'Bash(bash tools/security.sh)|0'; do
+  printf '{\n  "permissions": {\n    "allow": [\n      "%s"\n    ],\n    "deny": [\n      "Read(.env)"\n    ]\n  }\n}\n' \
+    "${git_case%|*}" > "$work/git-deny-rule.json"
+  [ "$(git_deny_missing "$work/git-deny-rule.json" | wc -l | tr -d ' ')" = "${git_case##*|}" ] || git_planted="$git_planted ${git_case%|*}"
+done
+printf '{\n  "permissions": {\n    "allow": [\n      "Bash(git grep *)",\n      "Bash(git tag *)",\n      "Bash(bash tools/stacks/*.sh*)"\n    ],\n    "deny": [\n      "Bash(git grep *--open*)",\n      "Bash(git grep *-O*)",\n      "Bash(git tag *--file*)",\n      "Bash(bash tools/*..*)"\n    ]\n  }\n}\n' > "$work/git-deny-full.json"
+[ -z "$(git_deny_missing "$work/git-deny-full.json")" ] || git_planted="$git_planted full"
 printf '{\n  "permissions": {\n    "allow": [\n      "Bash(git status)",\n      "Bash(git add *)"\n    ]\n  }\n}\n' > "$work/git-deny-no-wildcard.json"
 [ -z "$(git_deny_missing "$work/git-deny-no-wildcard.json")" ] || git_planted="$git_planted no-wildcard"
-[ -z "$git_planted" ] && ok "the git deny check flags each missing deny rule, and passes settings with no wildcard git rule" \
+[ -z "$git_planted" ] && ok "the git deny check flags each missing deny rule, and passes settings with every deny rule or no wildcard rule" \
   || bad "the git deny check misses a planted case:$git_planted"
+read_planted=""
+printf '{\n  "permissions": {\n    "deny": [\n      "Read(.env)",\n      "Read(~/.ssh/**)"\n    ]\n  }\n}\n' > "$work/read-deny-some.json"
+[ "$(read_deny_missing "$work/read-deny-some.json" | wc -l | tr -d ' ')" = 4 ] || read_planted="$read_planted some"
+printf '{\n  "permissions": {\n    "allow": [\n      "WebSearch"\n    ]\n  }\n}\n' > "$work/read-deny-none.json"
+[ "$(read_deny_missing "$work/read-deny-none.json" | wc -l | tr -d ' ')" = 5 ] || read_planted="$read_planted none"
+printf '{\n  "permissions": {\n    "deny": [\n      "Read(~/.ssh/**)",\n      "Read(~/.git-credentials)",\n      "Read(~/.config/git/credentials)",\n      "Read(~/.config/gh/**)",\n      "Read(~/AppData/Roaming/GitHub CLI/**)"\n    ]\n  }\n}\n' > "$work/read-deny-all.json"
+[ -z "$(read_deny_missing "$work/read-deny-all.json")" ] || read_planted="$read_planted all"
+[ -z "$read_planted" ] && ok "the Read deny check flags each missing credential-store rule, and passes settings with all five" \
+  || bad "the Read deny check misses a planted case:$read_planted"
 
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
@@ -1005,14 +1046,17 @@ for cmd in \
     'git commit -m "until x; do sleep 3; done"'; do
   guard 0 "$cmd"
 done
-# The wildcard git allow rules (`git diff *`, `git log *`, `git show *`, `git stash *`, `git commit *`)
-# take any flag, and some flags write a file (--output), read a file outside the repository
-# (--no-index, commit -F and --file, a `git diff` of a path outside it) or run a configured command
-# (--ext-diff), with no prompt. The hook reads the command as the shell hands it to git, so a flag
-# that is quoted, escaped, attached to a short option or hidden behind another command is still seen,
-# and a flag named inside a commit message or a heredoc body is not. The deny rules in settings.json
-# cover the plain forms; the hook covers the rest, and commit -F, where a rule can't tell
-# `-F <path>` from `-F -` (the docs repo's security assessment, product/security/2026-10-29.md, F1).
+# The wildcard git allow rules (`git diff *`, `git log *`, `git show *`, `git stash *`, `git commit *`,
+# `git tag *`, `git grep *`) take any flag, and some flags write a file (--output), read a file outside
+# the repository (--no-index, commit and tag -F and --file, a `git diff` of a path outside it) or run a
+# configured command (--ext-diff, grep -O and --open-files-in-pager), with no prompt. The hook reads the
+# command as the shell hands it to git, so a flag that is quoted, escaped, attached to a short option,
+# hidden in a cluster (-iO) or behind another command is still seen, and a flag named inside a commit
+# message or a heredoc body is not. The deny rules in settings.json cover the plain forms; the hook
+# covers the rest, and commit and tag -F, where a rule can't tell `-F <path>` from `-F -` (the docs
+# repo's security assessment, product/security/2026-10-29.md, F1; B14). The same goes for a script path
+# under tools/ with a `..` segment, which `Bash(bash tools/stacks/*.sh*)` would match, and for the
+# shell reads of the credential stores and the gh and git commands that print a stored credential (B15).
 for cmd in \
     'git log -1 --format=probe --output=/tmp/probe.txt' \
     'git log --output /tmp/probe.txt' \
@@ -1038,7 +1082,47 @@ for cmd in \
     'git commit -F - -F /tmp/msg.txt' \
     'git add -A && git commit -F /tmp/msg.txt' \
     'git -C work/App-Director log --output=/tmp/probe.txt' \
-    $'git commit -q -F - <<\'EOF\'\nmsg\nEOF\ngit log --output=/tmp/probe.txt'; do
+    $'git commit -q -F - <<\'EOF\'\nmsg\nEOF\ngit log --output=/tmp/probe.txt' \
+    'git grep -O foo' \
+    'git grep -Oecho foo' \
+    'git grep -n -Ovim foo' \
+    'git grep -iO foo' \
+    'git grep -nOvim foo' \
+    'git grep -e foo -Oecho' \
+    'git grep -A 1 -Oecho foo' \
+    'git grep --open-files-in-pager foo' \
+    'git grep --open-files-in-pager=echo foo' \
+    'git grep --open=echo foo' \
+    'git grep --op foo' \
+    'git grep "-Obj"' \
+    "git grep '-Oecho' foo" \
+    'git grep -nO"echo hi" foo' \
+    'git grep --"open-files-in-pager"=echo foo' \
+    'git -C work/App-Director grep -Oecho foo' \
+    'git add . && git grep -Oecho foo' \
+    'git tag -F /tmp/msg.txt v1' \
+    'git tag -aF /tmp/msg.txt v1' \
+    'git tag -a v1 -F/tmp/msg.txt' \
+    'git tag -a v1 --file=/tmp/msg.txt' \
+    'git tag --file /tmp/msg.txt v1' \
+    'git tag --fi=/tmp/msg.txt v1' \
+    'bash tools/stacks/../../x.sh' \
+    'bash -x tools/stacks/../x.sh' \
+    'bash tools/stacks/.\./x.sh' \
+    'bash tools/stacks/".."/x.sh' \
+    'sh ./tools/../x.sh' \
+    '/bin/bash tools/stacks/../x.sh' \
+    'cat ~/.ssh/id_ed25519' \
+    'head "$HOME/.git-credentials"' \
+    'cat ~/.config/gh/hosts.yml' \
+    'less "/c/Users/V/AppData/Roaming/GitHub CLI/hosts.yml"' \
+    'cat "C:\Users\V\.ssh\id_rsa"' \
+    'cat "certs/server.pem"' \
+    "head '.env'" \
+    'gh auth token' \
+    'gh auth status -t' \
+    "printf 'protocol=https\\nhost=github.com\\n' | git credential fill" \
+    "printf 'protocol=https\\nhost=github.com\\n' | git credential get"; do
   guard 2 "$cmd"
 done
 for cmd in \
@@ -1052,7 +1136,32 @@ for cmd in \
     'git commit --file=-' \
     $'git commit -q -F - <<\'EOF\'\nfix the --output and --no-index handling, not -F /tmp/x\nEOF' \
     'git stash list' \
-    'git worktree list'; do
+    'git worktree list' \
+    'git grep -n foo' \
+    "git grep -i -e x -- '*.md'" \
+    'git grep -ie -O' \
+    'git grep -e -Oecho' \
+    'git grep -n "an -Obj pattern"' \
+    'git grep -c --no-open-files-in-pager foo' \
+    'git grep --only-matching foo' \
+    'git log --grep -O' \
+    'git tag -a v1 -m x' \
+    'git tag -a v1 -m "see --file and -F"' \
+    'git tag -n' \
+    'git tag -a v1 -F -' \
+    'git tag --file=- -a v1' \
+    'bash tools/check.sh' \
+    'bash tools/setup-clone.sh' \
+    'bash tools/stacks/typescript.sh --since HEAD~3..HEAD' \
+    'bash tools/check.sh && git log origin/main..HEAD' \
+    'bash ../x.sh' \
+    'cd tools && bash ../x.sh' \
+    'cat README.md' \
+    'cat product/brief.md' \
+    'grep -n ssh ONBOARDING.md' \
+    'git log --oneline -3' \
+    'ls ~/.ssh' \
+    'gh auth status'; do
   guard 0 "$cmd"
 done
 grep -q '"matcher": "Bash|Monitor"' .claude/settings.json && ok "the guard is wired to Monitor too" || bad "the guard is wired to Monitor too"
@@ -1277,6 +1386,46 @@ else
   echo "  skip  real gitleaks staged-secret tests (gitleaks not found or below $_gl_min_req)"
 fi
 cp "$work/saved-svc-staged" src/services/TodoService.ts
+
+# The staged scan runs on every commit, not only when a source file is staged (B18): a token pasted
+# into a Markdown page, a script or a record used to reach history unscanned. A throwaway repository
+# holds the committed hook, a stub check and the shim that setup-clone installs, and stages one
+# Markdown file. The token ("ghp_" and 36 generated letters and digits) is assembled at run time and
+# written only to that repository's working copy, never to a tracked file here.
+_md="$work/md-secret"; new_repo "$_md" >/dev/null 2>&1
+mkdir -p "$_md/tools" "$_md/.githooks"
+cp "$src/framework/.githooks/pre-commit" "$_md/.githooks/pre-commit"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$_md/tools/check.sh"
+(cd "$_md" && git add -A && git_q commit -qm "hook and stub") >/dev/null 2>&1
+printf '#!/usr/bin/env bash\nexec bash "$(git rev-parse --show-toplevel)/.githooks/pre-commit" "$@"\n' > "$_md/.git/hooks/pre-commit"
+chmod +x "$_md/.git/hooks/pre-commit"
+_md_commits="$(cd "$_md" && git rev-list --count HEAD)"
+
+(cd "$_md" && printf '# Notes\n\nNothing to see here.\n' > notes.md && git add notes.md)
+out="$(export PATH="$_hook_gl:$PATH"; cd "$_md" && git_q commit -qm "a note" 2>&1)"
+expect_status "pre-commit blocks a staged Markdown file when the scan finds a secret (stand-in)" 1 $? "$out"
+expect_output "pre-commit scans a commit with no source file staged" "scanning staged changes for secrets" "$out"
+expect_output "pre-commit names the Markdown commit's finding (stand-in)" "found in: " "$out"
+expect_no_output "pre-commit doesn't run the project check for a Markdown file" "running the project check" "$out"
+(cd "$_md" && git reset -q -- notes.md)
+
+if [ "$_gl_ok" -eq 1 ]; then
+  _alnum='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  _md_token="ghp_"
+  for ((_i = 0; _i < 36; _i++)); do _md_token="$_md_token${_alnum:$((RANDOM % 62)):1}"; done
+  (cd "$_md" && printf '# Notes\n\nThe token is %s\n' "$_md_token" > notes.md && git add notes.md)
+  out="$(cd "$_md" && git_q commit -qm "a note with a token" 2>&1)"
+  expect_status "pre-commit blocks a staged Markdown file holding a secret (real gitleaks)" 1 $? "$out"
+  expect_output "pre-commit names the Markdown file with real gitleaks" "found in: notes.md" "$out"
+  expect_no_output "pre-commit doesn't print the Markdown file's token" "$_md_token" "$out"
+  [ "$(cd "$_md" && git rev-list --count HEAD)" = "$_md_commits" ] && ok "the blocked Markdown commit is not made" \
+    || bad "the blocked Markdown commit is not made"
+  (cd "$_md" && printf '# Notes\n\nNothing to see here.\n' > notes.md && git add notes.md)
+  out="$(cd "$_md" && git_q commit -qm "a clean note" 2>&1)"
+  expect_status "pre-commit allows a staged Markdown file with no secret (real gitleaks)" 0 $? "$out"
+else
+  echo "  skip  real gitleaks Markdown staged-secret tests (gitleaks not found or below $_gl_min_req)"
+fi
 
 # --- /ui-design -----------------------------------------------------------------------------------
 echo "ui-design"

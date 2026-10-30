@@ -2,8 +2,9 @@
 # App Director pre-commit hook · framework-owned: replaced on upgrade.
 # `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
 #
-# On every source-file commit:
+# When a commit touches source files:
 #   1. Runs the project check (working tree) with --if-changed caching.
+# On every commit, whatever is staged:
 #   2. Runs gitleaks protect --staged --redact to catch secrets entering history, and names the files.
 # Both steps block the commit on failure.
 
@@ -36,33 +37,34 @@ if source_staged; then
     echo "pre-commit: the check fails; commit blocked."
     exit 1
   fi
+fi
 
-  # Staged-changes scan: catches secrets even when the working-tree check was cached. protect is the
-  # staged scan that works on the gitleaks releases checked from 8.18.0 to 8.30.1, all but 8.19.0,
-  # which can't scan at all. The report names the files; only the names are printed, and the values
-  # stay redacted.
-  if command -v gitleaks >/dev/null 2>&1; then
-    echo "pre-commit: scanning staged changes for secrets"
-    staged_report=".app-director/state/gitleaks-staged.json"
-    mkdir -p .app-director/state && rm -f "$staged_report"
-    if ! gitleaks protect --staged --redact --report-path="$staged_report" 2>/dev/null; then
-      # Each file with a finding is named once. A failure with no finding in the report means
-      # the scan couldn't run.
-      files="$(sed -n 's/.*"File"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$staged_report" 2>/dev/null \
-        | awk '!seen[$0]++')"
-      if [ -n "$files" ]; then
-        echo "pre-commit: gitleaks found a secret in the staged changes; commit blocked."
-        printf '%s\n' "$files" | sed 's/^/            found in: /'
-        echo "            Report (secrets redacted): $staged_report"
-        echo "            To allowlist: add the Fingerprint to .gitleaksignore and document"
-        echo "            the reason in product/decisions.md. Ask the human to approve."
-      else
-        echo "pre-commit: gitleaks couldn't scan the staged changes; commit blocked."
-        echo "            Check 'gitleaks version': 8.19.0 can't scan, so use 8.19.1 or later."
-      fi
-      exit 1
+# Staged-changes scan: catches secrets even when the working-tree check was cached. protect is the
+# staged scan that works on the gitleaks releases checked from 8.18.0 to 8.30.1, all but 8.19.0,
+# which can't scan at all. The report names the files; only the names are printed, and the values
+# stay redacted. It runs on every commit, whatever is staged; the source-file filter above skips
+# most files.
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: scanning staged changes for secrets"
+  staged_report=".app-director/state/gitleaks-staged.json"
+  mkdir -p .app-director/state && rm -f "$staged_report"
+  if ! gitleaks protect --staged --redact --report-path="$staged_report" 2>/dev/null; then
+    # Each file with a finding is named once. A failure with no finding in the report means
+    # the scan couldn't run.
+    files="$(sed -n 's/.*"File"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$staged_report" 2>/dev/null \
+      | awk '!seen[$0]++')"
+    if [ -n "$files" ]; then
+      echo "pre-commit: gitleaks found a secret in the staged changes; commit blocked."
+      printf '%s\n' "$files" | sed 's/^/            found in: /'
+      echo "            Report (secrets redacted): $staged_report"
+      echo "            To allowlist: add the Fingerprint to .gitleaksignore and document"
+      echo "            the reason in product/decisions.md. Ask the human to approve."
+    else
+      echo "pre-commit: gitleaks couldn't scan the staged changes; commit blocked."
+      echo "            Check 'gitleaks version': 8.19.0 can't scan, so use 8.19.1 or later."
     fi
-    rm -f "$staged_report"
+    exit 1
   fi
+  rm -f "$staged_report"
 fi
 exit 0
