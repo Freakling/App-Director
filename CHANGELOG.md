@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.12.4 (2026-10-31)
 
 - **The guard checks every file a read names for `.env`, `*.pem` and `*.key` files.** The guard looked only at the first file after `cat`, `head`, `tail`, `less`, `more` and `strings`, so a second file (`cat README.md .env.local`) or an option before the path (`tail -n 20 .env`) let a credential file through. It now tests every argument of the read. The committed `.env.example`, `.env.sample`, `.env.template` and `.env.dist` stay readable, and a quoted message that pairs a read with one of those names is blocked, as the credential store check already does. `selftest.sh` feeds the hook each case.
   - **Upgrade steps:** the hook (`.claude/hooks/guard-commands.sh`) is framework-owned and arrives with the upgrade. Nothing else changes.
