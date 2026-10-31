@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T33 · B8 · R1
+**Next IDs:** T34 · B8 · R1
 
 ## Queue
+
+### T33 · The guard checks every file a read names for env, pem and key files · done · S · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
+- Done when: the guard hook blocks a shell read (`cat`, `head`, `tail`, `less`, `more`, `strings`) of a `.env` or `.env.<suffix>` file (not the committed templates), or of a `.pem` or `.key` file, when that file is any argument after the command, so a second file or an option before the path no longer lets it through (check) · `selftest.sh` feeds the hook those cases, both the blocked reads and the passed ones, and passes (check)
+- Brief: -
+- Source: Director-Driven-Development T257
 
 ### T32 · The .env rules cover .env.local and the other .env.* files · done · S · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, selftest.sh, CHANGELOG.md

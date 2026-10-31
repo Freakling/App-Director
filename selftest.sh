@@ -1065,6 +1065,7 @@ done
 # under tools/ with a `..` segment, which `Bash(bash tools/stacks/*.sh*)` would match, and for the
 # shell reads of the credential stores and the gh and git commands that print a stored credential (B15),
 # and of the .env files with values, while the committed templates (.env.example and the like) stay readable (B21).
+# The hook tests every argument of a read, so the file may follow an option or another file (B22).
 for cmd in \
     'git log -1 --format=probe --output=/tmp/probe.txt' \
     'git log --output /tmp/probe.txt' \
@@ -1134,6 +1135,11 @@ for cmd in \
     "tail '.env.test'" \
     'tail -n 20 .env.local' \
     'cat .env.example; cat .env.local' \
+    'cat README.md .env.local' \
+    'tail -n 20 .env' \
+    'head -5 certs/server.pem' \
+    'cat docs/a.md "deploy.key"' \
+    'less -R .env.production' \
     'gh auth token' \
     'gh auth status -t' \
     "printf 'protocol=https\\nhost=github.com\\n' | git credential fill" \
@@ -1177,6 +1183,10 @@ for cmd in \
     'cat config/.env.sample' \
     'head .env.template' \
     'cat .env.dist' \
+    'cat README.md docs/x.md' \
+    'tail -n 20 .env.example' \
+    'head -5 notes.txt' \
+    'cat .env.example .env.sample' \
     'grep -n ssh ONBOARDING.md' \
     'git log --oneline -3' \
     'ls ~/.ssh' \

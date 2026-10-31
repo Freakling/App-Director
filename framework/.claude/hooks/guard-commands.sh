@@ -57,22 +57,29 @@ reads_cred_file() {
   # A store read: the command word, then a path that is a store, or has one after a character that
   # isn't part of a name, so ~/.ssh, $HOME/.ssh and "C:\...\.ssh" match, and x.ssh doesn't.
   local store_read_re='(^|[[:space:]|;&(])(cat|head|tail|less|more|strings)[[:space:]]+([^;&|]*[^[:alnum:]_.-])?('"$cred_store_re"')'
-  # Commands that print file contents
-  # A path in quotes counts too: "x.pem" and '.env' reach the command as x.pem and .env.
-  [[ $cmd =~ (^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+[\"\']?(\.\/)?\.env([[:space:]|;&\"\']|$) ]] && return 0
-  # A .env.<suffix> file, quoted or not (.env.local, ./.env.production, "config/.env.staging"). The folder
-  # isn't checked, so a path into another folder that ends in .env.<suffix> is blocked too. A suffix of
-  # example, sample, template or dist is a committed template with no values, and stays readable. Bash
-  # regexes have no negative lookahead: the path is matched first, then its suffix is tested, and every
-  # match in the command is tested in turn. Options before the path are skipped (tail -n 20 .env.local).
-  local env_re='(^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+((-[^[:space:];&|]*|[0-9]+)[[:space:]]+)*["'"'"']?([^[:space:]"'"'"';&|<>()]*/)?\.env\.([^[:space:]"'"'"';&|<>()/]+)'
-  local env_rest="$cmd" env_suffix
-  while [[ $env_rest =~ $env_re ]]; do
-    env_suffix="${BASH_REMATCH[6]}"
-    case $env_suffix in example|sample|template|dist) ;; *) return 0 ;; esac
-    env_rest="${env_rest#*"${BASH_REMATCH[0]}"}"
+  # Each read command (cat, head, tail, less, more, strings) is tested with every argument after it, up to
+  # the next ; & or |, so the file can follow an option (tail -n 20 .env) or another file (cat README.md
+  # .env.local). A name is a whole word: .env, or .pem or .key ending a word, after a character that isn't
+  # part of a name, so x.env doesn't match. A quote, a folder or a redirect beside the name counts, as in
+  # "certs/server.pem", config/.env or >.env. Options and their values are arguments too, and only a name matches.
+  # A .env.<suffix> file (.env.local, ./.env.production, "config/.env.staging") is blocked, except the committed
+  # templates .env.example, .env.sample, .env.template and .env.dist: they hold no values, so they stay readable.
+  # Bash regexes have no negative lookahead, so each .env.<suffix> match is tested and the search goes on after it.
+  local name_end="([[:space:]\"';&|()<>]|\$)"
+  local read_re='(^|[[:space:]|;&(])(cat|head|tail|less|more|strings)[[:space:]]+([^;&|]*)'
+  local dot_env_re='(^|[^[:alnum:]_.-])\.env'"$name_end"
+  local pem_key_re='\.(pem|key)'"$name_end"
+  local env_re='(^|[^[:alnum:]_.-])\.env\.([^[:space:]"'"'"';&|<>()/]+)'
+  local rest="$cmd" args
+  while [[ $rest =~ $read_re ]]; do
+    args="${BASH_REMATCH[3]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    [[ $args =~ $dot_env_re || $args =~ $pem_key_re ]] && return 0
+    while [[ $args =~ $env_re ]]; do
+      case ${BASH_REMATCH[2]} in example|sample|template|dist) ;; *) return 0 ;; esac
+      args="${args#*"${BASH_REMATCH[0]}"}"
+    done
   done
-  [[ $cmd =~ (^|[[:space:]|;&])(cat|head|tail|less|more|strings)[[:space:]]+[^[:space:]]*(\.pem|\.key)([[:space:]|;&\"\']|$) ]] && return 0
   [[ $cmd =~ $store_read_re ]] && return 0
   return 1
 }
