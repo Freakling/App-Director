@@ -379,7 +379,9 @@ EOF
 # assessment, product/security/2026-10-29.md, F1; B14). A * in `bash tools/stacks/*.sh*` matches `..`
 # too, so a script path can leave tools/. A template that allows a wildcard rule has to carry the deny
 # rules for it; the guard hook's tests (below, "guard-commands hook") cover the rest. And the Read tool
-# may not open the credential stores (B15): five Read rules, always required.
+# may not open the credential stores (B15): five Read rules, always required, and the .env files that
+# hold values (.env.local and the other .env.<suffix> files the guard hook blocks, B21): twelve more,
+# each in its plain and **/ form.
 deny_needs() { # deny_needs <settings file> <allow rule pattern> <deny rule>...: the deny rules it lacks, when it allows that rule
   local file="$1" pattern="$2" rule deny
   sed -n '/"allow": *\[/,/\]/p' "$file" | grep -qE "$pattern" || return 0
@@ -396,11 +398,14 @@ git_deny_missing() { # git_deny_missing <settings file>: the deny rules it lacks
   deny_needs "$1" '"Bash\(git tag \*\)"' 'Bash(git tag *--file*)'
   deny_needs "$1" '"Bash\(bash tools/[^"]*\*' 'Bash(bash tools/*..*)'
 }
-read_deny_missing() { # read_deny_missing <settings file>: the credential-store Read rules it doesn't deny
+read_deny_missing() { # read_deny_missing <settings file>: the credential-store and .env Read rules it doesn't deny
   local rule deny
   deny="$(sed -n '/"deny": *\[/,/\]/p' "$1")"
   for rule in 'Read(~/.ssh/**)' 'Read(~/.git-credentials)' 'Read(~/.config/git/credentials)' \
-      'Read(~/.config/gh/**)' 'Read(~/AppData/Roaming/GitHub CLI/**)'; do
+      'Read(~/.config/gh/**)' 'Read(~/AppData/Roaming/GitHub CLI/**)' \
+      'Read(.env.local)' 'Read(**/.env.local)' 'Read(.env.*.local)' 'Read(**/.env.*.local)' \
+      'Read(.env.development)' 'Read(**/.env.development)' 'Read(.env.production)' 'Read(**/.env.production)' \
+      'Read(.env.staging)' 'Read(**/.env.staging)' 'Read(.env.test)' 'Read(**/.env.test)'; do
     printf '%s\n' "$deny" | grep -qF "\"$rule\"" || printf '%s\n' "$rule"
   done
 }
@@ -412,9 +417,9 @@ else
   ok "the settings template denies git's file-writing, file-reading and external-command flags and script paths outside tools/ next to its wildcard rules"
 fi
 if [ -f "$settings" ] && [ -n "$(read_deny_missing "$settings")" ]; then
-  bad "the settings template doesn't deny the Read tool these credential stores (the gh CLI's, git's credentials, ~/.ssh):" "$(read_deny_missing "$settings")"
+  bad "the settings template doesn't deny the Read tool these credential stores (the gh CLI's, git's credentials, ~/.ssh) or the .env files with values:" "$(read_deny_missing "$settings")"
 elif [ -f "$settings" ]; then
-  ok "the settings template denies the Read tool the gh CLI's, git's and SSH credential stores"
+  ok "the settings template denies the Read tool the gh CLI's, git's and SSH credential stores and the .env files with values"
 fi
 # The checks are tested on planted settings, so a change that stops them flagging a missing rule fails here.
 git_planted=""
@@ -440,12 +445,14 @@ printf '{\n  "permissions": {\n    "allow": [\n      "Bash(git status)",\n      
   || bad "the git deny check misses a planted case:$git_planted"
 read_planted=""
 printf '{\n  "permissions": {\n    "deny": [\n      "Read(.env)",\n      "Read(~/.ssh/**)"\n    ]\n  }\n}\n' > "$work/read-deny-some.json"
-[ "$(read_deny_missing "$work/read-deny-some.json" | wc -l | tr -d ' ')" = 4 ] || read_planted="$read_planted some"
+[ "$(read_deny_missing "$work/read-deny-some.json" | wc -l | tr -d ' ')" = 16 ] || read_planted="$read_planted some"
 printf '{\n  "permissions": {\n    "allow": [\n      "WebSearch"\n    ]\n  }\n}\n' > "$work/read-deny-none.json"
-[ "$(read_deny_missing "$work/read-deny-none.json" | wc -l | tr -d ' ')" = 5 ] || read_planted="$read_planted none"
-printf '{\n  "permissions": {\n    "deny": [\n      "Read(~/.ssh/**)",\n      "Read(~/.git-credentials)",\n      "Read(~/.config/git/credentials)",\n      "Read(~/.config/gh/**)",\n      "Read(~/AppData/Roaming/GitHub CLI/**)"\n    ]\n  }\n}\n' > "$work/read-deny-all.json"
+[ "$(read_deny_missing "$work/read-deny-none.json" | wc -l | tr -d ' ')" = 17 ] || read_planted="$read_planted none"
+printf '{\n  "permissions": {\n    "deny": [\n      "Read(~/.ssh/**)",\n      "Read(~/.git-credentials)",\n      "Read(~/.config/git/credentials)",\n      "Read(~/.config/gh/**)",\n      "Read(~/AppData/Roaming/GitHub CLI/**)"\n    ]\n  }\n}\n' > "$work/read-deny-stores.json"
+[ "$(read_deny_missing "$work/read-deny-stores.json" | wc -l | tr -d ' ')" = 12 ] || read_planted="$read_planted stores"
+printf '{\n  "permissions": {\n    "deny": [\n      "Read(~/.ssh/**)",\n      "Read(~/.git-credentials)",\n      "Read(~/.config/git/credentials)",\n      "Read(~/.config/gh/**)",\n      "Read(~/AppData/Roaming/GitHub CLI/**)",\n      "Read(.env.local)",\n      "Read(**/.env.local)",\n      "Read(.env.*.local)",\n      "Read(**/.env.*.local)",\n      "Read(.env.development)",\n      "Read(**/.env.development)",\n      "Read(.env.production)",\n      "Read(**/.env.production)",\n      "Read(.env.staging)",\n      "Read(**/.env.staging)",\n      "Read(.env.test)",\n      "Read(**/.env.test)"\n    ]\n  }\n}\n' > "$work/read-deny-all.json"
 [ -z "$(read_deny_missing "$work/read-deny-all.json")" ] || read_planted="$read_planted all"
-[ -z "$read_planted" ] && ok "the Read deny check flags each missing credential-store rule, and passes settings with all five" \
+[ -z "$read_planted" ] && ok "the Read deny check flags each missing credential-store and .env rule, and passes settings with all seventeen" \
   || bad "the Read deny check misses a planted case:$read_planted"
 
 # --- installer ------------------------------------------------------------------------------------
@@ -1056,7 +1063,8 @@ done
 # covers the rest, and commit and tag -F, where a rule can't tell `-F <path>` from `-F -` (the docs
 # repo's security assessment, product/security/2026-10-29.md, F1; B14). The same goes for a script path
 # under tools/ with a `..` segment, which `Bash(bash tools/stacks/*.sh*)` would match, and for the
-# shell reads of the credential stores and the gh and git commands that print a stored credential (B15).
+# shell reads of the credential stores and the gh and git commands that print a stored credential (B15),
+# and of the .env files with values, while the committed templates (.env.example and the like) stay readable (B21).
 for cmd in \
     'git log -1 --format=probe --output=/tmp/probe.txt' \
     'git log --output /tmp/probe.txt' \
@@ -1119,6 +1127,13 @@ for cmd in \
     'cat "C:\Users\V\.ssh\id_rsa"' \
     'cat "certs/server.pem"' \
     "head '.env'" \
+    'cat .env.local' \
+    'head ./.env.production' \
+    'cat "config/.env.staging"' \
+    'less .env.development.local' \
+    "tail '.env.test'" \
+    'tail -n 20 .env.local' \
+    'cat .env.example; cat .env.local' \
     'gh auth token' \
     'gh auth status -t' \
     "printf 'protocol=https\\nhost=github.com\\n' | git credential fill" \
@@ -1158,6 +1173,10 @@ for cmd in \
     'cd tools && bash ../x.sh' \
     'cat README.md' \
     'cat product/brief.md' \
+    'cat .env.example' \
+    'cat config/.env.sample' \
+    'head .env.template' \
+    'cat .env.dist' \
     'grep -n ssh ONBOARDING.md' \
     'git log --oneline -3' \
     'ls ~/.ssh' \

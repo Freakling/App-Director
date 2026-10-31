@@ -8,7 +8,7 @@
       "source": {
         "source": "github",
         "repo": "Freakling/App-Director",
-        "ref": "v1.12.2"
+        "ref": "v1.12.3"
       },
       "description": "Installs and upgrades the App Director workflow in an app."
     }
