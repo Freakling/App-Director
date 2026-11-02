@@ -16,7 +16,11 @@ The request can be:
 1. **Find items without reading the whole file.** `grep -n '^### ' TASKS.md` lists every heading; then read only the candidates.
 2. **Is the tree clean?** If uncommitted changes from another item are in the working tree, don't start a new one. Ask the human whether to finish that item, commit it, or set it aside with `git stash push -- <paths>`.
 3. **Does the check pass now?** Run `bash tools/check.sh --if-changed`; it's instant after a passing commit. If it fails, say so, and offer the items that would fix it. Build others only if the human says to, telling the builder the failure was there before. A research item changes no code, so skip this for one.
-4. **Is a security assessment due?** Run `bash tools/security.sh --due`. When its line says `due` (no report in `product/security/` yet, or enough items built since the newest one, by `tools/check.cfg` › `[security] every`), propose an assessment (`security.md`) with that line, and run it before the next item if the human agrees; the human can decline. In a run of several items, don't stop or ask: carry on picking items, and only name the assessment in the final report.
+4. **Is a security assessment or a stories validation due?** Run `bash tools/security.sh --due` and `bash tools/stories.sh --due`. Each prints a line that counts built items against its setting in `tools/check.cfg`:
+   - `security: due` (no report in `product/security/` yet, or enough items built since the newest one, by `[security] every`): propose an assessment (`security.md`) with that line.
+   - `stories: due` (the stories in `product/user-stories.md` never validated, or enough items built since their Last validated commit, by `[stories] every`): propose validating them (`design.md` › Validate the stories) with that line.
+
+   Run what the human agrees to before the next item; the human can decline either. In a run of several items, don't stop or ask: carry on picking items, and only name what's due in the final report.
 5. **Items already `in-progress`:**
    - **Claimed today:** another session may be working on it right now, so ask before touching it.
    - **Older:** a session probably ended mid-task. Read its `Note:`, look at `git status` and `git diff`, then resume it or set it back to `todo`, and say which.
@@ -25,7 +29,7 @@ The request can be:
 8. **Nothing ready?** Report what's blocked and on what (dependencies, `human` items, open questions), and stop.
 
 ## 2. Claim
-Set the item to `in-progress YYYY-MM-DD` (today).
+Set the item to `in-progress YYYY-MM-DD` (today). A feature item (not a research item) with no story gets one before it is built: draft it and set the item's `Stories:` as `design.md` › User stories says, and name the drafted story in your report. A run of several items doesn't stop for it.
 
 ## 3. Build
 A research item goes to Research items instead, and skips steps 4 and 6.
@@ -64,7 +68,7 @@ Only when `rules.md` › Reviews and model size calls for one, judged from the i
 4. Review again only if the fixes were substantial.
 
 ## 7. Commit and report
-- **Commit** as `rules.md` › Git describes: one commit for the item's paths, including its records. A research item's paths are its note and TASKS.md, and its message is `docs: <summary> (R3)`. Pause for approval unless the human has said to work autonomously ("do the next N tasks", "work through the queue", "grab tasks until you're blocked"), in which case commit without pausing and include all commits in the final report.
+- **Commit** as `rules.md` › Git describes: one commit for the item's paths, including its records (with `product/user-stories.md` when the claim drafted a story). A research item's paths are its note and TASKS.md, and its message is `docs: <summary> (R3)`. Pause for approval unless the human has said to work autonomously ("do the next N tasks", "work through the queue", "grab tasks until you're blocked"), in which case commit without pausing and include all commits in the final report.
 - **Report** in a few lines: what changed, the check result, placeholders added, and anything waiting on the human. Mention that `(demo)` outcomes, or a bug fix without a regression test, will be in the next acceptance check.
 - **After the commit,** the records hold everything about the item. A new item can start in a fresh session, or after `/clear` in Claude Code, without losing anything.
 
@@ -89,7 +93,7 @@ Repeat steps 1-7 for each item, skipping `human` items as step 1 does. Report on
 
 A finished research item doesn't stop the run: it goes on with the next candidate.
 
-End with the list of items done, a security assessment if Pick step 4 found one due, the questions that research has made ready for a design call, and what's next.
+End with the list of items done, a security assessment or a stories validation if Pick step 4 found one due, the stories drafted for items that had none (for the human to confirm), the questions that research has made ready for a design call, and what's next.
 
 ## Stopping partway through
 If you must stop before the item is done, add `- Note: <where it stands, what's next>` to the item.

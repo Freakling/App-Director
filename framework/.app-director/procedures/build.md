@@ -3,7 +3,7 @@
 
 Build one TASKS.md item that has already been claimed, and report back briefly. Until you've written the report, don't pick items, don't edit TASKS.md, AGENTS.md or `product/`, and don't commit. Whoever handed you the item does that; if that's you, carry on with `next-task.md` afterwards.
 
-1. **Read what the item needs.** You have the item's ID and full text, and on a rebuild also the previous report and the human's instructions. Read its `Touches`, the AGENTS.md › Architecture rows involved, and the brief sections under `Brief:` (`grep -n "^#" product/brief.md` lists the headings). Follow references from there, reading by heading or line range.
+1. **Read what the item needs.** You have the item's ID and full text, and on a rebuild also the previous report and the human's instructions. Read its `Touches`, the AGENTS.md › Architecture rows involved, the brief sections under `Brief:` (`grep -n "^#" product/brief.md` lists the headings), and the stories under `Stories:` (`grep -n "US-2 " product/user-stories.md`), which say who it's for and why. Follow references from there, reading by heading or line range.
 2. **Open questions.** If `Done when` names a question still listed in brief › Open Questions, build the rest and stand in for the answer:
    - a missing value becomes a `PLACEHOLDER` default with a comment citing the question;
    - a missing behaviour stays as it is, behind a named constant or flag with a comment.

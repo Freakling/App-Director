@@ -4,7 +4,7 @@ AGENTS.md › Project rules, and win over these defaults. -->
 
 These rules apply to any AI assistant working in this project. For each of these requests, follow the procedure in `.app-director/procedures/`:
 - **next-task.md:** do the next task(s), or a named item (T12, B3, R2). The build itself is `build.md`.
-- **design.md:** brainstorm, open design questions, change the design.
+- **design.md:** brainstorm, open design questions, change the design, validate the user stories.
 - **research.md:** research a question in a fresh context and save a dated note in `product/research/`, for a design call or a decision about stacks, libraries, licences or app-store requirements. It informs; the human decides. Domain reference: `.app-director/research-domain.md`.
 - **acceptance.md:** prepare or process an acceptance check.
 - **align.md:** check the docs and tasks are aligned.
@@ -32,6 +32,7 @@ In Claude Code these are also slash commands, and builds, reviews (with the secu
 | Fact | Only in |
 |---|---|
 | What the app should be | `product/brief.md`. List its sections with `grep -n "^#" product/brief.md` and read only the ones you need. |
+| The roles the app serves, and why each feature is built | `product/user-stories.md`: the roles and their stories (`US-<n>`), each confirmed by the human or `unconfirmed` (`procedures/design.md` › User stories) |
 | What's undecided | brief › Open Questions |
 | Why a design decision was made | `product/decisions.md` (append-only) |
 | The evidence behind a design call | `product/research/`, one dated note per topic; the decision line links to it |
@@ -58,7 +59,8 @@ Update the owning place in the same change that makes it untrue. Replace superse
 
 ## Doing the work
 - **Where work comes from.** `TASKS.md`, or straight from the human. A direct request that won't be finished this session, or that turns up follow-up work, gets a TASKS.md item. Work you discover always becomes a new item; never do it silently as part of another.
-- **Read what the work needs:** the item's `Touches`, the Architecture rows, and the brief sections it names. Read by heading or line range, not whole files. Quote only the relevant lines of logs.
+- **Why it's built.** A feature item names the user stories it serves (`Stories:` in `.app-director/tasks.md`). One with no story gets one drafted first, as `design.md` › User stories says, for the human to confirm.
+- **Read what the work needs:** the item's `Touches`, the Architecture rows, and the brief sections and stories it names. Read by heading or line range, not whole files. Quote only the relevant lines of logs.
 - **Stay inside the item.** Prefer the smallest change, and delete dead code. Match existing patterns; a new pattern needs a reason in the commit message.
 - **Tests.** Logic that can be tested without a running UI gets a test. A fixed bug gets a regression test when it can have one.
 - **Outcome tags.** Each outcome in `Done when` is tagged:
@@ -71,7 +73,7 @@ Update the owning place in the same change that makes it untrue. Replace superse
 - **Two failed attempts.** After two failed attempts at the same problem, stop and report instead of guessing further.
 
 ## Git
-- **One item, one commit.** The message is `<type>: <summary> (T12)`, with a body saying why; types are `feat fix refactor test docs data chore`. The item's paths are its code, tests, data, and the records the item changed (TASKS.md, AGENTS.md, and the brief and decisions for a decision made during the item). `git add` the new ones, then commit only those paths, `git commit -m "…" -- <paths>`, so another session's staged work stays out.
+- **One item, one commit.** The message is `<type>: <summary> (T12)`, with a body saying why; types are `feat fix refactor test docs data chore`. The item's paths are its code, tests, data, and the records the item changed (TASKS.md, AGENTS.md, `product/user-stories.md` when a story was drafted for it, and the brief and decisions for a decision made during the item). `git add` the new ones, then commit only those paths, `git commit -m "…" -- <paths>`, so another session's staged work stays out.
 - **Approval.** Commit only with the human's approval. Push only when asked. Never get around the hooks (`--no-verify`, `core.hooksPath`).
 - **Destructive commands.** Anything that discards uncommitted work or rewrites history needs the human.
 
