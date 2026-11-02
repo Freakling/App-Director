@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T36 · B8 · R1
+**Next IDs:** T37 · B8 · R1
 
 ## Queue
+
+### T36 · align reports bugs with no story · done · XS · agent
+- Touches: framework/.app-director/procedures/align.md, selftest.sh, CHANGELOG.md
+- Done when: align reports each `B` item that isn't done and has no `Stories:` line, security bugs included, recommending the story whose behaviour it restores, or `-`, and fills `Stories: -` only into `T` items; `selftest.sh` checks the new bullet and passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T267
 
 ### T35 · A prototype routine, apart from real building · done · L · agent
 - Touches: framework/.app-director/procedures/prototype.md (new), framework/.claude/skills/prototype/SKILL.md (new), framework/tools/prototype.sh (new), framework/.githooks/pre-push (new), framework/.app-director/rules.md, framework/.app-director/tasks.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/build.md, framework/.githooks/pre-commit, framework/tools/setup-clone.sh, framework/.claude/hooks/stop-check.sh, framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md

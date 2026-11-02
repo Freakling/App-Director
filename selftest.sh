@@ -363,6 +363,7 @@ grep -q 'bash tools/stories\.sh --due' "$adir/procedures/next-task.md" && grep -
   && grep -q 'with `product/user-stories\.md` when the claim drafted a story' "$adir/procedures/next-task.md" || wired="$wired next-task.md"
 grep -qF -- '- [ ] Still right   - [ ] Needs a change' "$adir/procedures/acceptance.md" && grep -q '^4\. \*\*Stories\*\*' "$adir/procedures/acceptance.md" || wired="$wired acceptance.md"
 grep -q 'stories no item serves' "$adir/procedures/align.md" && grep -q 'feature items with no story' "$adir/procedures/align.md" \
+  && grep -q 'bugs with no story' "$adir/procedures/align.md" \
   && grep -q 'stories unconfirmed past the cadence' "$adir/procedures/align.md" || wired="$wired align.md"
 grep -qF '"Bash(bash tools/stories.sh --due)",' "$settings" && ! grep -qF '"Bash(bash tools/stories.sh*)"' "$settings" || wired="$wired settings.json"
 grep -q 'product/user-stories\.md' "$src/ONBOARDING.md" && grep -q '`\[stories\] every`' "$src/ONBOARDING.md" \

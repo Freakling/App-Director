@@ -20,10 +20,11 @@ A consistency pass across the brief, decisions, the user stories, TASKS.md, AGEN
 5. **Stories** (`product/user-stories.md`, `design.md` › User stories).
    - Story IDs are unique and below the header's Next ID, and the header has a Last validated line (add it as `never` when it's missing).
    - Every story's role is in Roles, and every ID in the `Stories:` line of an item that isn't done exists in the file. Report the ones that don't.
-   - Every `agent` item that isn't done, other than a research item, has a `Stories:` line. Add `- Stories: -` where its `Brief:` is `-`; the others are reported below.
+   - Every `agent` item that isn't done, other than a research item, has a `Stories:` line. Add `- Stories: -` to a `T` item whose `Brief:` is `-`; the others are reported below.
    - Report to the human, with a recommendation for each:
      - **stories no item serves:** no item in TASKS.md or TASKS-archive.md names them in `Stories:`. Leave out the range the file's line `US-1 to US-<n> were written from the code on <date>, before the app kept user stories.` names. Recommend an item, or dropping the story;
      - **feature items with no story:** `T` items that aren't done whose `Brief:` names a heading but whose `Stories:` is `-` or missing (bugs are left out). Leave out a `-` the human confirmed in an earlier `docs: align` commit body. Recommend the story to draft, or confirming that `-` is right;
+     - **bugs with no story:** `B` items that aren't done and have no `Stories:` line, security bugs included. Recommend the story whose behaviour each restores, or `-`;
      - **stories unconfirmed past the cadence:** when `bash tools/stories.sh --due` says `due`, every story still `unconfirmed`. Recommend a validation (`design.md` › Validate the stories).
 6. **Architecture.**
    - Every significant system has a row in AGENTS.md › Architecture.
