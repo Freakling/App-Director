@@ -1324,6 +1324,29 @@ for cmd in \
     'gh auth status'; do
   guard 0 "$cmd"
 done
+# A git command on a later line, after a newline or a tab, reaches every git rule (Director-Driven-Development
+# T268). The early tests used to read the JSON-escaped text, where a newline is the two characters \n, so the
+# hook exited before any rule ran. A backslash that escapes a line's end joins the next line to the command;
+# an even run of backslashes ends the line, as the shell does.
+for cmd in \
+    $'cd x\ngit branch -D y' \
+    $'cd x\ngit commit --no-verify -m x' \
+    $'cd x\n\tgit log --output=/tmp/x' \
+    $'echo a\ngit push --force' \
+    $'git commit \\\n-n -m x' \
+    $'gi\\\nt push --force' \
+    $'git status \\\\\ngit commit -F /tmp/x' \
+    $'git push origin main\t--force' \
+    $'cat\t.env' \
+    $'cd x\ngit credential fill'; do
+  guard 2 "$cmd"
+done
+for cmd in \
+    $'git status\ngit log --oneline -3' \
+    $'cd x\ngit commit -q -F - <<\'EOF\'\nfix the --output and --no-index handling, not -F /tmp/x\nEOF' \
+    $'echo a\n\tgit log --format=%s\n--output=x'; do
+  guard 0 "$cmd"
+done
 grep -q '"matcher": "Bash|Monitor"' .claude/settings.json && ok "the guard is wired to Monitor too" || bad "the guard is wired to Monitor too"
 grep -q "Commands that may run long" .app-director/rules.md && grep -q "run_in_background" .app-director/rules.md \
   && grep -q "empty heredoc" .app-director/rules.md && ok "rules.md gives the time-limit, background and empty-heredoc rules" \

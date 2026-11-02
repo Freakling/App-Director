@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T37 · B8 · R1
+**Next IDs:** T38 · B8 · R1
 
 ## Queue
+
+### T37 · The guard reads a git command on any line · done · S · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
+- Done when: a git command that starts on a later line of a multi-line command, after a newline or a tab, reaches every git rule (`cd x` newline `git branch -D y`, and `cd x` newline, tab, `git log --output=/tmp/x`, are blocked); the selftest covers both and the plain multi-line forms that must still pass (`git status` newline `git log --oneline -3`, a heredoc commit whose body names the flags), and passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T268
 
 ### T36 · align reports bugs with no story · done · XS · agent
 - Touches: framework/.app-director/procedures/align.md, selftest.sh, CHANGELOG.md

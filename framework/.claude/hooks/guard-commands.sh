@@ -25,12 +25,30 @@ re='"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
 [[ $input =~ $re ]] || exit 0
 raw="${BASH_REMATCH[1]}"
 
+# The command as the shell reads it: the text every test below matches, so a git command on any line is
+# seen. JSON escapes are undone, with each real backslash (\\) kept as one placeholder. An escaped line
+# break (\n) ends a command, unless an odd run of backslashes precedes it: the last one escapes the break
+# and is removed with it, so the line continues (an even run leaves the break as a line end). An escaped
+# tab (\t) is a space, and a carriage return (\r) is dropped, as the paths below drop it.
+# `text` keeps real line breaks; `det` has ; for each one. Bash expansions only, so no process starts.
+nl=$'\n'; bs='\'; xbs=$'\x01'
+cont_re="(^|[^${xbs}])((${xbs}${xbs})*)${xbs}\\\\n"
+shell_text() { # shell_text <JSON-escaped text>: sets NORM to the shell's text
+  local t="${1//\\\\/$xbs}"
+  t="${t//\\\"/\"}"
+  while [[ $t =~ $cont_re ]]; do t="${t/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}${BASH_REMATCH[2]}"}"; done
+  t="${t//\\n/$nl}"; t="${t//\\t/ }"; t="${t//\\r/}"
+  NORM="${t//$xbs/$bs}"
+}
+shell_text "$raw"; text="$NORM"; det="${text//$nl/;}"
+
 # Blank quoted strings so a commit message or filename can't trip flag tests.
 code="$raw"
 dq='\\"([^\\]|\\[^"])*\\"'
 while [[ $code =~ $dq ]]; do code="${code/"${BASH_REMATCH[0]}"/ Q }"; done
 sq="'[^']*'"
 while [[ $code =~ $sq ]]; do code="${code/"${BASH_REMATCH[0]}"/ Q }"; done
+shell_text "$code"; code="${NORM//$nl/;}"   # the line-level tests read the same text as det, quotes blanked
 
 block() {
   echo "App Director: blocked: $1. If it's really needed, ask the human to run it." >&2
@@ -50,10 +68,8 @@ block() {
 cred_end="([[:space:]\"';&|)]|\$)"
 cred_store_re='\.ssh([/\\]|'"$cred_end"')|\.git-credentials|\.config[/\\]git[/\\]credentials|\.config[/\\]gh([/\\]|'"$cred_end"')|GitHub CLI([/\\]|'"$cred_end"')'
 reads_cred_file() {
-  # The command as the shell reads it: JSON escapes undone (\\ is one backslash, so C:\Users\V
-  # works) and the \n that separates commands becomes ;. Bash expansions only, so no process starts.
-  local cmd="${raw//\\\\/$'\x01'}" bs='\'
-  cmd="${cmd//\\\"/\"}"; cmd="${cmd//\\n/;}"; cmd="${cmd//$'\x01'/$bs}"
+  # The command as the shell reads it (det, above: JSON escapes undone, so C:\Users\V works).
+  local cmd="$det"
   # A store read: the command word, then a path that is a store, or has one after a character that
   # isn't part of a name, so ~/.ssh, $HOME/.ssh and "C:\...\.ssh" match, and x.ssh doesn't.
   local store_read_re='(^|[[:space:]|;&(])(cat|head|tail|less|more|strings)[[:space:]]+([^;&|]*[^[:alnum:]_.-])?('"$cred_store_re"')'
@@ -100,7 +116,6 @@ git_print_re='(^|[^[:alnum:]_./-])git[[:space:]]+([^;&|]*[[:space:]])?credential
 # A command that never returns, or runs past five minutes, lets the prompt cache expire, and the next
 # turn rewrites the whole context. So: no empty-heredoc probes, no unbounded wait loops, no long sleeps.
 # Text matching only: a loop built another way isn't seen. The guard is also wired to Monitor.
-nl=$'\n'
 hang() {
   echo "App Director: blocked: $1" >&2
   echo "              $2" >&2
@@ -110,7 +125,6 @@ limit_s=280
 
 # 1. `python - <<'EOF'` whose body is empty: Python waits for console input and never returns on
 #    Windows. Typically the "is Python here?" probe.
-text="${raw//\\r/}"; text="${text//\\n/$nl}"
 heredoc_re='(^|[^[:alnum:]_./-])(python3?|py)(\.exe)?[[:space:]]+-[[:space:]]*<<-?[[:space:]]*\\?["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
 IFS=$'\n' read -r -d '' -a lines <<<"$text" || true
 for ((i = 0; i + 1 < ${#lines[@]}; i++)); do
@@ -133,10 +147,9 @@ while [[ $rest =~ $sleep_re ]]; do
 done
 
 # 2. until/while loops that sleep: under `timeout N` (N <= 280), or ended by the exit line Claude Code
-#    appends to a background command's output. A loop quoted into `bash -c '...'` is read from the raw text.
+#    appends to a background command's output. A loop quoted into `bash -c '...'` is read from the shell's text.
 scan="$code"
-[[ $code =~ (bash|sh|zsh)[[:space:]]+-[a-z]*c[[:space:]] ]] && scan="$raw"
-scan="${scan//\\n/$nl}"
+[[ $code =~ (bash|sh|zsh)[[:space:]]+-[a-z]*c[[:space:]] ]] && scan="$text"
 loop_re='(^|[^[:alnum:]_./-])(until|while)[[:space:]]'
 timeout_re="(^|[^[:alnum:]_./-])timeout[[:space:]]+(-[-[:alnum:]=]+[[:space:]]+)*([0-9]+)([sm]?)[[:space:]]+[^;&|$nl]*\$"
 rest="$scan"; before=""
@@ -159,17 +172,17 @@ while [[ $rest =~ $loop_re ]]; do
 done
 
 # --- git-specific rules --------------------------------------------------------------------------
-isgit=0; [[ $raw =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]] && isgit=1
-isbash=0; [[ $raw =~ (^|[^[:alnum:]_.-])(ba)?sh([[:space:]]|$) ]] && isbash=1
+isgit=0; [[ $det =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]] && isgit=1
+isbash=0; [[ $det =~ (^|[^[:alnum:]_.-])(ba)?sh([[:space:]]|$) ]] && isbash=1
 ((isgit || isbash)) || exit 0
 
 seg='[^;&|]*'
 if ((isgit)); then
   shopt -s nocasematch
-  [[ $raw =~ core\.hookspath ]] && block "changing core.hooksPath switches the pre-commit hook off"
+  [[ $det =~ core\.hookspath ]] && block "changing core.hooksPath switches the pre-commit hook off"
   shopt -u nocasematch
 
-  [[ $raw =~ --no-veri ]] && block "--no-verify skips the project check"
+  [[ $det =~ --no-veri ]] && block "--no-verify skips the project check"
   [[ $code =~ commit${seg}[[:space:]]-[a-mo-zA-Z]*n[a-zA-Z]*([[:space:]]|$) ]] && block "git commit -n skips the project check"
   [[ $code =~ push${seg}[[:space:]](--force|--force-with-lease|--force-if-includes|-[a-zA-Z]*f[a-zA-Z]*)([[:space:]=]|$) ]] && block "force-push rewrites shared history"
   [[ $code =~ push${seg}[[:space:]]\+[^[:space:]] ]] && block "a +refspec force-pushes"
@@ -189,9 +202,8 @@ fi
 # (--ext-diff). The command is read as the shell hands it to git: '--output=x', "--output"=x and
 # --out\put=x are the flag, while a flag named inside a quoted message or a heredoc body is not.
 # Variables and $(...) outside quotes are not expanded, so this is a text match like the rest.
-bs='\'; sq1="'"
-real="${raw//\\\\/$'\x01'}"; real="${real//\\\"/\"}"; real="${real//\\n/$nl}"
-real="${real//\\t/ }"; real="${real//\\r/}"; real="${real//$'\x01'/$bs}"
+sq1="'"
+real="$text"   # the shell's text, with its line continuations already joined
 
 # Cut out the heredoc bodies (git commit -F - <<'EOF' ...). A quoted delimiter makes the body plain
 # text; an unquoted one expands $(...) and backticks, so a body with those stays.
@@ -224,7 +236,7 @@ while [[ $rest =~ $qre ]]; do
     pre="${pre%?}"
     [[ $quoted == "'"* && $inner =~ \\[xuU0-7] ]] && block "ANSI-C quoting with a numeric escape (\$'\\055') can spell any flag past this check"
   fi
-  pre="${pre//\\$nl/}"; pre="${pre//\\/}"        # outside quotes a backslash only escapes the next character
+  pre="${pre//\\/}"                              # outside quotes a backslash only escapes the next character
   gcode+="$pre"
   word="${gcode##*[[:space:];&|]}"               # the word so far
   if [[ $inner =~ ^--?[A-Za-z] ]]; then gcode+="$inner"
@@ -233,7 +245,7 @@ while [[ $rest =~ $qre ]]; do
   elif [[ $quoted == '"'* && ( $inner == *'$('* || $inner == *'`'* ) ]]; then rest="$inner $rest"
   else gcode+=" Q "; fi
 done
-rest="${rest//\\$nl/}"; rest="${rest//\\/}"; gcode+="${rest//[\"$sq1]/}"   # a quote left over never closes
+rest="${rest//\\/}"; gcode+="${rest//[\"$sq1]/}"   # a quote left over never closes
 gcode="${gcode//$nl/;}"; gcode="${gcode//>&/> }"; gcode="${gcode//&>/> }"
 
 gitre='(^|[^[:alnum:]_./-])git[[:space:]]'
