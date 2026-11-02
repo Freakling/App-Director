@@ -15,6 +15,7 @@ These rules apply to any AI assistant working in this project. For each of these
 - **security.md:** a security assessment (`/security`): the tools, then a fresh reader through the OWASP checklist in `.app-director/reference/owasp.md`; findings become bug items, people and process items go to the human, and a dated report goes in `product/security/`. It runs on request, before a release is proposed, and when `next-task.md` finds one due.
 - **ui-design.md:** capture the screens (`/ui-design`): a PNG per screen, state and size of the web app on this machine, with an element map, a numbered map image, layout lint and a starter drawing; process the human's Excalidraw drawing of a screen into a screen spec and items; verify a built screen against its spec and write compare images; list the screens in the catalog.
 - **refresh-model-sizing.md:** set or update the model sizing block in AGENTS.md › Project rules.
+- **prototype.md:** try a change fast in a prototype (`/prototype <name>`), in its own session and git worktree on a `proto/<name>` branch, outside the loop; list the prototypes; harvest one into decisions, user stories and items (`/prototype harvest <name>`), and remove it.
 
 In Claude Code these are also slash commands, and builds, reviews (with the security assessment's reading pass) and research run as the `builder`, `reviewer` and `researcher` subagents.
 
@@ -78,8 +79,9 @@ Update the owning place in the same change that makes it untrue. Replace superse
 - **Destructive commands.** Anything that discards uncommitted work or rewrites history needs the human.
 
 ## Sessions and context
-- **New clone.** Run `bash tools/setup-clone.sh`. It checks that the stack tool is available and installs the pre-commit hook.
+- **New clone.** Run `bash tools/setup-clone.sh`. It checks that the stack tool is available and installs the pre-commit and pre-push hooks.
 - **Any two sessions building at once** (say design and coding): each gets its own git worktree, since a shared checkout lets one session's half-written files fail the other's check and Stop hook, and both queue on the same build artefacts. Make one with `git worktree add ../app-design`, then run `bash tools/setup-clone.sh` there. A claim in TASKS.md protects only its own worktree. So only one session per project picks items; the others name the item they work on.
+- **Prototypes.** A prototype (`procedures/prototype.md`) tries a change in its own session, in a git worktree on a `proto/<name>` branch. A session in a checkout that `bash tools/prototype.sh here` calls a prototype (a linked worktree on a `proto/` branch with `PROTOTYPE.md` at its root) is a prototype session: read `prototype.md` › In a prototype session before any work. That session is outside the loop: there the rules on items, records, the builder, reviews and commit approval give way to that section, while the guard, the secrets scan and Protected space still apply, and nothing on a `proto/` branch is pushed or merged. Its work reaches main only through the harvest, which turns it into decisions, user stories and items built from main like any other.
 - **The records are the hand-off.** TASKS.md (what's done and what's next), commit messages (why), AGENTS.md and the brief carry everything between sessions. Once an item is committed, a fresh session, or `/clear` in Claude Code, loses nothing.
 
 ## Reviews and model size

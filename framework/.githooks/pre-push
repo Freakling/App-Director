@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# App Director pre-push hook · framework-owned: replaced on upgrade.
+# `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
+#
+# A prototype is never pushed (.app-director/procedures/prototype.md), so a push is refused when it sends
+# a prototype's branch (refs/heads/proto/<name>, from this clone or to the remote), or any commit that a
+# proto/ branch has and main doesn't, whatever the ref is called: HEAD:x, a hash, proto/x~0:x, or a branch
+# made from a prototype's commit. Deleting a ref on the remote is allowed. Git gives one line per ref on
+# stdin: <local ref> <local sha> <remote ref> <remote sha>.
+
+# The prototypes' own commits, once per push: reachable from a proto/ branch and not from main.
+proto_only=""
+if git show-ref --verify --quiet refs/heads/main; then
+  proto_only="$(git rev-list --branches='proto/*' --not main 2>/dev/null)"
+fi
+
+refused=""
+while read -r local_ref local_sha remote_ref _remote_sha; do
+  [ -n "${local_ref:-}" ] || continue
+  [ -z "${local_sha#"${local_sha%%[!0]*}"}" ] && continue   # a deletion: the local hash is all zeros
+  case "$local_ref $remote_ref" in
+    refs/heads/proto/*|*" refs/heads/proto/"*) refused="$refused$local_ref -> $remote_ref (a proto/ branch)"$'\n'; continue ;;
+  esac
+  [ -n "$proto_only" ] || continue
+  # The commits this ref sends beyond main, against the prototypes' own.
+  sent="$(git rev-list "$local_sha" --not main 2>/dev/null)"
+  [ -n "$sent" ] || continue
+  if { printf '%s\n' "$proto_only"; echo "--"; printf '%s\n' "$sent"; } \
+      | awk '$0 == "--" { s = 1; next } !s { p[$0] = 1; next } ($0 in p) { found = 1; exit } END { exit !found }'; then
+    refused="$refused$local_ref -> $remote_ref (it carries a prototype's commits)"$'\n'
+  fi
+done
+if [ -n "$refused" ]; then
+  echo "pre-push: a prototype is never pushed; push blocked:"
+  printf '%s' "$refused" | sed 's/^/  /'
+  echo "          Its work reaches main through the harvest (.app-director/procedures/prototype.md)."
+  exit 1
+fi
+exit 0

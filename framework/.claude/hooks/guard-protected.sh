@@ -3,6 +3,8 @@
 # Blocks any write to director/ (the human's personal workspace), whether Claude Code sends a
 # relative path or an absolute one. Relative paths resolve against the project root
 # ($CLAUDE_PROJECT_DIR, else the current directory); paths outside the root pass.
+# In a prototype (PROTOTYPE.md at the root) it also blocks the gates, which are main's: .githooks/, .claude/,
+# tools/prototype.sh, tools/setup-clone.sh, .gitleaksignore and .gitleaks.toml.
 # It starts no other processes.
 # framework-owned: replaced on upgrade.
 
@@ -60,4 +62,15 @@ case "$resolved" in
     exit 2
     ;;
 esac
+
+# In a prototype the gates are main's, so a prototype's session can't change them. PROTOTYPE.md at the root is tested
+# with the shell's own test, not tools/prototype.sh, so no process starts here.
+if [ -f "$root/PROTOTYPE.md" ]; then
+  case "$resolved" in
+    "$root/.githooks"|"$root/.githooks/"*|"$root/.claude"|"$root/.claude/"*|"$root/tools/prototype.sh"|"$root/tools/setup-clone.sh"|"$root/.gitleaksignore"|"$root/.gitleaks.toml")
+      echo "App Director: blocked: in a prototype, the hooks, the guard, tools/prototype.sh, tools/setup-clone.sh and the gitleaks files are main's. Change them in the main session." >&2
+      exit 2
+      ;;
+  esac
+fi
 exit 0

@@ -25,12 +25,30 @@ re='"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
 [[ $input =~ $re ]] || exit 0
 raw="${BASH_REMATCH[1]}"
 
+# The command as the shell reads it: the text every test below matches, so a git command on any line is
+# seen. JSON escapes are undone, with each real backslash (\\) kept as one placeholder. An escaped line
+# break (\n) ends a command, unless an odd run of backslashes precedes it: the last one escapes the break
+# and is removed with it, so the line continues (an even run leaves the break as a line end). An escaped
+# tab (\t) is a space, and a carriage return (\r) is dropped, as the paths below drop it.
+# `text` keeps real line breaks; `det` has ; for each one. Bash expansions only, so no process starts.
+nl=$'\n'; bs='\'; xbs=$'\x01'
+cont_re="(^|[^${xbs}])((${xbs}${xbs})*)${xbs}\\\\n"
+shell_text() { # shell_text <JSON-escaped text>: sets NORM to the shell's text
+  local t="${1//\\\\/$xbs}"
+  t="${t//\\\"/\"}"
+  while [[ $t =~ $cont_re ]]; do t="${t/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}${BASH_REMATCH[2]}"}"; done
+  t="${t//\\n/$nl}"; t="${t//\\t/ }"; t="${t//\\r/}"
+  NORM="${t//$xbs/$bs}"
+}
+shell_text "$raw"; text="$NORM"; det="${text//$nl/;}"
+
 # Blank quoted strings so a commit message or filename can't trip flag tests.
 code="$raw"
 dq='\\"([^\\]|\\[^"])*\\"'
 while [[ $code =~ $dq ]]; do code="${code/"${BASH_REMATCH[0]}"/ Q }"; done
 sq="'[^']*'"
 while [[ $code =~ $sq ]]; do code="${code/"${BASH_REMATCH[0]}"/ Q }"; done
+shell_text "$code"; code="${NORM//$nl/;}"   # the line-level tests read the same text as det, quotes blanked
 
 block() {
   echo "App Director: blocked: $1. If it's really needed, ask the human to run it." >&2
@@ -50,10 +68,8 @@ block() {
 cred_end="([[:space:]\"';&|)]|\$)"
 cred_store_re='\.ssh([/\\]|'"$cred_end"')|\.git-credentials|\.config[/\\]git[/\\]credentials|\.config[/\\]gh([/\\]|'"$cred_end"')|GitHub CLI([/\\]|'"$cred_end"')'
 reads_cred_file() {
-  # The command as the shell reads it: JSON escapes undone (\\ is one backslash, so C:\Users\V
-  # works) and the \n that separates commands becomes ;. Bash expansions only, so no process starts.
-  local cmd="${raw//\\\\/$'\x01'}" bs='\'
-  cmd="${cmd//\\\"/\"}"; cmd="${cmd//\\n/;}"; cmd="${cmd//$'\x01'/$bs}"
+  # The command as the shell reads it (det, above: JSON escapes undone, so C:\Users\V works).
+  local cmd="$det"
   # A store read: the command word, then a path that is a store, or has one after a character that
   # isn't part of a name, so ~/.ssh, $HOME/.ssh and "C:\...\.ssh" match, and x.ssh doesn't.
   local store_read_re='(^|[[:space:]|;&(])(cat|head|tail|less|more|strings)[[:space:]]+([^;&|]*[^[:alnum:]_.-])?('"$cred_store_re"')'
@@ -100,7 +116,6 @@ git_print_re='(^|[^[:alnum:]_./-])git[[:space:]]+([^;&|]*[[:space:]])?credential
 # A command that never returns, or runs past five minutes, lets the prompt cache expire, and the next
 # turn rewrites the whole context. So: no empty-heredoc probes, no unbounded wait loops, no long sleeps.
 # Text matching only: a loop built another way isn't seen. The guard is also wired to Monitor.
-nl=$'\n'
 hang() {
   echo "App Director: blocked: $1" >&2
   echo "              $2" >&2
@@ -110,7 +125,6 @@ limit_s=280
 
 # 1. `python - <<'EOF'` whose body is empty: Python waits for console input and never returns on
 #    Windows. Typically the "is Python here?" probe.
-text="${raw//\\r/}"; text="${text//\\n/$nl}"
 heredoc_re='(^|[^[:alnum:]_./-])(python3?|py)(\.exe)?[[:space:]]+-[[:space:]]*<<-?[[:space:]]*\\?["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
 IFS=$'\n' read -r -d '' -a lines <<<"$text" || true
 for ((i = 0; i + 1 < ${#lines[@]}; i++)); do
@@ -133,10 +147,9 @@ while [[ $rest =~ $sleep_re ]]; do
 done
 
 # 2. until/while loops that sleep: under `timeout N` (N <= 280), or ended by the exit line Claude Code
-#    appends to a background command's output. A loop quoted into `bash -c '...'` is read from the raw text.
+#    appends to a background command's output. A loop quoted into `bash -c '...'` is read from the shell's text.
 scan="$code"
-[[ $code =~ (bash|sh|zsh)[[:space:]]+-[a-z]*c[[:space:]] ]] && scan="$raw"
-scan="${scan//\\n/$nl}"
+[[ $code =~ (bash|sh|zsh)[[:space:]]+-[a-z]*c[[:space:]] ]] && scan="$text"
 loop_re='(^|[^[:alnum:]_./-])(until|while)[[:space:]]'
 timeout_re="(^|[^[:alnum:]_./-])timeout[[:space:]]+(-[-[:alnum:]=]+[[:space:]]+)*([0-9]+)([sm]?)[[:space:]]+[^;&|$nl]*\$"
 rest="$scan"; before=""
@@ -159,17 +172,17 @@ while [[ $rest =~ $loop_re ]]; do
 done
 
 # --- git-specific rules --------------------------------------------------------------------------
-isgit=0; [[ $raw =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]] && isgit=1
-isbash=0; [[ $raw =~ (^|[^[:alnum:]_.-])(ba)?sh([[:space:]]|$) ]] && isbash=1
+isgit=0; [[ $det =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]] && isgit=1
+isbash=0; [[ $det =~ (^|[^[:alnum:]_.-])(ba)?sh([[:space:]]|$) ]] && isbash=1
 ((isgit || isbash)) || exit 0
 
 seg='[^;&|]*'
 if ((isgit)); then
   shopt -s nocasematch
-  [[ $raw =~ core\.hookspath ]] && block "changing core.hooksPath switches the pre-commit hook off"
+  [[ $det =~ core\.hookspath ]] && block "changing core.hooksPath switches the pre-commit hook off"
   shopt -u nocasematch
 
-  [[ $raw =~ --no-veri ]] && block "--no-verify skips the project check"
+  [[ $det =~ --no-veri ]] && block "--no-verify skips the project check"
   [[ $code =~ commit${seg}[[:space:]]-[a-mo-zA-Z]*n[a-zA-Z]*([[:space:]]|$) ]] && block "git commit -n skips the project check"
   [[ $code =~ push${seg}[[:space:]](--force|--force-with-lease|--force-if-includes|-[a-zA-Z]*f[a-zA-Z]*)([[:space:]=]|$) ]] && block "force-push rewrites shared history"
   [[ $code =~ push${seg}[[:space:]]\+[^[:space:]] ]] && block "a +refspec force-pushes"
@@ -189,9 +202,8 @@ fi
 # (--ext-diff). The command is read as the shell hands it to git: '--output=x', "--output"=x and
 # --out\put=x are the flag, while a flag named inside a quoted message or a heredoc body is not.
 # Variables and $(...) outside quotes are not expanded, so this is a text match like the rest.
-bs='\'; sq1="'"
-real="${raw//\\\\/$'\x01'}"; real="${real//\\\"/\"}"; real="${real//\\n/$nl}"
-real="${real//\\t/ }"; real="${real//\\r/}"; real="${real//$'\x01'/$bs}"
+sq1="'"
+real="$text"   # the shell's text, with its line continuations already joined
 
 # Cut out the heredoc bodies (git commit -F - <<'EOF' ...). A quoted delimiter makes the body plain
 # text; an unquoted one expands $(...) and backticks, so a body with those stays.
@@ -224,7 +236,7 @@ while [[ $rest =~ $qre ]]; do
     pre="${pre%?}"
     [[ $quoted == "'"* && $inner =~ \\[xuU0-7] ]] && block "ANSI-C quoting with a numeric escape (\$'\\055') can spell any flag past this check"
   fi
-  pre="${pre//\\$nl/}"; pre="${pre//\\/}"        # outside quotes a backslash only escapes the next character
+  pre="${pre//\\/}"                              # outside quotes a backslash only escapes the next character
   gcode+="$pre"
   word="${gcode##*[[:space:];&|]}"               # the word so far
   if [[ $inner =~ ^--?[A-Za-z] ]]; then gcode+="$inner"
@@ -233,7 +245,7 @@ while [[ $rest =~ $qre ]]; do
   elif [[ $quoted == '"'* && ( $inner == *'$('* || $inner == *'`'* ) ]]; then rest="$inner $rest"
   else gcode+=" Q "; fi
 done
-rest="${rest//\\$nl/}"; rest="${rest//\\/}"; gcode+="${rest//[\"$sq1]/}"   # a quote left over never closes
+rest="${rest//\\/}"; gcode+="${rest//[\"$sq1]/}"   # a quote left over never closes
 gcode="${gcode//$nl/;}"; gcode="${gcode//>&/> }"; gcode="${gcode//&>/> }"
 
 gitre='(^|[^[:alnum:]_./-])git[[:space:]]'
@@ -256,6 +268,14 @@ dotsre='(^|/)\.\.(/|$)'
 brackets='[(){}`]'
 IFS=';&|' read -r -d '' -a gsegs <<<"$gcode" || true
 for gs in "${gsegs[@]}"; do
+  # In a git command, an unquoted brace expansion ({a,b} or {a..b}) or $IFS spells a word the parsing
+  # below never sees (--{force,}, -{D,}, x$IFS--force). git's own @{...} (HEAD@{1}, @{u}..HEAD) is no
+  # expansion that can make a flag: each word it makes keeps the @ in front.
+  if [[ $gs =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]]; then
+    gb="${gs//@\{/ }"
+    [[ $gb =~ \{[^{}[:space:]]*(,|\.\.)[^{}[:space:]]*\} ]] && block "a brace expansion in a git command can spell a flag past this check"
+    [[ $gs =~ \$\{?IFS ]] && block "\$IFS in a git command can split a word into a flag past this check"
+  fi
   gs="${gs//$brackets/ }"
   read -ra w <<<"$gs"
   n=${#w[@]}; k=0
@@ -271,14 +291,32 @@ for gs in "${gsegs[@]}"; do
   k=0
   while ((k < n)) && [[ ${w[k]} != git ]]; do ((k++)); done
   ((k++))
+  # git's global options: the ones that take a value as the next word skip it too.
   while ((k < n)); do
-    case ${w[k]} in -C|-c) ((k += 2)) ;; -*) ((k++)) ;; *) break ;; esac
+    case ${w[k]} in
+      -C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source) ((k += 2)) ;;
+      -*) ((k++)) ;;
+      *) break ;;
+    esac
   done
   case ${w[k]:-} in
     commit|tag)
       sub="${w[k]}"
+      # git commit -n and --no-verify skip the project check however they are quoted or split (B26): the words here
+      # have their quotes resolved, so '-n', "-n", -""n and --no-ve''rify are the flags they spell. The flags end at a
+      # -- unless the word before it starts with - (an option may take the -- as its value: git commit -m -- -n
+      # commits with the message -- and skips the hook). A word an option takes as its value (-m "-n") isn't a flag.
+      # git tag -n lists messages, so only commit is checked.
+      stop=0; takes=0
+      valopt='^-[^-mFcCt]*[mFcCt]$'
+      valname='^--(message|file|author|date|template|cleanup|fixup|squash|trailer|reuse-message|reedit-message|pathspec-from-file)$'
       for ((k++; k < n; k++)); do
         a="${w[k]}"
+        if [[ $sub == commit && $stop -eq 0 && $takes -eq 0 ]]; then
+          [[ $a == -- && ${w[k-1]} != -* ]] && stop=1
+          [[ $a =~ ^-[a-mo-zA-Z]*n[a-zA-Z]*$ || $a == --no-veri* ]] && block "git commit -n skips the project check"
+        fi
+        takes=0; [[ $a =~ $valopt || $a =~ $valname ]] && takes=1
         if [[ $a =~ ^-[adefilnopqsvz]*F(.*)$ ]]; then v="${BASH_REMATCH[1]:-${w[k+1]:-}}"
         elif [[ $a =~ ^--fi(l|le)?(=(.*))?$ ]]; then
           if [[ -n ${BASH_REMATCH[2]} ]]; then v="${BASH_REMATCH[3]}"; else v="${w[k+1]:-}"; fi
@@ -290,6 +328,80 @@ for gs in "${gsegs[@]}"; do
         [[ ${w[k]} == -* ]] && continue
         [[ ${w[k]} =~ $outre ]] && block "git diff of a path outside the repository reads any file on the machine"
       done ;;
+    branch)
+      # A forced delete discards a branch's unmerged commits, and a forced move or copy overwrites the branch
+      # it lands on: -D, -M or -C anywhere in a cluster, or a delete (-d, --delete), move (-m, --move) or copy
+      # (-c, --copy) with a force (-f, --force); a long option counts from its first three characters.
+      # -u takes the rest of its word as the upstream, so a cluster stops there. -f alone moves a branch
+      # to a commit (git branch -f topic main) and stays allowed.
+      del=0; move=0; copy=0; force=0
+      for ((k++; k < n; k++)); do
+        a="${w[k]}"
+        [[ $a == -- ]] && break
+        if [[ $a == --* ]]; then
+          name="${a%%=*}"
+          if ((${#name} >= 3)); then
+            [[ --delete == "$name"* ]] && del=1
+            [[ --move == "$name"* ]] && move=1
+            [[ --copy == "$name"* ]] && copy=1
+            [[ --force == "$name"* ]] && force=1
+          fi
+        elif [[ $a == -* ]]; then
+          cl="${a#-}"
+          while [[ -n $cl ]]; do
+            c="${cl:0:1}"; cl="${cl:1}"
+            case $c in
+              D) block "git branch -D deletes unmerged work" ;;
+              M|C) block "git branch -$c overwrites the branch it moves or copies onto" ;;
+              d) del=1 ;;
+              m) move=1 ;;
+              c) copy=1 ;;
+              f) force=1 ;;
+              u) break ;;
+            esac
+          done
+        fi
+      done
+      ((del && force)) && block "git branch -d with --force deletes unmerged work, as -D does"
+      ((force && (move || copy))) && block "git branch -m or -c with --force overwrites the branch it lands on"
+      ;;
+    worktree)
+      # git worktree remove --force (-f, a cluster with f, or --force from its first three characters)
+      # deletes the worktree's uncommitted changes, and git worktree add -B resets a branch that may hold
+      # commits, as -f or --force does to a branch checked out elsewhere. -b takes the rest of its word.
+      ((k++))
+      case ${w[k]:-} in
+        remove)
+          for ((k++; k < n; k++)); do
+            a="${w[k]}"
+            [[ $a == -- ]] && break
+            if [[ $a == --* ]]; then
+              name="${a%%=*}"
+              ((${#name} >= 3)) && [[ --force == "$name"* ]] && block "git worktree remove --force deletes the worktree's uncommitted changes"
+            elif [[ $a == -* && $a == *f* ]]; then
+              block "git worktree remove -f deletes the worktree's uncommitted changes"
+            fi
+          done ;;
+        add)
+          for ((k++; k < n; k++)); do
+            a="${w[k]}"
+            [[ $a == -- ]] && break
+            if [[ $a == --* ]]; then
+              name="${a%%=*}"
+              ((${#name} >= 3)) && [[ --force == "$name"* ]] && block "git worktree add --force checks out a branch another worktree has"
+            elif [[ $a == -* ]]; then
+              cl="${a#-}"
+              while [[ -n $cl ]]; do
+                c="${cl:0:1}"; cl="${cl:1}"
+                case $c in
+                  B) block "git worktree add -B resets a branch that may hold commits" ;;
+                  f) block "git worktree add -f checks out a branch another worktree has" ;;
+                  b) break ;;
+                esac
+              done
+            fi
+          done ;;
+      esac ;;
     grep)
       # -O takes its command attached (-Ovim; -O alone runs the configured pager), and git reads it inside a
       # cluster too (-iO, -nOvim). -e -f -A -B -C -m take the rest of the word, or the next word, as their

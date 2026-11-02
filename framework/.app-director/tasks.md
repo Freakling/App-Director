@@ -28,6 +28,7 @@ Read this before adding or editing an item.
 - **`Brief:`.** The heading(s) the item implements, or `-` for items that aren't about the product design.
 - **`Stories:`.** The user stories the item serves (`US-2, US-5`, from `product/user-stories.md`), or `-` for foundation, tooling and infrastructure, which change nothing a user does. A feature item names at least one; one with no story yet gets one drafted before it is built (`procedures/design.md` › User stories). A bug names the story whose behaviour it restores, or `-`. A research item has none.
 - **`UI:`** (optional). `product/ui/<screen>.md`, the screen spec, for an item that builds or changes a screen (`procedures/ui-design.md`). The item builds to the spec and names its elements as the spec does. A `UI:` item sized `L` or `XL` is split per screen.
+- **`Prototype:`** (optional). `proto/<name>`, the prototype the item came from (`procedures/prototype.md` › Harvest). The item is built from main to its own `Done when`, like any other; while the branch exists, the builder reads the prototype's diff against main as a reference (`procedures/build.md`, step 1). The line stays once the branch is deleted.
 - **Bugs.** Instead of `Done when`, a bug has `Repro: steps → expected / actual` and `Found in:` (an acceptance check file, an item ID or `ad hoc`). It's done when the repro no longer happens.
 - **Research.** A research item (`R<n>`) answers one question and changes no code. It looks like this:
 

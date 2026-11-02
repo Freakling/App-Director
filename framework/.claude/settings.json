@@ -5,6 +5,7 @@
       "Bash(bash tools/security.sh)",
       "Bash(bash tools/security.sh --due)",
       "Bash(bash tools/stories.sh --due)",
+      "Bash(bash tools/prototype.sh *)",
       "Bash(bash tools/ui_capture.sh*)",
       "Bash(node tools/ui/drawing.mjs *)",
       "Bash(node tools/ui/overlay.mjs *)",
