@@ -331,6 +331,47 @@ grep -q '`/security`' "$src/ONBOARDING.md" && grep -q '`\[security\] every`' "$s
 [ -z "$wired" ] && ok "the security assessment is wired into the rules, the reviewer, release, next-task, the settings, the check.cfg seed and the docs" \
   || bad "the security assessment isn't wired into:$wired"
 
+# User stories: the seed has its header line, its sections and a worked example in the story format; the
+# item format and the TASKS.md seed carry Stories:; the check.cfg seed has the cadence; and the rules,
+# the procedures, the settings and the docs name them. tools/stories.sh --due is tested under "user stories".
+stories_seed="$src/project/product/user-stories.md"
+wired=""
+[ -f "$stories_seed" ] && [ -f "$src/framework/tools/stories.sh" ] || wired="$wired files"
+grep -q '^# User stories: {{APP_NAME}}$' "$stories_seed" || wired="$wired seed(title)"
+grep -qE '^\*\*Next ID:\*\* US-[0-9]+ · \*\*Last validated:\*\* never$' "$stories_seed" || wired="$wired seed(Next ID and Last validated)"
+grep -q '^## The value in one paragraph per role$' "$stories_seed" && grep -q '^## Roles$' "$stories_seed" || wired="$wired seed(sections)"
+_st_rows="$(grep -E '^\| US-' "$stories_seed")"
+[ -n "$_st_rows" ] && grep -q '^| ID | Story | Confirmed |$' "$stories_seed" || wired="$wired seed(tables)"
+printf '%s\n' "$_st_rows" | grep -vqE '^\| US-[0-9]+ \| As an? [^|]+ I [^|]+, so [^|]+\. \| ([0-9]{4}-[0-9]{2}-[0-9]{2}|unconfirmed) \|$' \
+  && wired="$wired seed(a row isn't | US-<n> | As a <role> I ..., so ... | <date> or unconfirmed |)"
+_st_next="$(sed -n 's/^\*\*Next ID:\*\* US-\([0-9]*\) .*/\1/p' "$stories_seed")"
+_st_ids="$(printf '%s\n' "$_st_rows" | sed -n 's/^| US-\([0-9]*\) .*/\1/p')"
+[ -n "$_st_next" ] && [ -z "$(printf '%s\n' "$_st_ids" | awk -v next_id="$_st_next" '$1 + 0 >= next_id + 0 || seen[$1]++')" ] \
+  || wired="$wired seed(IDs unique and below Next ID)"
+for _st_role in $(printf '%s\n' "$_st_rows" | sed -n 's/^| US-[0-9]* | As an\{0,1\} \([A-Za-z]*\) I .*/\1/p' | tr 'A-Z' 'a-z' | awk '!seen[$0]++'); do
+  sed -n '/^## Roles$/,/^## [^R]/p' "$stories_seed" | tr 'A-Z' 'a-z' | grep -q "^- \*\*$_st_role:\*\*" || wired="$wired seed(role $_st_role not in Roles)"
+done
+grep -q '^- Stories: US-[0-9]' "$adir/tasks.md" && grep -q '^- \*\*`Stories:`\.\*\*' "$adir/tasks.md" || wired="$wired tasks.md"
+grep -q '^- Stories: -$' "$src/project/TASKS.md" || wired="$wired project/TASKS.md"
+sed -n '/^\[stories\]$/,/^\[/p' "$src/project/tools/check.cfg" | grep -q '^every = 10$' || wired="$wired project/tools/check.cfg"
+grep -q '^| The roles the app serves, and why each feature is built | `product/user-stories\.md`' "$adir/rules.md" \
+  && grep -q '^- \*\*Why it.s built\.\*\* A feature item names the user stories it serves' "$adir/rules.md" || wired="$wired rules.md"
+grep -q '^## User stories$' "$adir/procedures/design.md" && grep -q '^### Validate the stories$' "$adir/procedures/design.md" \
+  && grep -q 'bash tools/stories\.sh --due' "$adir/procedures/design.md" && grep -q 'its `Stories:`' "$adir/procedures/design.md" || wired="$wired design.md"
+grep -q 'bash tools/stories\.sh --due' "$adir/procedures/next-task.md" && grep -q '\[stories\] every' "$adir/procedures/next-task.md" \
+  && grep -q 'A feature item (not a research item) with no story gets one before it is built' "$adir/procedures/next-task.md" \
+  && grep -q 'with `product/user-stories\.md` when the claim drafted a story' "$adir/procedures/next-task.md" || wired="$wired next-task.md"
+grep -qF -- '- [ ] Still right   - [ ] Needs a change' "$adir/procedures/acceptance.md" && grep -q '^4\. \*\*Stories\*\*' "$adir/procedures/acceptance.md" || wired="$wired acceptance.md"
+grep -q 'stories no item serves' "$adir/procedures/align.md" && grep -q 'feature items with no story' "$adir/procedures/align.md" \
+  && grep -q 'stories unconfirmed past the cadence' "$adir/procedures/align.md" || wired="$wired align.md"
+grep -qF '"Bash(bash tools/stories.sh --due)",' "$settings" && ! grep -qF '"Bash(bash tools/stories.sh*)"' "$settings" || wired="$wired settings.json"
+grep -q 'product/user-stories\.md' "$src/ONBOARDING.md" && grep -q '`\[stories\] every`' "$src/ONBOARDING.md" \
+  && grep -q 'were written from the code on <date>, before the app kept user stories\.' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
+grep -q 'were written from the code on <date>, before the app kept user stories\.' "$adir/procedures/align.md" || wired="$wired align.md(written from the code)"
+grep -q 'product/user-stories\.md' "$src/README.md" && grep -q 'tools/stories\.sh' "$src/README.md" || wired="$wired README.md"
+[ -z "$wired" ] && ok "the user stories seed has its header and sections, and Stories:, the cadence, the rules, the procedures, the settings and the docs name them" \
+  || bad "the user stories aren't wired into:$wired"
+
 # Agent permissions: the template's allow rules run without a prompt. A generic code runner with a
 # wildcard runs any code, so a prompt-injected page could push or read credentials (the docs repo's
 # security assessment, product/security/2026-10-26.md, F1). A rule that names a script under tools/
@@ -497,6 +538,9 @@ if [ -f .app-director/procedures/security.md ] && [ -f .app-director/reference/o
 else
   bad "installs the security assessment: procedure, OWASP checklist, skill and tools/security.sh" "$out"
 fi
+[ -x tools/stories.sh ] && cmp -s product/user-stories.md "$src/project/product/user-stories.md" \
+  && ok "installs tools/stories.sh and seeds product/user-stories.md" \
+  || bad "installs tools/stories.sh and seeds product/user-stories.md" "$out"
 grep -qx '/product/ui/captures/' .gitignore && grep -qx '/tools/ui/node_modules/' .gitignore && grep -qx '/tools/ui/.auth/' .gitignore \
   && grep -qx '/tools/ui/\*\* text eol=lf' .gitattributes \
   && ok "ignores captures, the capture tools' packages and saved sign-ins" || bad "the /ui-design .gitignore and .gitattributes lines" "$(cat .gitignore)"
@@ -1927,5 +1971,62 @@ expect_output "--due counts squash-merge subjects and is due at [security] every
 (cd "$_sv" && git_q commit -q --allow-empty -m "fix: B5 is mentioned (B5) but not at the end")
 out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
 expect_output "--due ignores an item ID that doesn't end the subject" ": 3, \[security\] every = 3" "$out"
+
+# --- user stories ---------------------------------------------------------------------------------
+echo "user stories"
+# tools/stories.sh --due counts built items as tools/security.sh --due does, from the commit on the
+# stories file's Last validated line (by its date when that commit isn't in the history), and is due
+# when the stories were never validated. The seed stands in for an app's file.
+_st="$work/stories"; new_repo "$_st"; mkdir -p "$_st/tools" "$_st/product"
+cp "$src/framework/tools/stories.sh" "$_st/tools/"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"; status=$?
+expect_status "stories --due exits 0 without a stories file" 0 "$status" "$out"
+expect_output "stories --due: not due without a stories file" "^stories: not due: no stories yet \(no product/user-stories\.md\), \[stories\] every = 10$" "$out"
+printf '# User stories: x\n\n**Next ID:** US-1 · **Last validated:** never\n\n## Roles\n' > "$_st/product/user-stories.md"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due: not due while the file has no stories" "^stories: not due: no stories yet in product/user-stories\.md" "$out"
+cp "$stories_seed" "$_st/product/user-stories.md"
+_st_total="$(grep -c '^| US-' "$stories_seed")"; _st_unc="$(grep -c '| unconfirmed |$' "$stories_seed")"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due: due when never validated, counting the stories and the unconfirmed ones" \
+  "^stories: due: never validated \(Last validated: never\), $_st_total stories, $_st_unc unconfirmed, \[stories\] every = 10$" "$out"
+(cd "$_st" && for i in 1 2 3; do git_q commit -q --allow-empty -m "feat: item (T$i)"; done && git_q commit -q --allow-empty -m "docs: note (R1)")
+printf '[stories]\nevery = 3\n' > "$_st/tools/check.cfg"
+_st_validated() { # <the Last validated value>
+  sed "s/\*\*Last validated:\*\* never/**Last validated:** $1/" "$stories_seed" > "$_st/product/user-stories.md"
+}
+_st_validated "2026-01-01 at \`$(cd "$_st" && git rev-parse --short HEAD~2)\`"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due counts from the Last validated commit, research items left out" \
+  "^stories: not due: built items since the last validation \(2026-01-01, commit [0-9a-f]+\): 1, \[stories\] every = 3; $_st_total stories, $_st_unc unconfirmed$" "$out"
+(cd "$_st" && git_q commit -q --allow-empty -m "feat: squashed item (T4) (#12)" && git_q commit -q --allow-empty -m "fix: squashed bug (B2) (#13)")
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due counts squash-merge subjects and is due at [stories] every = 3" "^stories: due: built items since the last validation \(2026-01-01, commit [0-9a-f]+\): 3, \[stories\] every = 3" "$out"
+(cd "$_st" && git_q commit -q --allow-empty -m "fix: B5 is mentioned (B5) but not at the end")
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due ignores an item ID that doesn't end the subject" ": 3, \[stories\] every = 3" "$out"
+_st_validated "2000-01-01 at \`0000000\`"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due counts by the date when the commit isn't in this history" \
+  "^stories: due: built items since the last validation \(2000-01-01, by its date: its commit isn't in this history\): 5, \[stories\] every = 3" "$out"
+_st_validated "2000-01-01"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due counts by the date when the line names no commit" \
+  "^stories: due: built items since the last validation \(2000-01-01, by its date: the line names no commit\): 5, \[stories\] every = 3" "$out"
+grep -v '^\*\*Next ID:\*\*' "$stories_seed" > "$_st/product/user-stories.md"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due is due, and says why, when the file has no Last validated line" \
+  "^stories: due: never validated \(product/user-stories\.md has no Last validated line\), $_st_total stories" "$out"
+printf '[stories]\nevery = often\n' > "$_st/tools/check.cfg"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due notes a setting that isn't a whole number and uses 10" "^stories: note: \[stories\] every = often isn't a whole number of 1 or more; using 10" "$out"
+out="$(cd "$_st" && bash tools/stories.sh 2>&1)"; status=$?
+expect_status "stories.sh without --due exits 3" 3 "$status" "$out"
+# Outside a git repository (git isn't allowed to look above $work for one) it can't count, and says so.
+_st_nogit="$work/stories-nogit"; mkdir -p "$_st_nogit/tools" "$_st_nogit/product"
+cp "$src/framework/tools/stories.sh" "$_st_nogit/tools/"; cp "$stories_seed" "$_st_nogit/product/"
+out="$(cd "$_st_nogit" && GIT_CEILING_DIRECTORIES="$work" bash tools/stories.sh --due 2>&1)"; status=$?
+expect_status "stories --due exits 3 outside a git repository" 3 "$status" "$out"
+expect_output "and says it couldn't count" "^stories: couldn't count: not a git repository$" "$out"
 
 finish

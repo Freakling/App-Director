@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T34 · B8 · R1
+**Next IDs:** T35 · B8 · R1
 
 ## Queue
+
+### T34 · User stories anchor every item · done · L · agent
+- Touches: project/product/user-stories.md (new), framework/tools/stories.sh (new), framework/.app-director/tasks.md, framework/.app-director/rules.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/acceptance.md, framework/.app-director/procedures/align.md, framework/.app-director/procedures/build.md, framework/.app-director/procedures/ui-design.md, framework/.app-director/procedures/drift-reset.md, framework/.claude/skills/design/SKILL.md, framework/.claude/skills/align/SKILL.md, framework/.claude/settings.json, project/TASKS.md, project/tools/check.cfg, ONBOARDING.md, README.md, selftest.sh, CHANGELOG.md
+- Done when: `project/product/user-stories.md` is a seed with a worked example: a header with the next story ID (`US-<n>`) and the date and commit the stories were last validated, the value in one paragraph per role, the roles, and a table per area with the ID, the story ("As a <role> I <do something>, so <why>") and the date the director confirmed it, or `unconfirmed` (check) · the item format gains `Stories:` (the IDs an item serves, or `-` for foundation, tooling and infrastructure), the TASKS.md seed shows it, `rules.md` names the file in "Each fact lives in one place", the design procedure drafts the stories a design needs and puts them to the director, and a feature item with no story gets one drafted before it is built (check) · the director validates on a cadence: `bash tools/stories.sh --due` counts built items since the Last validated commit against `[stories] every` (10 by default) as `tools/security.sh --due` does, next-task proposes the validation and names it in a run's final report, each acceptance check asks "still right?" of the stories behind its items, and align lists stories no item serves, feature items with no story and stories unconfirmed past the cadence; onboarding drafts a fresh app's stories from the interview and writes an existing app's from the code, unconfirmed; `selftest.sh` checks the seed, the field, the setting and the due count, and passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T261
 
 ### T33 · The guard checks every file a read names for env, pem and key files · done · S · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md

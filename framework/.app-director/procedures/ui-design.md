@@ -74,7 +74,7 @@ The layout lint runs in capture, in verify and in a build's Screens step, never 
    - `product/ui/<id>.md` (the template below), replacing superseded content.
    - `product/decisions.md`: one line per real decision, in its format, with `from: drawing director/ui/<id>.excalidraw`.
    - The brief only when the drawing changed what the screen does (a new action, a removed feature); layout lives in the spec. A point left undecided becomes an open question (`Q<n>`, bump the counter), and the spec's Open section names it.
-   - `TASKS.md`: one item per screen (split an `L`), with `UI: product/ui/<id>.md`, `Touches`, a tagged `Done when` and the `Brief:` line. The usual outcomes: every element in the spec exists under its `data-testid` and the screen opens without errors `(test)` · the capture is lint-clean at every configured size and matches the spec within tolerance `(check)` · the screen reads as drawn and works by mouse, touch and keyboard where the app supports them `(demo)`.
+   - `TASKS.md`: one item per screen (split an `L`), with `UI: product/ui/<id>.md`, `Touches`, a tagged `Done when`, the `Brief:` line and the `Stories:` line. The usual outcomes: every element in the spec exists under its `data-testid` and the screen opens without errors `(test)` · the capture is lint-clean at every configured size and matches the spec within tolerance `(check)` · the screen reads as drawn and works by mouse, touch and keyboard where the app supports them `(demo)`.
 6. **Commit** as `docs: ui <id>` once the human approves, then suggest a fresh session before the next screen (`design.md` › Finish).
 
 ## verify

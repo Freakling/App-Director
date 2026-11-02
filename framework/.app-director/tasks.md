@@ -4,11 +4,12 @@
 Read this before adding or editing an item.
 
 ```
-### T3 · Login screen validates email format · todo · S · agent
+### T3 · Members say whether they're coming · todo · S · agent
 - Depends on: T1
-- Touches: src/screens/LoginScreen.tsx, src/services/auth.ts, tests/auth.test.ts
-- Done when: invalid email format is rejected before submit (test) · form shows inline error (demo)
-- Brief: Authentication › Sign in
+- Touches: src/screens/MeetingScreen.tsx, src/services/attendance.ts, tests/attendance.test.ts
+- Done when: a member's answer is saved and counted for the meeting (test) · the meeting shows Coming and Not coming, one tap each (demo)
+- Brief: Meetings › Attendance
+- Stories: US-2
 ```
 
 - **Heading.** It reads `ID · title · status · size · owner`, and a bug adds `· high|med|low`. New IDs (`T<n>`, `B<n>`, `R<n>`) come from the `Next IDs` line, which you then bump. If the line has no `R` counter yet, add `· R1`. IDs are never reused.
@@ -25,6 +26,7 @@ Read this before adding or editing an item.
 - **`Touches`.** The files expected to change. Mark new files `(new)`.
 - **`Done when`.** 1-3 observable outcomes, each tagged `(test)`, `(check)` or `(demo)` (see `rules.md` › Doing the work). Naming an open question means it gates the real behaviour.
 - **`Brief:`.** The heading(s) the item implements, or `-` for items that aren't about the product design.
+- **`Stories:`.** The user stories the item serves (`US-2, US-5`, from `product/user-stories.md`), or `-` for foundation, tooling and infrastructure, which change nothing a user does. A feature item names at least one; one with no story yet gets one drafted before it is built (`procedures/design.md` › User stories). A bug names the story whose behaviour it restores, or `-`. A research item has none.
 - **`UI:`** (optional). `product/ui/<screen>.md`, the screen spec, for an item that builds or changes a screen (`procedures/ui-design.md`). The item builds to the spec and names its elements as the spec does. A `UI:` item sized `L` or `XL` is split per screen.
 - **Bugs.** Instead of `Done when`, a bug has `Repro: steps → expected / actual` and `Found in:` (an acceptance check file, an item ID or `ad hoc`). It's done when the repro no longer happens.
 - **Research.** A research item (`R<n>`) answers one question and changes no code. It looks like this:

@@ -54,7 +54,7 @@ Keep the report under about 60 lines.
 
 ## 4. Plan the rebuild (no code changes)
 1. Compare the approved brief against `as-built.md`. Every place that doesn't match is work: rewriting a losing interpretation, moving logic out of UI files into the logic layer, removing what is no longer wanted.
-2. Write the work as TASKS.md items in the format in `.app-director/tasks.md`, with IDs from `Next IDs`. Each item has a Size, `Depends on`, `Touches` naming the exact files it may change, tagged `Done when` outcomes, and a `Brief:` heading. Split `L` and `XL` work where you can, and put items that remove contradictions before items that unify divergent readings.
+2. Write the work as TASKS.md items in the format in `.app-director/tasks.md`, with IDs from `Next IDs`. Each item has a Size, `Depends on`, `Touches` naming the exact files it may change, tagged `Done when` outcomes, a `Brief:` heading and its `Stories:`. Split `L` and `XL` work where you can, and put items that remove contradictions before items that unify divergent readings.
 3. Write `rebuild.md` in the reset folder: for each divergent or contradictory principle, the item IDs that rebuild it.
 4. Commit TASKS.md and `rebuild.md` as `docs: drift reset plan YYYY-MM-DD` after the human approves. Tell the human the rebuild runs through `next-task.md` ("work through the queue").
 

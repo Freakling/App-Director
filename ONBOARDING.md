@@ -39,6 +39,7 @@ Run `bash "$ADIR/install.sh" .`. Then read its report.
   - `CLAUDE.md` must contain the line `@AGENTS.md`, at the top.
   - `AGENTS.md` keeps its content, gains the missing sections, and gets the line pointing to `.app-director/rules.md`.
   - `TASKS.md` converts to the seed format, keeping content.
+  - `product/user-stories.md` keeps its stories and gains what the seed has and it lacks: the Next ID and Last validated line, the value and Roles sections, and a Confirmed column (`unconfirmed` until the human confirms each story). Columns of its own stay. Its IDs are renumbered to `US-<n>` only if the human agrees.
 
 ## 3. Toolchain check
 
@@ -91,14 +92,16 @@ Every project has `product/director-brief.md`: the human's own product brief tem
    2. Core flows: the 3-5 things a user actually does (not screens, but actions with an outcome).
    3. Platforms and constraints: web, mobile, desktop, or a mix; offline support; auth required.
 2. **Record it.** Write the answers into `product/brief.md` as the current design. Anything undecided becomes an Open Question.
-3. **Seed TASKS.md:** folder layout, first passing check, first working screen for the primary flow. Each item with Size, `Touches` and tagged `Done when`.
+3. **Draft the first user stories** in `product/user-stories.md`, replacing its worked example and its `{{APP_NAME}}`: a role for each kind of user the pitch names, the value for each role in one paragraph, and a story for each thing they do in the core flows, in the form `.app-director/procedures/design.md` › User stories gives. Put them to the human with the brief, as drafts for them to confirm, correct or drop. Each one they confirm gets today's date; the rest stay `unconfirmed`. When they've gone through them, set Last validated to today and `git rev-parse --short HEAD` (the date alone while the repository has no commit yet); if they'd rather do it later, leave it `never`, and `/next-task` proposes it.
+4. **Seed TASKS.md:** folder layout, first passing check, first working screen for the primary flow. Each item with Size, `Touches`, tagged `Done when`, `Brief:` and `Stories:` (the first screen serves a story; the layout and the check are `-`).
 
 ### Existing app
 1. **AGENTS.md › Architecture:** one row per significant system. Take "Owns" from public exports and module boundaries, not from guesses.
 2. **product/brief.md:** fill each section from the existing code, any docs, and the human's own brief if they filled one (above). Mark anything inferred `(inferred, please confirm)` and anything the brief supplied `(from your brief)`, and turn anything unknown into an Open Question.
-3. **TASKS.md:** turn TODOs, known bugs and the human's priorities into items.
-4. **UI files that break the layer rule.** Set `tools/check.cfg` › `[ui] dirs` to the UI folders. Each file that imports from data-layer folders directly gets its own `M` item "Decouple: <file>".
-5. **Check failures** from step 3 become the first items. Crashes or data-loss bugs are `high`.
+3. **product/user-stories.md:** write the stories from the code, as the brief is filled, replacing the worked example and its `{{APP_NAME}}`: the roles the app serves, the value for each role in one paragraph, and a story for each thing a role can do today, one table per area, in the form `.app-director/procedures/design.md` › User stories gives. A story describes what works now, not a plan. Every story is `unconfirmed` and Last validated stays `never`. Under the first paragraph, add `US-1 to US-<n> were written from the code on <date>, before the app kept user stories.`, so align leaves that range out of the stories no item serves. Offer to go through them with the human now (`design.md` › Validate the stories); otherwise `/next-task` proposes it.
+4. **TASKS.md:** turn TODOs, known bugs and the human's priorities into items, each with its `Stories:`. A feature item whose story isn't in the file gets one drafted, `unconfirmed` (`design.md` › User stories), with an ID after the range written from the code; `-` is only for foundation, tooling and infrastructure.
+5. **UI files that break the layer rule.** Set `tools/check.cfg` › `[ui] dirs` to the UI folders. Each file that imports from data-layer folders directly gets its own `M` item "Decouple: <file>".
+6. **Check failures** from the toolchain check (section 3) become the first items. Crashes or data-loss bugs are `high`.
 
 ## 6. Choose stack
 
@@ -123,6 +126,7 @@ Fill in `tools/check.cfg`:
 - `[data] dirs`: space-separated list of data-layer folders (e.g. `src/api src/repositories src/storage`).
 - `[scan] skip`: third-party folders, generated code (e.g. `node_modules dist build .dart_tool`).
 - `[security] every`: how many built items after the last security assessment `/next-task` proposes the next one (`.app-director/procedures/security.md`); the seed says 10. The human can decline a proposal. Leave it unless the human wants assessments proposed more or less often. An assessment also runs before a release when something was built since the last report, or when there is none yet.
+- `[stories] every`: how many built items after the last validation of the user stories `/next-task` proposes the next one (`.app-director/procedures/design.md` › Validate the stories); the seed says 10. The human can decline a proposal. Leave it unless the human wants the stories validated more or less often.
 
 Fill in `tools/ui_capture.cfg` › `[web]` when the app has a web UI (Flutter web included): `base_url`, the address of its dev or test server on this machine (such as `http://localhost:5173`), and `start_command` if capture should start it. Leave `base_url` empty for a native Flutter, mobile or desktop app: capture isn't available for those yet. The catalog (`tools/ui/screens.mjs`) starts with the root route; capture needs Node 20 or newer and, once per clone, `cd tools/ui && npm install && npx playwright install chromium`. Offer that install; it is never needed for the check.
 
@@ -185,7 +189,7 @@ If the flows aren't decided yet, leave the placeholders and add an agent item "F
    - If the check fails, leave the hook off and add an item: "Install the pre-commit hook once the check passes (`bash tools/setup-clone.sh`)".
 7. **Tell the human:**
    - what needs their confirmation (inferred decisions, open questions);
-   - how to use it: "do the next task", "let's design…", "prepare an acceptance check", "check the docs are aligned", "research which library fits…", "capture the screens", "run a security assessment" (in Claude Code also `/next-task`, `/design`, `/research`, `/ui-design`, `/acceptance`, `/align`, `/security`, `/drift-reset`, `/prune`, `/release`);
+   - how to use it: "do the next task", "let's design…", "validate the user stories", "prepare an acceptance check", "check the docs are aligned", "research which library fits…", "capture the screens", "run a security assessment" (in Claude Code also `/next-task`, `/design`, `/research`, `/ui-design`, `/acceptance`, `/align`, `/security`, `/drift-reset`, `/prune`, `/release`);
    - align often, and reset when you have to: a drift reset ("run a design drift reset") is for when the same conflict keeps coming back, and only they start one;
    - with the Claude adapter: to restart Claude Code, because skills, hooks and permissions load at session start;
    - that every new clone needs `bash tools/setup-clone.sh`.

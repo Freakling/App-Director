@@ -22,6 +22,7 @@ Milestones, the work queue and bugs: the only place work is tracked. Item format
 - Touches: tools/check.cfg
 - Done when: `bash tools/check.sh` exits 0 (check)
 - Brief: -
+- Stories: -
 
 ## Notes
 <!-- Short and current: ordering constraints, items that share files, what's waiting on the human. Delete a note once it stops being true. -->
