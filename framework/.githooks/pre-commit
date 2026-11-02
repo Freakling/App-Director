@@ -9,7 +9,7 @@
 # On every commit, whatever is staged and wherever it is made:
 #   2. Runs gitleaks protect --staged --redact to catch secrets entering history, and names the files.
 #      A missing gitleaks blocks the commit. In a prototype, where the scan is the only gate, so does a
-#      .gitleaksignore or .gitleaks.toml that differs from main's.
+#      .gitleaksignore or .gitleaks.toml that differs from main's, or a staged line that adds gitleaks:allow.
 # Both steps block the commit on failure, and so do unmerged upgrade files (*.adir-new).
 
 # ls-files also lists a nested repository in an ignored folder (such as a clone) as a
@@ -90,6 +90,14 @@ if [ "$prototype" -eq 1 ]; then
       exit 1
     fi
   done
+  # An inline allow (gitleaks:allow on a line) is an allowlist too. A staged added line that names it is refused
+  # here. Only the hunks are read, so a file header (+++ b/...) or a removed line doesn't count.
+  if git diff --cached -U0 --no-color --no-ext-diff 2>/dev/null \
+      | awk '/^diff --git /{ h = 0 } /^@@/{ h = 1; next } h && /^\+/ && /gitleaks:allow/ { found = 1 } END { exit !found }'; then
+    echo "pre-commit: a staged line adds gitleaks:allow, an inline allowlist; commit blocked. Allowlisting a secret"
+    echo "            needs the human, in the main session (rules.md › Secrets)."
+    exit 1
+  fi
 fi
 
 # Staged-changes scan: catches secrets even when the working-tree check was cached. protect is the

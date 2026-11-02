@@ -12,10 +12,12 @@
 #                                           prototype's only gates. When origin/main (as last fetched) is ahead of
 #                                           main, it stops first and creates nothing (exit 5); --as-is starts from
 #                                           main as it is
-#   bash tools/prototype.sh list            each proto/ branch, its worktree and its commits since main
+#   bash tools/prototype.sh list            each proto/ branch, its worktree and its commits since main, and the gate
+#                                           files that differ from main's (the hooks, the guard, tools/prototype.sh,
+#                                           tools/setup-clone.sh and the gitleaks files), when there are any
 #   bash tools/prototype.sh harvest <name>  what the harvest reads: the commits, the files changed since main and
-#                                           the diff command, the worktree's uncommitted changes and its
-#                                           PROTOTYPE.md; changes nothing
+#                                           the diff command, the gate files that differ from main's, the worktree's
+#                                           uncommitted changes and its PROTOTYPE.md; changes nothing
 #   bash tools/prototype.sh remove <name>   git worktree remove, never forced. The branch stays: it is never
 #                                           merged, so deleting it (git branch -D) discards its commits, and the
 #                                           human runs that
@@ -83,6 +85,19 @@ need_gates() { # a prototype's only gates are the hooks and gitleaks, so start r
   command -v gitleaks >/dev/null 2>&1 || refuse "gitleaks isn't on PATH, and a prototype's commits have no other gate: install it (bash tools/setup-clone.sh says how)"
 }
 
+# The gate files: a prototype's only gates are its hooks, the guard and the gitleaks files, which are main's. A gate file
+# that differs from main's, committed on the branch or edited (or added) in the worktree, is named by list and harvest.
+gate_paths=".githooks .claude tools/prototype.sh tools/setup-clone.sh .gitleaksignore .gitleaks.toml"
+gates_differ() { # gates_differ <branch> [worktree]: each gate file that differs from main's, once
+  {
+    git diff --name-only main "$1" -- $gate_paths 2>/dev/null
+    if [ -n "${2:-}" ] && [ -d "$2" ]; then
+      git -C "$2" diff --name-only main -- $gate_paths 2>/dev/null
+      git -C "$2" ls-files --others --exclude-standard -- $gate_paths 2>/dev/null
+    fi
+  } | awk '!seen[$0]++'
+}
+
 case "$cmd" in
   start)
     need_name; need_main_session; need_main
@@ -134,6 +149,8 @@ EOF
       wt="$(worktree_of "$br")"
       n="?"; has_branch main && n="$(git rev-list --count "main..$br" 2>/dev/null)"
       echo "$br · ${wt:-no worktree} · $n commit(s) since main"
+      gates=""; has_branch main && gates="$(gates_differ "$br" "$wt")"
+      [ -n "$gates" ] && echo "  gate files that differ from main's: $(printf '%s' "$gates" | tr '\n' ' ' | sed 's/ *$//')"
     done
     [ "$found" -eq 1 ] || say "no prototypes (no proto/ branches)"
     exit 0
@@ -146,6 +163,11 @@ EOF
     git log --oneline "main..proto/$name"
     echo "--- files changed (git diff --stat main...proto/$name); read the diff with: git diff main...proto/$name"
     git diff --stat "main...proto/$name"
+    gates="$(gates_differ "proto/$name" "$wt")"
+    if [ -n "$gates" ]; then
+      echo "--- gate files that differ from main's: a prototype's gates are main's, so the human decides them in the main session"
+      printf '%s\n' "$gates" | sed 's/^/  /'
+    fi
     notes=""
     if [ -n "$wt" ] && [ -d "$wt" ]; then
       dirty="$(git -C "$wt" status --porcelain)"
@@ -181,7 +203,7 @@ EOF
     exit 1
     ;;
   *)
-    sed -n '6,26p' "$0"
+    sed -n '6,28p' "$0"
     exit 1
     ;;
 esac

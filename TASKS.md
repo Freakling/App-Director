@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T38 · B8 · R1
+**Next IDs:** T39 · B8 · R1
 
 ## Queue
+
+### T38 · A quoted no-verify, an inline allow and a gate edit can't get a commit past the hooks · done · S · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/hooks/guard-protected.sh, framework/.githooks/pre-commit, framework/tools/prototype.sh, selftest.sh, CHANGELOG.md
+- Done when: the guard blocks `git commit` with `-n` or `--no-verify` quoted or split (`'-n'`, `"-n"`, `-""n`, `--no-ve''rify`), and a `--` that follows a word an option takes as its value doesn't end the flags (`git commit -m -- -n`); in a prototype the pre-commit hook blocks a staged line with `gitleaks:allow`, Edit and Write are refused on the hooks, the guard, `tools/prototype.sh`, `tools/setup-clone.sh` and the gitleaks allowlist files, and `prototype.sh harvest` and `list` name any of those that differ from main's; the selftest covers each; the entry sits under the 1.13.0 heading (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T271
 
 ### T37 · The guard reads a git command on any line · done · S · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md

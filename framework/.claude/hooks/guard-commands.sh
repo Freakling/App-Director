@@ -302,8 +302,21 @@ for gs in "${gsegs[@]}"; do
   case ${w[k]:-} in
     commit|tag)
       sub="${w[k]}"
+      # git commit -n and --no-verify skip the project check however they are quoted or split (B26): the words here
+      # have their quotes resolved, so '-n', "-n", -""n and --no-ve''rify are the flags they spell. The flags end at a
+      # -- unless the word before it starts with - (an option may take the -- as its value: git commit -m -- -n
+      # commits with the message -- and skips the hook). A word an option takes as its value (-m "-n") isn't a flag.
+      # git tag -n lists messages, so only commit is checked.
+      stop=0; takes=0
+      valopt='^-[^-mFcCt]*[mFcCt]$'
+      valname='^--(message|file|author|date|template|cleanup|fixup|squash|trailer|reuse-message|reedit-message|pathspec-from-file)$'
       for ((k++; k < n; k++)); do
         a="${w[k]}"
+        if [[ $sub == commit && $stop -eq 0 && $takes -eq 0 ]]; then
+          [[ $a == -- && ${w[k-1]} != -* ]] && stop=1
+          [[ $a =~ ^-[a-mo-zA-Z]*n[a-zA-Z]*$ || $a == --no-veri* ]] && block "git commit -n skips the project check"
+        fi
+        takes=0; [[ $a =~ $valopt || $a =~ $valname ]] && takes=1
         if [[ $a =~ ^-[adefilnopqsvz]*F(.*)$ ]]; then v="${BASH_REMATCH[1]:-${w[k+1]:-}}"
         elif [[ $a =~ ^--fi(l|le)?(=(.*))?$ ]]; then
           if [[ -n ${BASH_REMATCH[2]} ]]; then v="${BASH_REMATCH[3]}"; else v="${w[k+1]:-}"; fi

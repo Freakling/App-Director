@@ -1347,6 +1347,32 @@ for cmd in \
     $'echo a\n\tgit log --format=%s\n--output=x'; do
   guard 0 "$cmd"
 done
+# A -n or --no-verify quoted or split is the same flag, so it skips the project check as `git commit -n` does (B26,
+# T271). The words are read after their quotes resolve. A -- ends the flags unless the word before it starts with -:
+# an option may take it as its value, and git does (`git commit -m -- -n` and `--mess -- -n` commit with the message --
+# and skip the hook). A word an option takes as its value (-m "-n") isn't a flag, and a -n after a -- (a path) isn't either.
+for cmd in \
+    "git commit '-n' -m x" \
+    'git commit "-n" -m x' \
+    'git commit -""n -m x' \
+    "git commit --no-ve''rify -m x" \
+    "git commit -'n' -m x" \
+    "git commit \$'-n' -m x" \
+    'git commit "--no-ve""rify" -m x' \
+    'git commit -m x "-n"' \
+    "git commit -m -- '-n'" \
+    "git commit --mess -- '-n'"; do
+  guard 2 "$cmd"
+done
+for cmd in \
+    'git commit -m "message naming -n"' \
+    'git commit -m "-n is a message"' \
+    'git commit -m "-nodejs fix"' \
+    "git commit -m x -- '-n'" \
+    $'git commit -q -F - <<\'EOF\'\nmessage naming -n\nEOF' \
+    'git tag -n'; do
+  guard 0 "$cmd"
+done
 grep -q '"matcher": "Bash|Monitor"' .claude/settings.json && ok "the guard is wired to Monitor too" || bad "the guard is wired to Monitor too"
 grep -q "Commands that may run long" .app-director/rules.md && grep -q "run_in_background" .app-director/rules.md \
   && grep -q "empty heredoc" .app-director/rules.md && ok "rules.md gives the time-limit, background and empty-heredoc rules" \
@@ -1388,6 +1414,28 @@ guard_write 0 "../director/x (outside the project root)" '../director/x'
 out="$(printf '%s' '{"tool_name":"Edit","tool_input":{"file_path":"director/x"}}' | env -u CLAUDE_PROJECT_DIR bash .claude/hooks/guard-protected.sh 2>&1)"
 got=$?
 if [ "$got" -eq 2 ]; then ok "blocks a relative path against the current directory when CLAUDE_PROJECT_DIR is unset"; else bad "guard-protected without CLAUDE_PROJECT_DIR exit $got, expected 2" "$out"; fi
+
+# In a prototype (PROTOTYPE.md at the root) Edit and Write refuse the gates, which are main's: the hooks and the guard
+# (.githooks/, .claude/), tools/prototype.sh, tools/setup-clone.sh and the gitleaks files (T271). Its notes and the
+# ordinary files stay writable, and outside a prototype the gates are writable, as they are in the main session.
+proto_root="$work/guard-proto"; mkdir -p "$proto_root" && printf '# Prototype: guard\n' > "$proto_root/PROTOTYPE.md"
+for f in .githooks/pre-commit .githooks/pre-push .claude/hooks/guard-commands.sh .claude/settings.json \
+    tools/prototype.sh tools/setup-clone.sh .gitleaksignore .gitleaks.toml ./tools/prototype.sh \
+    tools/stacks/../prototype.sh ".githooks/../.gitleaks.toml" "$proto_root/.githooks/pre-commit" \
+    "$proto_root/.gitleaks.toml"; do
+  guard_write 2 "a prototype refuses its gate $f" "$f" "$proto_root"
+done
+for f in src/ui/TodoList.ts tools/check.sh tools/stacks/typescript.sh TASKS.md PROTOTYPE.md .githooks-old/x \
+    tools/prototype.sh.bak .gitleaks.toml.bak "$proto_root/src/ui/TodoList.ts"; do
+  guard_write 0 "a prototype allows an ordinary file $f" "$f" "$proto_root"
+done
+if [ -e "$app/PROTOTYPE.md" ]; then
+  bad "the example app has a PROTOTYPE.md, so the outside-a-prototype cases don't test it"
+else
+  for f in .githooks/pre-commit .claude/settings.json tools/prototype.sh .gitleaks.toml; do
+    guard_write 0 "outside a prototype the gate $f stays writable" "$f"
+  done
+fi
 
 # --- stop-check hook ------------------------------------------------------------------------------
 echo "stop-check hook"
@@ -2264,6 +2312,7 @@ out="$(cd "$_pa" && bash tools/prototype.sh here 2>&1)"; status=$?
 expect_status "here: the main checkout isn't" 1 "$status" "$out"
 out="$(proto list)"
 expect_output "list shows the prototype, its worktree and its commits since main" "^proto/quick-add · .*proto-app-proto-quick-add · 1 commit\(s\) since main$" "$out"
+expect_no_output "list names no gate file for a prototype that changes none" "gate file" "$out"
 
 # The pre-commit hook in the prototype: no check, but the staged secrets scan, which needs gitleaks there.
 (cd "$_pw" && printf 'export const tried = 1;\n' > tried.ts && git add tried.ts)
@@ -2312,6 +2361,28 @@ if [ "$_gl_ok" -eq 1 ]; then
 else
   echo "  skip  real gitleaks staged-secret test in a prototype (gitleaks not found or below $_gl_min_req)"
 fi
+
+# An inline allow (gitleaks:allow on a line) is an allowlist too, so in a prototype the pre-commit hook refuses a staged
+# line that adds it: allowlisting needs the human (T271). The stand-in gitleaks here passes every scan, so only the hook's
+# check can stop the commit; the token is assembled at run time, as above, and written only to the prototype's worktree.
+_alnum='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+_ia_token="ghp_"
+for ((_i = 0; _i < 36; _i++)); do _ia_token="$_ia_token${_alnum:$((RANDOM % 62)):1}"; done
+(cd "$_pw" && printf 'export const token = "%s"; // gitleaks:allow\n' "$_ia_token" > inline.ts && git add inline.ts)
+_ia_commits="$(git -C "$_pw" rev-list --count HEAD)"
+out="$(commit_in "$_pw" "$_stop_path" "proto: an inline allow")"; status=$?
+expect_status "pre-commit blocks a prototype commit that stages a gitleaks:allow line" 1 "$status" "$out"
+expect_output "and names the staged line that adds gitleaks:allow" "a staged line adds gitleaks:allow" "$out"
+expect_output "and says allowlisting needs the human, in the main session" "needs the human, in the main session" "$out"
+expect_no_output "and doesn't print the token" "$_ia_token" "$out"
+[ "$(git -C "$_pw" rev-list --count HEAD)" = "$_ia_commits" ] && ok "the blocked inline-allow commit is not made" \
+  || bad "the blocked inline-allow commit is not made"
+# The same line without the allow is not this check's business: the hook (run here, so nothing is committed) lets it through.
+(cd "$_pw" && git reset -q -- inline.ts && printf 'export const note = 1; // gitleaks runs on save\n' > inline.ts && git add inline.ts)
+out="$(cd "$_pw" && PATH="$_stop_path" bash .githooks/pre-commit 2>&1)"; status=$?
+expect_status "pre-commit lets a prototype's staged line through when it names gitleaks but doesn't allow it" 0 "$status" "$out"
+expect_no_output "and says nothing about an inline allow" "gitleaks:allow" "$out"
+(cd "$_pw" && git reset -q -- inline.ts && rm -f inline.ts)
 
 # Everywhere else the check runs: the prototype's worktree without PROTOTYPE.md or on a detached HEAD, a proto/
 # branch in the main checkout (with or without PROTOTYPE.md: it isn't a linked worktree), main, and protoish.
@@ -2380,6 +2451,27 @@ expect_output "harvest shows the prototype's notes" "^## How it felt$" "$out"
 [ "$(_pa_state)" = "$_pa_before" ] && ok "harvest writes no item, record, commit or branch without the human" \
   || bad "harvest changed the main checkout or the branches" "$(_pa_state)"
 out="$(proto harvest nothing-here)"; expect_status "harvest refuses a prototype that doesn't exist" 1 $? "$out"
+
+# harvest and list name a gate file that differs from main's, committed on the branch or only edited in the worktree
+# (T271). A prototype's gates are main's, so the human decides them in the main session. The commit goes through the
+# passthrough gitleaks: it changes no source file, and a gate change needs no check.
+_pg="$work/proto-app-proto-gated"
+out="$(proto start gated)"; status=$?
+expect_status "start makes a second prototype, to change a gate in" 0 "$status" "$out"
+(cd "$_pg" && printf '# a change to the pre-push hook\n' >> .githooks/pre-push && git add .githooks/pre-push)
+out="$(commit_in "$_pg" "$_stop_path" "proto: change the pre-push hook")"; status=$?
+expect_status "the prototype commits a change to a gate file" 0 "$status" "$out"
+out="$(proto harvest gated)"
+expect_output "harvest names the committed gate file that differs from main's" "^--- gate files that differ from main's: .*$" "$out"
+expect_output "and lists it" "^  \.githooks/pre-push$" "$out"
+out="$(proto list)"
+expect_output "list names it under the prototype" "^  gate files that differ from main's: \.githooks/pre-push$" "$out"
+printf '# an edit to the setup script, not committed\n' >> "$_pg/tools/setup-clone.sh"
+out="$(proto harvest gated)"
+expect_output "harvest names a gate file edited in the worktree but not committed" "^  tools/setup-clone\.sh$" "$out"
+(cd "$_pg" && git checkout -q -- tools/setup-clone.sh)
+out="$(proto remove gated)"; status=$?
+expect_status "remove takes the second prototype's worktree away" 0 "$status" "$out"
 
 # remove: never forced, and the branch stays for the human to delete.
 out="$(proto remove quick-add)"; status=$?
