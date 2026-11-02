@@ -82,6 +82,7 @@ Afterwards, restart Claude Code so the new commands load. Each new clone later n
 | "Do the next 3 tasks", "Work through the queue", "Grab tasks until you're blocked" | The same, item after item, committing each without pausing, until one needs you. |
 | "Which open questions block development?" (`/design questions`) | Ranks the open questions by what they unblock, with options and a recommendation for each. |
 | "Let's design {topic}" (`/design {topic}`) | A design session. Your decisions become brief text, decision-log lines, user stories and task items. |
+| "Prototype {idea}", "Let me try {change} quickly" (`/prototype {name}`, then `/prototype harvest {name}`) | Tries a change fast, before it's built against the product: a new git worktree beside your app on a `proto/{name}` branch, where you open a second session that is outside the loop (no items, records, reviews or check on its commits; the guard and the secrets scan stay on, and nothing is pushed or merged: a pre-push hook refuses a `proto/` branch). You keep notes on what you tried and how it felt in its `PROTOTYPE.md`, and with a web UI, `/ui-design` captures before and after let you compare. The harvest, back in your main session, is a design session on the prototype's diff and your notes: you decide what becomes decisions, user stories and items, which are built from main with the check and reviews, and the prototype's code is never merged. Then it offers to remove the worktree; deleting the branch is yours to run (`git branch -D`). `/prototype list` shows the prototypes. |
 | "Validate the user stories" (`/design validate the stories`) | You confirm, correct or drop each user story the recently built items served, and each one still unconfirmed. `/next-task` proposes it every 10 built items (`tools/check.cfg` › `[stories] every`); you can decline. |
 | "Research which library fits {topic}", "What licence does this library use?" (`/research {question}`) | A read-only researcher looks into one question in a fresh context and saves a dated note in `product/research/`: the conclusion, the options, the sources with a confidence, and a recommendation. It informs; you decide. A design session asks it for facts it doesn't have, and you can queue a research item (`R1`, `R2`, ...) for later. |
 | "Capture the screens", "Redesign the orders page", "Process my drawing", "Verify the orders page" (`/ui-design`) | Opens your web app on this machine in headless Chromium (Node and Playwright, installed once in `tools/ui/`; your check never needs them) and captures each screen at each size, with a numbered map of its elements and a layout lint (squeezed text, off-screen or unreachable controls, a dialog without focus), and writes a starter drawing per screen. You draw over it in Excalidraw (free, no account) and save it in `director/ui/`; `process` reads exactly what you drew, asks about what it can't tell, and records the layout once in `product/ui/<screen>.md`; the build follows that spec, and `verify` captures the built screen, lists its deviations from the spec and writes a compare image of your drawing's screenshot beside the result. States are seeded through your app's API, never with real user data, and capture refuses any host but this machine. Drawing is optional; capture and lint work without it. Apps without a web UI (native Flutter, mobile, desktop) get capture later. |
@@ -143,16 +144,18 @@ your-app/
 │  App Director's, tool-neutral: updated on upgrade
 ├── .app-director/rules.md        the workflow rules, loaded through AGENTS.md
 ├── .app-director/tasks.md        the TASKS.md item format, read when items are written
-├── .app-director/procedures/     next-task · build · design · research · ui-design · review · security · align · drift-reset · prune · release · acceptance · refresh-model-sizing
+├── .app-director/procedures/     next-task · build · design · prototype · research · ui-design · review · security · align · drift-reset · prune · release · acceptance · refresh-model-sizing
 ├── .app-director/research-domain.md  what the researcher adds for apps: stacks and libraries, licences, app-store and platform requirements
 ├── .app-director/reference/owasp.md  the OWASP checklist the security assessment reads, check by check
 ├── tools/check.sh              the check (UI purity, secrets, stack, custom)
 ├── tools/security.sh           the security assessment's tools: dependency audit, secrets scan, Semgrep; and whether one is due
 ├── tools/stories.sh            whether the user stories are due for validation
-├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit hook
+├── tools/prototype.sh          a prototype's git steps: its worktree, branch and notes; list, harvest, remove
+├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit and pre-push hooks
 ├── tools/stacks/               typescript.sh · flutter.sh · python.sh · none.sh
 ├── tools/ui_capture.sh, tools/ui/  screen capture, element map, layout lint, drawing reader, compare and verify (Node and Playwright)
-├── .githooks/pre-commit        runs the check before commits that touch code
+├── .githooks/pre-commit        runs the check before commits that touch code (not in a prototype), and the secrets scan on every commit (no gitleaks, no commit)
+├── .githooks/pre-push          refuses to push a prototype's proto/ branch, or its commits under another name
 │
 │  App Director's, Claude Code adapter: updated on upgrade
 ├── .claude/skills/             /next-task and the rest: each points to its procedure

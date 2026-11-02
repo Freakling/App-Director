@@ -256,6 +256,14 @@ dotsre='(^|/)\.\.(/|$)'
 brackets='[(){}`]'
 IFS=';&|' read -r -d '' -a gsegs <<<"$gcode" || true
 for gs in "${gsegs[@]}"; do
+  # In a git command, an unquoted brace expansion ({a,b} or {a..b}) or $IFS spells a word the parsing
+  # below never sees (--{force,}, -{D,}, x$IFS--force). git's own @{...} (HEAD@{1}, @{u}..HEAD) is no
+  # expansion that can make a flag: each word it makes keeps the @ in front.
+  if [[ $gs =~ (^|[^[:alnum:]_./-])git([[:space:]]|$) ]]; then
+    gb="${gs//@\{/ }"
+    [[ $gb =~ \{[^{}[:space:]]*(,|\.\.)[^{}[:space:]]*\} ]] && block "a brace expansion in a git command can spell a flag past this check"
+    [[ $gs =~ \$\{?IFS ]] && block "\$IFS in a git command can split a word into a flag past this check"
+  fi
   gs="${gs//$brackets/ }"
   read -ra w <<<"$gs"
   n=${#w[@]}; k=0
@@ -271,8 +279,13 @@ for gs in "${gsegs[@]}"; do
   k=0
   while ((k < n)) && [[ ${w[k]} != git ]]; do ((k++)); done
   ((k++))
+  # git's global options: the ones that take a value as the next word skip it too.
   while ((k < n)); do
-    case ${w[k]} in -C|-c) ((k += 2)) ;; -*) ((k++)) ;; *) break ;; esac
+    case ${w[k]} in
+      -C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source) ((k += 2)) ;;
+      -*) ((k++)) ;;
+      *) break ;;
+    esac
   done
   case ${w[k]:-} in
     commit|tag)
@@ -290,6 +303,80 @@ for gs in "${gsegs[@]}"; do
         [[ ${w[k]} == -* ]] && continue
         [[ ${w[k]} =~ $outre ]] && block "git diff of a path outside the repository reads any file on the machine"
       done ;;
+    branch)
+      # A forced delete discards a branch's unmerged commits, and a forced move or copy overwrites the branch
+      # it lands on: -D, -M or -C anywhere in a cluster, or a delete (-d, --delete), move (-m, --move) or copy
+      # (-c, --copy) with a force (-f, --force); a long option counts from its first three characters.
+      # -u takes the rest of its word as the upstream, so a cluster stops there. -f alone moves a branch
+      # to a commit (git branch -f topic main) and stays allowed.
+      del=0; move=0; copy=0; force=0
+      for ((k++; k < n; k++)); do
+        a="${w[k]}"
+        [[ $a == -- ]] && break
+        if [[ $a == --* ]]; then
+          name="${a%%=*}"
+          if ((${#name} >= 3)); then
+            [[ --delete == "$name"* ]] && del=1
+            [[ --move == "$name"* ]] && move=1
+            [[ --copy == "$name"* ]] && copy=1
+            [[ --force == "$name"* ]] && force=1
+          fi
+        elif [[ $a == -* ]]; then
+          cl="${a#-}"
+          while [[ -n $cl ]]; do
+            c="${cl:0:1}"; cl="${cl:1}"
+            case $c in
+              D) block "git branch -D deletes unmerged work" ;;
+              M|C) block "git branch -$c overwrites the branch it moves or copies onto" ;;
+              d) del=1 ;;
+              m) move=1 ;;
+              c) copy=1 ;;
+              f) force=1 ;;
+              u) break ;;
+            esac
+          done
+        fi
+      done
+      ((del && force)) && block "git branch -d with --force deletes unmerged work, as -D does"
+      ((force && (move || copy))) && block "git branch -m or -c with --force overwrites the branch it lands on"
+      ;;
+    worktree)
+      # git worktree remove --force (-f, a cluster with f, or --force from its first three characters)
+      # deletes the worktree's uncommitted changes, and git worktree add -B resets a branch that may hold
+      # commits, as -f or --force does to a branch checked out elsewhere. -b takes the rest of its word.
+      ((k++))
+      case ${w[k]:-} in
+        remove)
+          for ((k++; k < n; k++)); do
+            a="${w[k]}"
+            [[ $a == -- ]] && break
+            if [[ $a == --* ]]; then
+              name="${a%%=*}"
+              ((${#name} >= 3)) && [[ --force == "$name"* ]] && block "git worktree remove --force deletes the worktree's uncommitted changes"
+            elif [[ $a == -* && $a == *f* ]]; then
+              block "git worktree remove -f deletes the worktree's uncommitted changes"
+            fi
+          done ;;
+        add)
+          for ((k++; k < n; k++)); do
+            a="${w[k]}"
+            [[ $a == -- ]] && break
+            if [[ $a == --* ]]; then
+              name="${a%%=*}"
+              ((${#name} >= 3)) && [[ --force == "$name"* ]] && block "git worktree add --force checks out a branch another worktree has"
+            elif [[ $a == -* ]]; then
+              cl="${a#-}"
+              while [[ -n $cl ]]; do
+                c="${cl:0:1}"; cl="${cl:1}"
+                case $c in
+                  B) block "git worktree add -B resets a branch that may hold commits" ;;
+                  f) block "git worktree add -f checks out a branch another worktree has" ;;
+                  b) break ;;
+                esac
+              done
+            fi
+          done ;;
+      esac ;;
     grep)
       # -O takes its command attached (-Ovim; -O alone runs the configured pager), and git reads it inside a
       # cluster too (-iO, -nOvim). -e -f -A -B -C -m take the rest of the word, or the next word, as their

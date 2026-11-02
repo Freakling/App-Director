@@ -3,10 +3,14 @@
 # `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
 #
 # When a commit touches source files:
-#   1. Runs the project check (working tree) with --if-changed caching.
-# On every commit, whatever is staged:
+#   1. Runs the project check (working tree) with --if-changed caching. Not in a prototype (a linked
+#      worktree on a proto/ branch with PROTOTYPE.md at its root, `bash tools/prototype.sh here`;
+#      .app-director/procedures/prototype.md), which is tried outside the loop.
+# On every commit, whatever is staged and wherever it is made:
 #   2. Runs gitleaks protect --staged --redact to catch secrets entering history, and names the files.
-# Both steps block the commit on failure.
+#      A missing gitleaks blocks the commit. In a prototype, where the scan is the only gate, so does a
+#      .gitleaksignore or .gitleaks.toml that differs from main's.
+# Both steps block the commit on failure, and so do unmerged upgrade files (*.adir-new).
 
 # ls-files also lists a nested repository in an ignored folder (such as a clone) as a
 # directory, so keep only the paths that really end in .adir-new.
@@ -17,7 +21,12 @@ if [ -n "$pending" ]; then
   exit 1
 fi
 
-[ -f tools/check.sh ] || exit 0
+# A prototype is tried outside the loop: its commits skip the check, and the secrets scan below is
+# their only gate. tools/prototype.sh is the one place that says what a prototype is.
+prototype=0
+[ -f tools/prototype.sh ] && bash tools/prototype.sh here >/dev/null 2>&1 && prototype=1
+
+[ -f tools/check.sh ] || [ "$prototype" -eq 1 ] || exit 0
 
 source_staged() {
   git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD \
@@ -25,7 +34,7 @@ source_staged() {
     | grep -qE '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^\.gitleaks(\.toml|ignore)$'
 }
 
-if source_staged; then
+run_check() {
   echo "pre-commit: running the project check"
   bash tools/check.sh --if-changed
   status=$?
@@ -37,6 +46,50 @@ if source_staged; then
     echo "pre-commit: the check fails; commit blocked."
     exit 1
   fi
+}
+
+if source_staged; then
+  if [ "$prototype" -eq 1 ]; then
+    echo "pre-commit: this checkout is a prototype, so the project check is skipped (the secrets scan still runs)"
+  else
+    run_check
+  fi
+fi
+
+# The scan needs gitleaks on every commit: in a prototype it is the only gate, and elsewhere a commit
+# with no source file staged has no other secrets check.
+if ! command -v gitleaks >/dev/null 2>&1; then
+  if [ "$prototype" -eq 1 ]; then
+    echo "pre-commit: gitleaks isn't installed, and in a prototype the secrets scan is the only gate, so the"
+    echo "            commit is blocked."
+  else
+    echo "pre-commit: gitleaks isn't installed, so the staged changes can't be scanned for secrets; commit blocked."
+  fi
+  echo "            Install gitleaks ('bash tools/setup-clone.sh' says how), then commit again."
+  exit 1
+fi
+
+# In a prototype, the allowlist and the rules gitleaks reads from disk (.gitleaksignore, .gitleaks.toml)
+# must be main's, staged and on disk: allowlisting needs the human (rules.md › Architecture defaults ›
+# Secrets), and a prototype has no review to catch it.
+differs_from_main() { # <file>
+  local in_main=0
+  git cat-file -e "main:$1" 2>/dev/null && in_main=1
+  if [ -e "$1" ]; then
+    [ "$in_main" -eq 1 ] && [ "$(git hash-object -- "$1")" = "$(git rev-parse "main:$1")" ] || return 0
+  elif [ "$in_main" -eq 1 ]; then
+    return 0
+  fi
+  ! git diff --cached --quiet main -- "$1" 2>/dev/null
+}
+if [ "$prototype" -eq 1 ]; then
+  for f in .gitleaksignore .gitleaks.toml; do
+    if differs_from_main "$f"; then
+      echo "pre-commit: $f differs from main's in this prototype; commit blocked. Allowlisting a secret, or"
+      echo "            changing the scan's rules, needs the human, in the main session (rules.md › Secrets)."
+      exit 1
+    fi
+  done
 fi
 
 # Staged-changes scan: catches secrets even when the working-tree check was cached. protect is the

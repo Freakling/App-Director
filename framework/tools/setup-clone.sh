@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # App Director per-clone setup · framework-owned: replaced on upgrade.
 #
-#   bash tools/setup-clone.sh              check toolchain + install pre-commit hook
+#   bash tools/setup-clone.sh              check toolchain + install the pre-commit and pre-push hooks
 #   bash tools/setup-clone.sh --skip-hook  check toolchain only
 #
 # Run it once in every new clone or worktree; running it again is harmless.
 # 1. Reads tools/check.cfg [project] stack and checks that the stack tool is available.
 # 2. Verifies gitleaks >= minimum version (read from check.cfg [gitleaks] min-version), except
 #    8.19.0, which can't scan.
-# 3. Installs the pre-commit hook via a small shim in .git/hooks that runs .githooks/pre-commit.
-#    An existing non-App-Director hook is never overwritten.
-# Exit codes: 0 = done · 3 = tool missing, version too old or 8.19.0 · 4 = done, but the hook needs your attention.
+# 3. Installs the pre-commit and pre-push hooks via small shims in .git/hooks that run .githooks/pre-commit
+#    and .githooks/pre-push. An existing non-App-Director hook is never overwritten. The hooks are installed
+#    even when step 1 or 2 fails: they fail closed, blocking a commit until gitleaks can scan.
+# Exit codes: 0 = done · 3 = tool missing, version too old or 8.19.0 (the hooks are installed all the same) ·
+# 4 = done, but the hook needs your attention.
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -121,37 +123,43 @@ else
   fi
 fi
 
-[ "$exit_code" -ne 0 ] && exit "$exit_code"
-
-# --- 3. Pre-commit hook ---------------------------------------------------------------------------
-[ "$skip_hook" -eq 1 ] && exit 0
+# --- 3. Pre-commit and pre-push hooks -------------------------------------------------------------
+# Installed even when a tool is missing (exit 3 above): the hooks fail closed, so a commit is blocked until
+# gitleaks can scan, rather than going through with no hook at all. Worktrees share them, prototypes too.
+done_with() { [ "$exit_code" -ne 0 ] && exit "$exit_code"; exit "$1"; }
+[ "$skip_hook" -eq 1 ] && done_with 0
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo "setup: not a git repository, so no pre-commit hook."
-  exit 4
+  echo "setup: not a git repository, so no pre-commit or pre-push hook."
+  done_with 4
 fi
 
 hooks_path="$(git config --get core.hooksPath 2>/dev/null)"
 if [ -n "$hooks_path" ]; then
   echo "setup: this clone uses core.hooksPath=$hooks_path (e.g. husky)."
   echo "       Add this line to its pre-commit hook: bash .githooks/pre-commit || exit 1"
-  exit 4
+  echo "       and this one to its pre-push hook: bash .githooks/pre-push \"\$@\" || exit 1"
+  done_with 4
 fi
 
+# Each hook is a small shim that runs the committed one, so an upgrade needs no new setup. Worktrees
+# share the shims: git's hooks folder is the main clone's.
 hooks_dir="$(git rev-parse --git-path hooks)"
-hook="$hooks_dir/pre-commit"
-if [ -f "$hook" ] && ! grep -qE "App Director" "$hook" 2>/dev/null; then
-  echo "setup: $hook already exists and isn't App Director's."
-  echo "       Add this line to it: bash .githooks/pre-commit || exit 1"
-  exit 4
-fi
 mkdir -p "$hooks_dir"
-cat > "$hook" <<'HOOK'
-#!/usr/bin/env bash
-# App Director: runs the project's committed pre-commit hook. Installed by tools/setup-clone.sh.
-root="$(git rev-parse --show-toplevel)" || exit 1
-[ -f "$root/.githooks/pre-commit" ] || exit 0
-exec bash "$root/.githooks/pre-commit" "$@"
-HOOK
-chmod +x "$hook"
-echo "setup: pre-commit hook installed ($hook)"
-exit 0
+hook_status=0
+for name in pre-commit pre-push; do
+  hook="$hooks_dir/$name"
+  if [ -f "$hook" ] && ! grep -qE "App Director" "$hook" 2>/dev/null; then
+    echo "setup: $hook already exists and isn't App Director's."
+    echo "       Add this line to it: bash .githooks/$name \"\$@\" || exit 1"
+    hook_status=4
+    continue
+  fi
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "# App Director: runs the project's committed $name hook. Installed by tools/setup-clone.sh." \
+    'root="$(git rev-parse --show-toplevel)" || exit 1' \
+    "[ -f \"\$root/.githooks/$name\" ] || exit 0" \
+    "exec bash \"\$root/.githooks/$name\" \"\$@\"" > "$hook"
+  chmod +x "$hook"
+  echo "setup: $name hook installed ($hook)"
+done
+done_with "$hook_status"
