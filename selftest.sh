@@ -372,6 +372,44 @@ grep -q 'product/user-stories\.md' "$src/README.md" && grep -q 'tools/stories\.s
 [ -z "$wired" ] && ok "the user stories seed has its header and sections, and Stories:, the cadence, the rules, the procedures, the settings and the docs name them" \
   || bad "the user stories aren't wired into:$wired"
 
+# Prototypes: the procedure, the skill and tools/prototype.sh exist and are wired in. rules.md routes the
+# procedure and says a prototype session is outside the loop and reaches main only through the harvest, the
+# item format has Prototype:, the design procedure harvests one and files nothing without the human, the
+# settings allow the script, the hooks know proto/ branches, and the docs name it. The script and the hooks
+# run under "prototype".
+_pp="$adir/procedures/prototype.md"
+wired=""
+for file in framework/.app-director/procedures/prototype.md framework/.claude/skills/prototype/SKILL.md framework/tools/prototype.sh; do
+  [ -f "$src/$file" ] || wired="$wired $file"
+done
+grep -q 'procedures/prototype\.md' "$src/framework/.claude/skills/prototype/SKILL.md" || wired="$wired SKILL.md"
+grep -q '^## Start$' "$_pp" && grep -q '^## In a prototype session$' "$_pp" && grep -q '^## Harvest$' "$_pp" \
+  && grep -qF 'bash tools/prototype.sh start <name>' "$_pp" && grep -qF 'bash tools/prototype.sh harvest <name>' "$_pp" \
+  && grep -qF 'bash tools/prototype.sh remove <name>' "$_pp" && grep -qF 'bash tools/prototype.sh list' "$_pp" \
+  && grep -qF 'git diff main...proto/<name>' "$_pp" && grep -qF 'Never push a `proto/` branch' "$_pp" \
+  && grep -qF 'git branch -D proto/<name>' "$_pp" && grep -qF 'Never force it' "$_pp" \
+  && grep -q 'Nothing is filed without the human.s answer' "$_pp" && grep -qF 'Commits need no approval' "$_pp" \
+  && grep -qF '`ui-design.md` › capture' "$_pp" && grep -q 'Run `design\.md` on them' "$_pp" \
+  && grep -qF 'git pull --ff-only' "$_pp" && grep -qF 'start <name> --as-is' "$_pp" \
+  && grep -q "ask the human to stop the prototype's app and close its session" "$_pp" && grep -qF 'node_modules' "$_pp" \
+  && [ "$(grep -c 'A capture opens whatever answers at `base_url`' "$_pp")" -ge 2 ] || wired="$wired prototype.md"
+grep -qF 'Unlike Record step 4, a drafted story the human doesn' "$adir/procedures/design.md" || wired="$wired design.md(unanswered story)"
+grep -qF '**prototype.md:**' "$adir/rules.md" && grep -q '^- \*\*Prototypes\.\*\*' "$adir/rules.md" \
+  && grep -q 'That session is outside the loop' "$adir/rules.md" && grep -q 'reaches main only through the harvest' "$adir/rules.md" || wired="$wired rules.md"
+grep -q '^- \*\*`Prototype:`\*\* (optional)\. `proto/<name>`' "$adir/tasks.md" || wired="$wired tasks.md"
+grep -q '^## Harvest a prototype$' "$adir/procedures/design.md" && grep -q 'or harvest a prototype (Harvest a prototype, below)' "$adir/procedures/design.md" \
+  && grep -qF -- '- Prototype: proto/<name>' "$adir/procedures/design.md" && grep -qF '(prototype: proto/<name>)' "$adir/procedures/design.md" \
+  && grep -q 'Nothing is filed without the human.s answer' "$adir/procedures/design.md" || wired="$wired design.md"
+grep -qF '"Bash(bash tools/prototype.sh *)",' "$settings" || wired="$wired settings.json"
+grep -qF 'bash tools/prototype.sh here' "$src/framework/.githooks/pre-commit" && grep -qF 'bash tools/prototype.sh here' "$src/framework/.claude/hooks/stop-check.sh" \
+  && grep -qF 'refs/heads/proto/' "$src/framework/.githooks/pre-push" && grep -qF 'pre-commit pre-push' "$src/framework/tools/setup-clone.sh" || wired="$wired hooks"
+grep -qF 'A session in a checkout that `bash tools/prototype.sh here` calls a prototype (a linked worktree on a `proto/` branch with `PROTOTYPE.md` at its root) is a prototype session: read `prototype.md` › In a prototype session before any work.' "$adir/rules.md" \
+  && grep -qF 'git diff main...proto/<name> -- <path>' "$adir/procedures/build.md" || wired="$wired rules.md(prototype session) build.md"
+grep -qF '`/prototype {name}`' "$src/README.md" && grep -qF 'tools/prototype.sh' "$src/README.md" && grep -qF '· prototype ·' "$src/README.md" || wired="$wired README.md"
+grep -qF '`/prototype`' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
+[ -z "$wired" ] && ok "prototypes: the procedure, the skill and tools/prototype.sh exist, and the rules, the item format, the design procedure, the settings, the hooks and the docs name them" \
+  || bad "prototypes aren't wired into:$wired"
+
 # Agent permissions: the template's allow rules run without a prompt. A generic code runner with a
 # wildcard runs any code, so a prompt-injected page could push or read credentials (the docs repo's
 # security assessment, product/security/2026-10-26.md, F1). A rule that names a script under tools/
@@ -538,6 +576,10 @@ if [ -f .app-director/procedures/security.md ] && [ -f .app-director/reference/o
 else
   bad "installs the security assessment: procedure, OWASP checklist, skill and tools/security.sh" "$out"
 fi
+[ -f .app-director/procedures/prototype.md ] && [ -f .claude/skills/prototype/SKILL.md ] && [ -x tools/prototype.sh ] \
+  && [ -x .githooks/pre-push ] \
+  && ok "installs prototypes: the procedure, the skill, tools/prototype.sh and the pre-push hook" \
+  || bad "installs prototypes: the procedure, the skill, tools/prototype.sh and the pre-push hook" "$out"
 [ -x tools/stories.sh ] && cmp -s product/user-stories.md "$src/project/product/user-stories.md" \
   && ok "installs tools/stories.sh and seeds product/user-stories.md" \
   || bad "installs tools/stories.sh and seeds product/user-stories.md" "$out"
@@ -1054,6 +1096,36 @@ for cmd in \
     'git restore .' \
     'git stash drop' \
     'git branch -D topic' \
+    'git branch -D proto/quick-add' \
+    'git worktree remove --force ../todo-web-proto-quick-add' \
+    'git worktree remove --forc ../x' \
+    'git worktree remove --f ../x' \
+    "git worktree remove '--force' ../x" \
+    'git worktree remove ../todo-web-proto-quick-add -f' \
+    'git worktree remove -ff ../x' \
+    'git -C ../todo-web worktree remove --fo ../x' \
+    'git branch -d -f proto/quick-add' \
+    'git branch --delete --force proto/quick-add' \
+    'git branch --del --forc proto/quick-add' \
+    'git branch -df proto/quick-add' \
+    'git branch -qD proto/quick-add' \
+    'git worktree remove --{force,} x' \
+    'git worktree remove -{f,f} x' \
+    'git worktree remove x$IFS--force' \
+    'git worktree remove x${IFS}--force' \
+    'git branch -{D,} x' \
+    'git branch -{d..f} x' \
+    'git --git-dir .git worktree remove --forc x' \
+    'git --work-tree . branch -df x' \
+    'git --config-env x=Y worktree remove -f x' \
+    'git branch -M a b' \
+    'git branch -C a b' \
+    'git branch -m -f a b' \
+    'git branch --move --force a b' \
+    'git branch -cf a b' \
+    'git worktree add -B proto/x ../x main' \
+    'git worktree add -f ../x proto/x' \
+    'git worktree add --forc ../x proto/x' \
     'cat .env' \
     'head .env' \
     'cat ./server.key' \
@@ -1068,6 +1140,20 @@ for cmd in \
     'git checkout -b topic' \
     'git reset --soft HEAD~1' \
     'git switch main' \
+    'git worktree add --no-track -b proto/quick-add ../todo-web-proto-quick-add main' \
+    'git worktree remove ../todo-web-proto-quick-add' \
+    'git branch -d proto/quick-add' \
+    'git branch -f topic main' \
+    'git branch -uorigin/feature-dev' \
+    'git commit -m "git branch -d -f x"' \
+    'git log HEAD@{1}' \
+    'git log --oneline @{u}..HEAD' \
+    'git diff stash@{0}' \
+    'git branch -m old new' \
+    'git branch -c old new' \
+    'git commit -m "a {b,c} message"' \
+    'bash tools/prototype.sh start quick-add' \
+    'bash tools/prototype.sh remove quick-add' \
     'cat .env.example'; do
   guard 0 "$cmd"
 done
@@ -1319,22 +1405,26 @@ out="$(stop_hook)"; expect_status "lets the fixed state through" 0 $? "$out"
 # --- pre-commit hook ------------------------------------------------------------------------------
 echo "pre-commit hook"
 # PATH already includes gitleaks (real or fake) from the check section export above.
-# setup-clone refuses gitleaks 8.19.0 before it installs the hook. With 8.19.0 on the machine's PATH the
-# check expects that refusal, run on the real PATH (the 8.18.0 stand-in would hide the 8.19.0). The hook
-# is then installed with the stand-in for the tests below. Otherwise the check expects the hook.
+# setup-clone refuses gitleaks 8.19.0 (exit 3) and still installs the hooks, which fail closed: a commit is
+# blocked until gitleaks can scan. With 8.19.0 on the machine's PATH the check expects that, run on the real
+# PATH (the 8.18.0 stand-in would hide the 8.19.0). The hook is then installed again with the stand-in for
+# the tests below. Otherwise the check expects the hook.
 _hook="$(git rev-parse --git-path hooks)/pre-commit"
 if [ "$_gl_path_ver" = "8.19.0" ]; then
   out="$(PATH="$_real_path" bash tools/setup-clone.sh 2>&1)"
   expect_status "setup-clone refuses the gitleaks 8.19.0 on PATH" 3 $? "$out"
   expect_output "setup-clone says 8.19.0 can't scan and asks for 8.19.1" "8.19.0 can't scan.*8.19.1" "$out"
-  [ ! -f "$_hook" ] && ok "setup-clone installs no pre-commit hook for the gitleaks 8.19.0 on PATH" \
-    || bad "setup-clone installs no pre-commit hook for the gitleaks 8.19.0 on PATH"
+  grep -qs "App Director" "$_hook" && ok "setup-clone still installs the pre-commit hook for the gitleaks 8.19.0 on PATH (it fails closed)" \
+    || bad "setup-clone still installs the pre-commit hook for the gitleaks 8.19.0 on PATH (it fails closed)"
   bash tools/setup-clone.sh >/dev/null 2>&1
 else
   bash tools/setup-clone.sh >/dev/null 2>&1
   grep -qs "App Director" "$_hook" \
     && ok "setup-clone installs the pre-commit hook" \
     || bad "setup-clone installs the pre-commit hook"
+  grep -qs '\.githooks/pre-push' "${_hook%pre-commit}pre-push" \
+    && ok "setup-clone installs the pre-push hook" \
+    || bad "setup-clone installs the pre-push hook"
 fi
 
 # Stand-in gitleaks 8.19.0 (every command fails, as the real one does) in a fresh repository: setup-clone
@@ -1354,8 +1444,23 @@ _refuse="$work/refuse-clone"; new_repo "$_refuse" && mkdir -p "$_refuse/tools" \
 out="$(PATH="$_refuse_gl:$PATH" bash "$_refuse/tools/setup-clone.sh" 2>&1)"
 expect_status "setup-clone refuses a stand-in gitleaks 8.19.0" 3 $? "$out"
 expect_output "stand-in 8.19.0: setup-clone says it can't scan and asks for 8.19.1" "8.19.0 can't scan.*8.19.1" "$out"
-[ ! -f "$_refuse/.git/hooks/pre-commit" ] && ok "stand-in 8.19.0: setup-clone installs no pre-commit hook" \
-  || bad "stand-in 8.19.0: setup-clone installs no pre-commit hook"
+grep -qs "App Director" "$_refuse/.git/hooks/pre-commit" && grep -qs "App Director" "$_refuse/.git/hooks/pre-push" \
+  && ok "stand-in 8.19.0: setup-clone still installs the pre-commit and pre-push hooks, which fail closed" \
+  || bad "stand-in 8.19.0: setup-clone still installs the pre-commit and pre-push hooks, which fail closed"
+if PATH="$_no_gl_path" command -v git >/dev/null 2>&1 && PATH="$_no_gl_path" command -v bash >/dev/null 2>&1; then
+  _nogl_clone="$work/nogl-clone"; new_repo "$_nogl_clone" && mkdir -p "$_nogl_clone/tools" "$_nogl_clone/.githooks" \
+    && cp "$src/framework/tools/setup-clone.sh" "$_nogl_clone/tools/" && cp "$src/framework/.githooks/pre-commit" "$_nogl_clone/.githooks/" \
+    && printf '#!/usr/bin/env bash\nexit 0\n' > "$_nogl_clone/tools/check.sh"
+  out="$(cd "$_nogl_clone" && PATH="$_no_gl_path" bash tools/setup-clone.sh 2>&1)"
+  expect_status "setup-clone exits 3 without gitleaks" 3 $? "$out"
+  grep -qs "App Director" "$_nogl_clone/.git/hooks/pre-commit" && grep -qs "App Director" "$_nogl_clone/.git/hooks/pre-push" \
+    && ok "and still installs the pre-commit and pre-push hooks" || bad "setup-clone without gitleaks installs no hooks" "$out"
+  out="$(cd "$_nogl_clone" && printf '# notes\n' > notes.md && git add notes.md && PATH="$_no_gl_path" git_q commit -qm "a note" 2>&1)"
+  expect_status "pre-commit blocks any commit, a Markdown one too, when gitleaks is missing" 1 $? "$out"
+  expect_output "and says the staged changes can't be scanned" "gitleaks isn't installed, so the staged changes can't be scanned for secrets" "$out"
+else
+  echo "  skip  setup-clone and pre-commit without gitleaks (git or bash shares a folder with gitleaks on this machine)"
+fi
 
 git add -A && { git_q commit -qm "clean state for commit tests" >/dev/null 2>&1 || true; }
 
@@ -2028,5 +2133,259 @@ cp "$src/framework/tools/stories.sh" "$_st_nogit/tools/"; cp "$stories_seed" "$_
 out="$(cd "$_st_nogit" && GIT_CEILING_DIRECTORIES="$work" bash tools/stories.sh --due 2>&1)"; status=$?
 expect_status "stories --due exits 3 outside a git repository" 3 "$status" "$out"
 expect_output "and says it couldn't count" "^stories: couldn't count: not a git repository$" "$out"
+
+# --- prototypes -----------------------------------------------------------------------------------
+echo "prototype"
+# tools/prototype.sh on a throwaway repository with an origin: start stops while origin/main is ahead, creates the
+# worktree beside the project, the branch from main with no upstream and the committed PROTOTYPE.md, and refuses
+# an existing name or an invalid one. Only a prototype (a linked worktree on a proto/ branch with PROTOTYPE.md at
+# its root) skips the check: the pre-commit hook still blocks a staged secret there and a commit without gitleaks,
+# and runs the check everywhere else, the Stop hook likewise, and the pre-push hook refuses a proto/ branch.
+# harvest prints what the harvest reads and changes nothing; remove never forces and keeps the branch. The stub
+# check always fails, so a commit that goes through shows the check was skipped. A token is assembled at run
+# time, never kept in a tracked file.
+_proto_repo() { # _proto_repo <folder> <origin>: an app with the prototype tools, a failing stub check and an origin
+  new_repo "$1" >/dev/null 2>&1
+  mkdir -p "$1/tools" "$1/.githooks"
+  cp "$src/framework/tools/prototype.sh" "$src/framework/tools/setup-clone.sh" "$1/tools/"
+  cp "$src/framework/.githooks/pre-commit" "$src/framework/.githooks/pre-push" "$1/.githooks/"
+  printf '#!/usr/bin/env bash\necho "stub check: fails"\nexit 1\n' > "$1/tools/check.sh"
+  printf '# Tasks\n\n**Next IDs:** T1 · B1 · R1\n' > "$1/TASKS.md"
+  printf '.app-director/state/\n' > "$1/.gitignore"
+  git init -q --bare "$2"
+  (cd "$1" && git config user.name selftest && git config user.email selftest@localhost && git branch -M main \
+    && git config branch.autoSetupMerge always \
+    && git add -A && git commit -qm "tools and a stub check" && git remote add origin "$2" \
+    && git push -q origin main && PATH="$_stop_path" bash tools/setup-clone.sh) >/dev/null 2>&1
+}
+_pa="$work/proto-app"; _pw="$work/proto-app-proto-quick-add"; _po="$work/proto-origin.git"
+_proto_repo "$_pa" "$_po"
+proto() { (cd "$_pa" && PATH="$_stop_path" bash tools/prototype.sh "$@" 2>&1); }
+commit_in() { (cd "$1" && PATH="$2" git commit -qm "$3" 2>&1); }   # commit_in <folder> <PATH> <message>
+_pa_none() { [ ! -e "$_pw" ] && [ -z "$(git -C "$_pa" for-each-ref refs/heads/proto/)" ]; }   # no prototype yet
+
+out="$(proto list)"
+expect_output "list says so when there are no prototypes" "^prototype: no prototypes \(no proto/ branches\)$" "$out"
+
+# A prototype's only gates are its hooks and gitleaks, so start refuses, creating nothing, without them.
+_pa_hooks="$(git -C "$_pa" rev-parse --git-path hooks)"
+[ "${_pa_hooks#/}" = "$_pa_hooks" ] && [ "${_pa_hooks#?:}" = "$_pa_hooks" ] && _pa_hooks="$_pa/$_pa_hooks"
+mv "$_pa_hooks/pre-push" "$work/pre-push.saved"
+out="$(proto start quick-add)"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "this clone has no App Director pre-push hook: run bash tools/setup-clone.sh here first" && _pa_none; } \
+  && ok "start refuses, creating nothing, while this clone has no pre-push hook" || bad "start refuses while this clone has no pre-push hook (exit $status)" "$out"
+mv "$work/pre-push.saved" "$_pa_hooks/pre-push"
+if PATH="$_no_gl_path" command -v git >/dev/null 2>&1 && PATH="$_no_gl_path" command -v bash >/dev/null 2>&1; then
+  out="$(cd "$_pa" && PATH="$_no_gl_path" bash tools/prototype.sh start quick-add 2>&1)"; status=$?
+  { [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "gitleaks isn't on PATH" && _pa_none; } \
+    && ok "start refuses, creating nothing, without gitleaks" || bad "start refuses without gitleaks (exit $status)" "$out"
+else
+  echo "  skip  start without gitleaks (git or bash shares a folder with gitleaks on this machine)"
+fi
+_pm="$work/proto-old-main"; _proto_repo "$_pm" "$work/proto-old-origin.git"
+(cd "$_pm" && git rm -q .githooks/pre-push && PATH="$_stop_path" git commit -qm "a main from before the pre-push hook") >/dev/null 2>&1
+out="$(cd "$_pm" && PATH="$_stop_path" bash tools/prototype.sh start quick-add 2>&1)"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "main has no committed .githooks/pre-push" && [ ! -e "$work/proto-old-main-proto-quick-add" ]; } \
+  && ok "start refuses, creating nothing, when main has no committed pre-push hook" || bad "start refuses when main has no committed pre-push hook (exit $status)" "$out"
+
+# origin/main ahead of main (as last fetched): start creates nothing and says how to go on.
+_pa_ahead="$(cd "$_pa" && git commit-tree -p main -m "a commit only origin has" "main^{tree}")"
+git -C "$_pa" update-ref refs/remotes/origin/main "$_pa_ahead"
+out="$(proto start quick-add)"; status=$?
+expect_status "start stops when origin/main is ahead of main (exit 5)" 5 "$status" "$out"
+expect_output "and offers to bring main up to date or to start as it is" "git pull --ff-only.*start quick-add --as-is" "$out"
+[ ! -e "$_pw" ] && ! git -C "$_pa" show-ref --verify --quiet refs/heads/proto/quick-add \
+  && ok "and creates no branch and no worktree" || bad "start created a prototype while origin/main was ahead"
+out="$(proto start quick-add --as-is)"; status=$?
+git -C "$_pa" update-ref refs/remotes/origin/main main
+expect_status "start --as-is creates a prototype from main as it is" 0 "$status" "$out"
+[ -d "$_pw" ] && [ "$(git -C "$_pw" symbolic-ref --short HEAD 2>/dev/null)" = "proto/quick-add" ] \
+  && ok "start creates the worktree beside the project, named after it, on the new branch proto/quick-add" \
+  || bad "start creates the worktree beside the project, named after it, on the new branch proto/quick-add" "$out"
+[ "$(git -C "$_pa" merge-base main proto/quick-add 2>/dev/null)" = "$(git -C "$_pa" rev-parse main)" ] \
+  && ok "the prototype's branch starts from local main" || bad "the prototype's branch starts from local main"
+[ -z "$(git -C "$_pa" config --get branch.proto/quick-add.merge)" ] \
+  && ok "the prototype's branch has no upstream, even with branch.autoSetupMerge = always" \
+  || bad "the prototype's branch has an upstream: $(git -C "$_pa" config --get branch.proto/quick-add.merge)"
+expect_output "start runs setup-clone in the worktree, which installs the pre-commit hook" "^setup: pre-commit hook installed" "$out"
+expect_output "and the pre-push hook" "^setup: pre-push hook installed" "$out"
+grep -q "^## What we're trying$" "$_pw/PROTOTYPE.md" && grep -q '^## How it felt$' "$_pw/PROTOTYPE.md" \
+  && grep -q '^## What to keep$' "$_pw/PROTOTYPE.md" \
+  && grep -qF 'A session in a checkout that `bash tools/prototype.sh here` calls a prototype (a linked worktree on a `proto/` branch with this file at its root) is a prototype session: read `.app-director/procedures/prototype.md` › In a prototype session before any work.' "$_pw/PROTOTYPE.md" \
+  && [ -z "$(git -C "$_pw" status --porcelain)" ] && [ "$(git -C "$_pa" rev-list --count main..proto/quick-add)" = 1 ] \
+  && ok "start writes PROTOTYPE.md from its template (what we're trying, how it felt, what to keep) and commits it" \
+  || bad "start writes PROTOTYPE.md from its template and commits it" "$(cat "$_pw/PROTOTYPE.md" 2>&1)"
+
+out="$(proto start quick-add)"; status=$?
+expect_status "start refuses a name whose branch exists" 1 "$status" "$out"
+expect_output "and says the branch exists" "the branch proto/quick-add already exists" "$out"
+mkdir -p "$work/proto-app-proto-taken"
+out="$(proto start taken)"; status=$?
+expect_status "start refuses a name whose folder exists" 1 "$status" "$out"
+expect_output "and says the folder exists" "the folder .*proto-app-proto-taken already exists" "$out"
+_proto_bad=""
+for _pn in Quick quick_add -x x- a/b .. 'two words' list harvest remove here ''; do
+  out="$(proto start "$_pn")"; status=$?
+  { [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "isn't a prototype name"; } || _proto_bad="$_proto_bad '$_pn'"
+done
+[ -z "$_proto_bad" ] && ok "start refuses an invalid name: capitals, an underscore, a dash at either end, a slash, dots, a space, a command word, none" \
+  || bad "start doesn't refuse these names:$_proto_bad"
+[ "$(git -C "$_pa" for-each-ref refs/heads/proto/ | wc -l | tr -d ' ')" = 1 ] && [ "$(git -C "$_pa" worktree list | wc -l | tr -d ' ')" = 2 ] \
+  && ok "a refused start creates no branch and no worktree" || bad "a refused start creates no branch and no worktree" "$(git -C "$_pa" worktree list)"
+out="$(cd "$_pw" && PATH="$_stop_path" bash tools/prototype.sh start other 2>&1)"; status=$?
+expect_status "start refuses to run in a prototype session" 1 "$status" "$out"
+out="$(cd "$_pw" && bash tools/prototype.sh here 2>&1)"; status=$?
+expect_status "here: the worktree is a prototype" 0 "$status" "$out"
+out="$(cd "$_pa" && bash tools/prototype.sh here 2>&1)"; status=$?
+expect_status "here: the main checkout isn't" 1 "$status" "$out"
+out="$(proto list)"
+expect_output "list shows the prototype, its worktree and its commits since main" "^proto/quick-add · .*proto-app-proto-quick-add · 1 commit\(s\) since main$" "$out"
+
+# The pre-commit hook in the prototype: no check, but the staged secrets scan, which needs gitleaks there.
+(cd "$_pw" && printf 'export const tried = 1;\n' > tried.ts && git add tried.ts)
+out="$(commit_in "$_pw" "$_stop_path" "proto: try it")"; status=$?
+expect_status "pre-commit lets a source commit through in a prototype while the check fails" 0 "$status" "$out"
+expect_output "and says the check is skipped in a prototype" "this checkout is a prototype, so the project check is skipped" "$out"
+expect_no_output "and doesn't run the check there" "running the project check|stub check" "$out"
+(cd "$_pw" && printf 'export const more = 2;\n' >> tried.ts && git add tried.ts)
+out="$(commit_in "$_pw" "$_hook_gl:$_stop_path" "proto: a secret")"; status=$?
+expect_status "pre-commit still blocks a staged secret in a prototype (stand-in)" 1 "$status" "$out"
+expect_output "and names the finding in the prototype (stand-in)" "found in: " "$out"
+if PATH="$_no_gl_path" command -v git >/dev/null 2>&1 && PATH="$_no_gl_path" command -v bash >/dev/null 2>&1; then
+  out="$(commit_in "$_pw" "$_no_gl_path" "proto: no gitleaks")"; status=$?
+  expect_status "pre-commit blocks a commit in a prototype when gitleaks is missing" 1 "$status" "$out"
+  expect_output "and says the scan is the only gate there" "in a prototype the secrets scan is the only gate, so the" "$out"
+else
+  echo "  skip  a prototype commit without gitleaks (git or bash shares a folder with gitleaks on this machine)"
+fi
+(cd "$_pw" && git reset -q -- tried.ts && git checkout -q -- tried.ts)
+# In a prototype, .gitleaksignore and .gitleaks.toml must be main's, on disk and staged: allowlisting needs the human.
+(cd "$_pw" && printf 'export const ok = 3;\n' >> tried.ts && git add tried.ts && printf 'tried.ts:generic-api-key:1\n' > .gitleaksignore)
+out="$(commit_in "$_pw" "$_stop_path" "proto: an allowlist on disk")"; status=$?
+expect_status "pre-commit blocks a prototype commit while a .gitleaksignore on disk differs from main's" 1 "$status" "$out"
+expect_output "and says allowlisting needs the human" "\.gitleaksignore differs from main's in this prototype; commit blocked" "$out"
+(cd "$_pw" && git add .gitleaksignore)
+out="$(commit_in "$_pw" "$_stop_path" "proto: an allowlist staged")"; status=$?
+expect_status "pre-commit blocks a prototype commit that stages a .gitleaksignore" 1 "$status" "$out"
+(cd "$_pw" && git rm -q --cached .gitleaksignore && rm -f .gitleaksignore && printf '[extend]\nuseDefault = true\n' > .gitleaks.toml)
+out="$(commit_in "$_pw" "$_stop_path" "proto: rules on disk")"; status=$?
+expect_status "pre-commit blocks a prototype commit while a .gitleaks.toml on disk differs from main's" 1 "$status" "$out"
+rm -f "$_pw/.gitleaks.toml"
+(cd "$_pw" && git reset -q -- tried.ts && git checkout -q -- tried.ts)
+if [ "$_gl_ok" -eq 1 ]; then
+  _alnum='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  _pt_token="ghp_"
+  for ((_i = 0; _i < 36; _i++)); do _pt_token="$_pt_token${_alnum:$((RANDOM % 62)):1}"; done
+  (cd "$_pw" && printf 'export const token = "%s";\n' "$_pt_token" > leak.ts && git add leak.ts)
+  _pt_commits="$(git -C "$_pw" rev-list --count HEAD)"
+  out="$(commit_in "$_pw" "$_stop_path" "proto: a token")"; status=$?
+  expect_status "pre-commit blocks a token staged in a prototype (real gitleaks)" 1 "$status" "$out"
+  expect_output "and names the file in the prototype (real gitleaks)" "found in: leak.ts" "$out"
+  expect_no_output "and doesn't print the token" "$_pt_token" "$out"
+  [ "$(git -C "$_pw" rev-list --count HEAD)" = "$_pt_commits" ] && ok "the blocked commit in the prototype is not made" \
+    || bad "the blocked commit in the prototype is not made"
+  (cd "$_pw" && git reset -q -- leak.ts && rm -f leak.ts)
+else
+  echo "  skip  real gitleaks staged-secret test in a prototype (gitleaks not found or below $_gl_min_req)"
+fi
+
+# Everywhere else the check runs: the prototype's worktree without PROTOTYPE.md or on a detached HEAD, a proto/
+# branch in the main checkout (with or without PROTOTYPE.md: it isn't a linked worktree), main, and protoish.
+_proto_runs() { # _proto_runs <what> <folder>: a staged source file's commit there runs the failing check
+  (cd "$2" && printf 'export const x = 1;\n' > runs.ts && git add runs.ts)
+  out="$(commit_in "$2" "$_stop_path" "feat: runs")"; status=$?
+  { [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "running the project check"; } \
+    && ok "pre-commit runs the check $1" || bad "pre-commit runs the check $1 (exit $status)" "$out"
+  (cd "$2" && git reset -q -- runs.ts && rm -f runs.ts)
+}
+mv "$_pw/PROTOTYPE.md" "$work/PROTOTYPE.md.saved"
+_proto_runs "in a worktree on a proto/ branch without PROTOTYPE.md" "$_pw"
+mv "$work/PROTOTYPE.md.saved" "$_pw/PROTOTYPE.md"
+git -C "$_pw" checkout -q --detach
+_proto_runs "on a detached HEAD, in the prototype's worktree" "$_pw"
+git -C "$_pw" switch -q proto/quick-add
+git -C "$_pa" switch -q -c proto/fake
+_proto_runs "on a proto/ branch in the main checkout" "$_pa"
+printf '# Prototype: fake\n' > "$_pa/PROTOTYPE.md"
+_proto_runs "on a proto/ branch in the main checkout, with a PROTOTYPE.md (not a linked worktree)" "$_pa"
+rm -f "$_pa/PROTOTYPE.md"
+git -C "$_pa" switch -q main && git -C "$_pa" branch -q -d proto/fake
+_proto_runs "on main" "$_pa"
+git -C "$_pa" switch -q -c protoish
+_proto_runs "on a branch whose name only starts like one (protoish)" "$_pa"
+git -C "$_pa" switch -q main
+
+# The Stop hook runs the check when source files differ from the last commit, but not in a prototype.
+_stop_in() { printf '{}' | CLAUDE_PROJECT_DIR="$1" PATH="$_stop_path" bash "$src/framework/.claude/hooks/stop-check.sh" 2>&1; }
+printf 'export const wip = 1;\n' > "$_pw/wip.ts"
+out="$(_stop_in "$_pw")"; expect_status "the Stop hook doesn't run the check in a prototype" 0 $? "$out"
+printf 'export const wip = 1;\n' > "$_pa/wip.ts"
+out="$(_stop_in "$_pa")"; expect_status "the Stop hook runs the check on main, and blocks on a failure" 2 $? "$out"
+rm -f "$_pa/wip.ts"
+
+# The pre-push hook refuses a proto/ branch, from the prototype or to the remote, and any push that carries a
+# prototype's commits under another name, and lets main through.
+_push_refused() { # _push_refused <what> <folder> <refspec> <reason pattern>
+  out="$(cd "$2" && PATH="$_stop_path" git push -q origin "$3" 2>&1)"; status=$?
+  { [ "$status" -ne 0 ] && printf '%s' "$out" | grep -q "a prototype is never pushed; push blocked" && printf '%s' "$out" | grep -q "$4"; } \
+    && ok "pre-push refuses $1" || bad "pre-push refuses $1 (exit $status)" "$out"
+}
+_push_refused "a proto/ branch" "$_pw" proto/quick-add "(a proto/ branch)"
+_push_refused "a push to a proto/ branch on the remote" "$_pa" main:refs/heads/proto/sneak "(a proto/ branch)"
+_push_refused "HEAD under another name, from the prototype" "$_pw" HEAD:refs/heads/x "carries a prototype's commits"
+_push_refused "a prototype's commit by its hash" "$_pa" "$(git -C "$_pa" rev-parse proto/quick-add):refs/heads/y" "carries a prototype's commits"
+_push_refused "proto/quick-add~0 under another name" "$_pa" "proto/quick-add~0:refs/heads/z" "carries a prototype's commits"
+git -C "$_pa" branch from-proto proto/quick-add >/dev/null 2>&1
+_push_refused "a branch made from a prototype's commit" "$_pa" from-proto "carries a prototype's commits"
+(cd "$_pa" && printf '# app\n\nA note.\n' > README.md && git add README.md && PATH="$_stop_path" git commit -qm "docs: a note") >/dev/null 2>&1
+out="$(cd "$_pa" && PATH="$_stop_path" git push -q origin main 2>&1)"
+expect_status "pre-push lets main through" 0 $? "$out"
+[ "$(git --git-dir="$_po" for-each-ref --format='%(refname)')" = "refs/heads/main" ] \
+  && ok "the origin has main and nothing else" || bad "a refused push reached the origin" "$(git --git-dir="$_po" for-each-ref)"
+
+# harvest prints the prototype's commits, files, the diff command, uncommitted changes and notes, and writes nothing.
+_pa_state() { git -C "$_pa" status --porcelain; git -C "$_pa" rev-parse HEAD proto/quick-add; git -C "$_pa" for-each-ref; cksum < "$_pa/TASKS.md"; }
+_pa_before="$(_pa_state)"
+out="$(proto harvest quick-add)"; status=$?
+expect_status "harvest prints what the harvest reads" 0 "$status" "$out"
+expect_output "harvest lists the prototype's commits since main" "proto: try it" "$out"
+expect_output "harvest lists the files the prototype changed, with the diff command" "read the diff with: git diff main\.\.\.proto/quick-add$" "$out"
+expect_output "harvest lists a changed file" "tried\.ts" "$out"
+expect_output "harvest names the worktree's uncommitted changes, which the diff leaves out" "^\?\? wip\.ts$" "$out"
+expect_output "harvest shows the prototype's notes" "^## How it felt$" "$out"
+[ "$(_pa_state)" = "$_pa_before" ] && ok "harvest writes no item, record, commit or branch without the human" \
+  || bad "harvest changed the main checkout or the branches" "$(_pa_state)"
+out="$(proto harvest nothing-here)"; expect_status "harvest refuses a prototype that doesn't exist" 1 $? "$out"
+
+# remove: never forced, and the branch stays for the human to delete.
+out="$(proto remove quick-add)"; status=$?
+expect_status "remove fails on a worktree with uncommitted changes" 1 "$status" "$out"
+[ -f "$_pw/wip.ts" ] && ok "and leaves the worktree and its changes in place" || bad "remove deleted a worktree with uncommitted changes"
+expect_output "and says why, without forcing it" "git worktree remove failed \(above\); uncommitted changes are the usual cause.*never force it" "$out"
+rm -f "$_pw/wip.ts"
+out="$(proto remove quick-add)"; status=$?
+expect_status "remove removes a clean worktree" 0 "$status" "$out"
+[ ! -e "$_pw" ] && git -C "$_pa" show-ref --verify --quiet refs/heads/proto/quick-add \
+  && ok "remove deletes the worktree's folder and keeps the branch with its commits" \
+  || bad "remove deletes the worktree's folder and keeps the branch with its commits" "$out"
+expect_output "remove asks the human to delete the branch, with the command" "the human runs that.*: git branch -D proto/quick-add$" "$out"
+out="$(proto list)"
+expect_output "list shows a prototype whose worktree is gone" "^proto/quick-add · no worktree · 2 commit\(s\) since main$" "$out"
+[ -z "$(git --git-dir="$_po" for-each-ref refs/heads/proto/)" ] && [ -n "$(git --git-dir="$_po" for-each-ref refs/heads/main)" ] \
+  && ok "nothing pushes a proto/ branch" || bad "a proto/ branch reached the origin" "$(git --git-dir="$_po" for-each-ref)"
+
+# A project folder whose name has a space.
+_ps="$work/proto space app"; _psw="$work/proto space app-proto-try"
+_proto_repo "$_ps" "$work/proto-space-origin.git"
+out="$(cd "$_ps" && PATH="$_stop_path" bash tools/prototype.sh start try 2>&1)"; status=$?
+expect_status "start works in a project folder whose name has a space" 0 "$status" "$out"
+out="$(cd "$_psw" && bash tools/prototype.sh here 2>&1)"
+expect_status "the worktree beside it, named after it, is a prototype" 0 $? "$out"
+out="$(cd "$_ps" && bash tools/prototype.sh list 2>&1)"
+expect_output "list names its folder, space and all" "^proto/try · .*proto space app-proto-try · 1 commit\(s\) since main$" "$out"
+out="$(cd "$_ps" && bash tools/prototype.sh harvest try 2>&1)"
+expect_status "harvest works there" 0 $? "$out"
+out="$(cd "$_ps" && bash tools/prototype.sh remove try 2>&1)"; status=$?
+[ "$status" -eq 0 ] && [ ! -e "$_psw" ] && ok "remove works there" || bad "remove works in a folder whose name has a space (exit $status)" "$out"
 
 finish

@@ -1,7 +1,7 @@
 <!-- App Director · framework-owned: replaced on upgrade. -->
 # Design session
 
-Brainstorm a topic, answer open design questions, change how part of the app works, or validate the user stories (Validate the stories, below). Write down only what the human decides. Your job is to make the human's decisions fast and well informed, never to make them.
+Brainstorm a topic, answer open design questions, change how part of the app works, validate the user stories (Validate the stories, below), or harvest a prototype (Harvest a prototype, below). Write down only what the human decides. Your job is to make the human's decisions fast and well informed, never to make them.
 
 ## Prepare
 - Read brief › Open Questions and the brief sections the topic touches, and the related lines in `product/decisions.md`. Don't re-propose something decided against there without saying what has changed since.
@@ -61,3 +61,9 @@ Brainstorm a topic, answer open design questions, change how part of the app wor
 
    A story the human doesn't answer stays as it is; an unconfirmed one comes back next time.
 3. **Record.** Set the header's Last validated to today and `git rev-parse --short HEAD`, as in ``**Last validated:** 2026-11-14 at `4e1f0c2` ``. Commit `product/user-stories.md` (and any items or Open Questions it changed) as `docs: validate the user stories`, after the human approves.
+
+## Harvest a prototype
+`prototype.md` › Harvest brings a prototype here: its notes (`PROTOTYPE.md`: what was tried, how it felt, what to keep) and its diff against main. It shows how a change feels; it decides nothing, and its code is never merged or cherry-picked.
+1. **Context.** Show the notes in the human's words, then what the prototype changes as a user would see it, area by area from the diff rather than the code, with the brief sections, stories and decisions it touches, as Prepare says. Name what it skipped that a real build needs: tests, the layers in `rules.md` › Architecture defaults, and anything the OWASP baseline asks.
+2. **Options,** as For each question says. They are usually to build it as tried, a variant the notes point to, or to leave it, and each says what it would take to build from main.
+3. **Record** what the human chooses, as Record each decision says, naming the prototype in each: the decision's `why` ends with `(prototype: proto/<name>)`; a story it adds or changes gets the line `US-<n> came from the prototype proto/<name> on <date>.` under its area's table; and each item gets `- Prototype: proto/<name>` (`.app-director/tasks.md`). The items are built from main like any other, with the check and reviews. Nothing is filed without the human's answer: a part they don't answer stays out, and leaving the prototype files nothing. Unlike Record step 4, a drafted story the human doesn't answer stays out too. Commit as Finish says, as `docs: harvest the <name> prototype`.
