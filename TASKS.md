@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T41 · B8 · R1
+**Next IDs:** T42 · B8 · R1
 
 ## Queue
+
+### T41 · The guard takes the fixes its ports found: a path-qualified git, a nested wait loop, a pause with a fraction, no flag from the environment and a long file body in time · done · M · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
+- Done when: the guard reads a path-qualified or `.exe` git (`/usr/bin/git push --force`, `git.exe push --force`, `GIT.EXE`) as git in every rule; the empty-heredoc probe reads its body line by line, so a heredoc of blank lines isn't empty, and `/usr/bin/python3` counts as `python3`; in the PowerShell tool a backslash at a line's end is a path separator, not a continuation, so `# c\` followed by `gh auth token` is blocked; the wait-loop reader ends a loop at the `done` that closes it, counting the `do` and `done` of nested loops, so `until [ -f done ]; do sleep 5; done` and `while true; do for f in a b; do :; done; sleep 5; done` are wait loops; a pause with a fraction (`sleep 600.5`, `Start-Sleep 280.5`) is a pause; the view flags (`vdep`, `vcov`, `vpx`, `vhang`) and the other state the hook reads before it sets it start empty, so `vhang=1` in the environment doesn't let `git push --force origin main` pass; the walks that read a command a character at a time skip the bodies nothing runs, PowerShell here-strings included, so a 29 KB heredoc and the same body in a here-string (900 lines of `$AnimationPlayer.play("walk_1")`) are judged well within the hook's 10 s limit, with a timed case for each shell failing above 5 s; the credential-print rules read the command without its messages, so a commit or `gh` message may name `gh auth token`; `selftest.sh` feeds the hook each case and passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T285
 
 ### T40 · Nothing is written until the director approves a summary of it · done · M · agent
 - Touches: framework/.app-director/rules.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/research.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/drift-reset.md, framework/.app-director/procedures/ui-design.md, framework/.app-director/procedures/acceptance.md, framework/.app-director/procedures/align.md, framework/.claude/skills/design/SKILL.md, ONBOARDING.md, selftest.sh, CHANGELOG.md

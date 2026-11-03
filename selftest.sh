@@ -3291,6 +3291,146 @@ EOF
   guard_run
   guard_report "$git_fail" "the guard hook reads a gh message's body, or a variable in a message or a cat body nothing runs, as a command, passes a body a shell runs, or reads a word after echo, printf, Write-Output, Write-Host or write, or a launcher's argument, wrongly (B48)" "the guard hook passes a gh pr, issue or release message with a quoted delimiter, and a variable in a message or in a cat body nothing runs, and blocks a git command after a message, an unquoted message, a message piped to a shell, and a variable in a body a shell runs; a shell or PowerShell name after echo, printf, Write-Output, Write-Host or write is text, and one that a launcher passes a script to is read (B48)"
 
+  # The fixes the ports to SaaSAllTheThings and Godot-Director brought back (Director-Driven-Development T285). A path-qualified or
+  # .exe git is git, in any case (/usr/bin/git, git.exe, GIT.EXE), where a path that only ends in git is an argument. The empty
+  # heredoc probe reads its lines one by one, so a body of blank lines is not empty and python may sit behind a path. In PowerShell a
+  # backslash at a line's end is a path separator, not a continuation, so the line after a comment that ends in one is a command of
+  # its own. A wait loop ends at the done that closes it, counting the do and done of the loops nested in it and skipping a done in
+  # its condition, and a pause may have a fraction (sleep 600.5). The credential-print rules read a command without its messages.
+  git_fail=""
+  nlc=$'\n'
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        '/usr/bin/git push --force origin main' \
+        'git.exe push --force origin main' \
+        'GIT.EXE push --force' \
+        '/usr/bin/git branch -D y' \
+        'cd x && /usr/bin/git commit -m x --no-verify' \
+        '/usr/bin/git -c core.pager=x log' \
+        '/usr/bin/git push "$(echo --force)"' \
+        'FLAG=--force; /usr/bin/git push $FLAG' \
+        'sudo /usr/bin/git push --force' \
+        '/usr/bin/git credential fill' \
+        'echo hi && git.exe reset --hard' \
+        "cd x && /usr/bin/python3 - <<'EOF'${nlc}EOF" \
+        "/usr/bin/python3 - <<'EOF'${nlc}EOF" \
+        "# c\\${nlc}gh auth token" \
+        'until [ -f done ]; do sleep 5; done' \
+        'until [ -f done ]; do sleep 5; done; echo done' \
+        'while true; do for f in a b; do :; done; sleep 5; done' \
+        'until [ -f done ]; do for f in a; do :; done; sleep 5; done' \
+        'until false; do while read l; do :; done < f; sleep 5; done' \
+        "while true; do${nlc}  for f in a b; do :; done${nlc}  sleep 5${nlc}done" \
+        'sleep 600.5' \
+        'sleep 280.5' \
+        'sleep 5.5m' \
+        'echo hi && sleep 300.0' \
+        'gh auth token' \
+        'gh auth status -t' \
+        'git credential fill' \
+        "git commit -q -F - <<'EOF'${nlc}msg${nlc}EOF${nlc}gh auth token" \
+        "git commit -q -m x && gh auth token" \
+        "bash <<'EOF'${nlc}gh auth token${nlc}EOF"; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        '/usr/bin/git status' \
+        'git.exe log -1' \
+        '/usr/bin/git commit -m "docs: a note"' \
+        '/usr/bin/git push origin main' \
+        'ls /usr/bin/git' \
+        'cp $SRC/git $DST' \
+        'cd /c/git && ls' \
+        "python3 - <<'EOF'${nlc}${nlc}EOF" \
+        "python - <<-'EOF'${nlc}${nlc}EOF" \
+        "/usr/bin/python3 - <<'EOF'${nlc}${nlc}${nlc}EOF" \
+        "/usr/bin/python3 - <<'EOF'${nlc}print(1)${nlc}EOF" \
+        'timeout 240 bash -c "until [ -f done ]; do sleep 5; done"' \
+        'timeout 120 bash -c "while true; do for f in a b; do :; done; sleep 5; done"' \
+        'for f in a b; do echo "$f"; done; sleep 5' \
+        'until [ -f done ]; do echo wait; done' \
+        'while true; do for f in a b; do :; done; done' \
+        'while read -r l; do echo "$l"; done < f' \
+        'sleep 280.0' \
+        'sleep 4.5m' \
+        'sleep 0.5' \
+        'sleep 280' \
+        "git commit -q -F - <<'EOF'${nlc}docs: the hook blocks gh auth token${nlc}EOF" \
+        "git commit -q -F - <<'EOF'${nlc}docs: git credential fill prints a credential${nlc}EOF" \
+        "gh pr edit 5 --body-file - <<'EOF'${nlc}It blocks gh auth token and git credential fill.${nlc}EOF" \
+        'git commit -m "mention gh auth token in the notes"' \
+        'gh auth login'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        "# c\\${nlc}gh auth token" \
+        "# c\\${nlc}git push --force" \
+        "git status # c\\${nlc}gh auth token" \
+        'Start-Sleep -Seconds 600.5' \
+        'Start-Sleep 280.5' \
+        'Start-Sleep -Milliseconds 280000.5' \
+        '/usr/bin/git push --force origin main' \
+        'gh auth token'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        "# c\\${nlc}Get-Date" \
+        "dir C:\\x\\${nlc}git status" \
+        "git push \\${nlc}--force" \
+        'Start-Sleep -Seconds 0.5' \
+        'Start-Sleep -Milliseconds 280000.0' \
+        'Start-Sleep -Milliseconds 280000' \
+        '/usr/bin/git status' \
+        "git commit -q -F - <<'EOF'${nlc}docs: the hook blocks gh auth token${nlc}EOF"; do
+      guard 0 "$cmd" PowerShell
+    done
+    # In Bash the same backslash continues the line, so the lines are one command.
+    guard 2 "git push \\${nlc}--force"
+  fi
+  guard_run
+  # The view flags (vdep, vcov, vpx, vhang) and the rest of what the hook reads before it sets it start empty, so a variable of the same
+  # name in the hook's environment is no flag: vhang=1 would skip every git rule and vcov=1 would bound every wait loop.
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for env_cmd in 'git push --force origin main' 'until [ -f x ]; do sleep 5; done' 'git status'; do
+      json_str "$env_cmd"
+      printf '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"%s","description":"run"}}' "$JSON_STR" > "$guard_dir/env.json"
+      expect_rc=2; [ "$env_cmd" = 'git status' ] && expect_rc=0
+      for env_flag in vps vdep vcov vpx vhang cn_all hsubb; do
+        env "$env_flag=1" bash .claude/hooks/guard-commands.sh < "$guard_dir/env.json" >/dev/null 2>&1; env_rc=$?
+        [ "$env_rc" -eq "$expect_rc" ] || git_fail="$git_fail"$'\n'"  $env_flag=1 in the hook's environment changed the exit code to $env_rc, expected $expect_rc: $env_cmd"
+      done
+    done
+  fi
+  guard_report "$git_fail" "the guard hook misses a path-qualified or .exe git, a PowerShell backslash, a nested or condition-named done in a wait loop, a pause with a fraction, a flag set by the environment or a credential-print command, or blocks a message that names one (T285)" "the guard hook reads a path-qualified or .exe git as git, a PowerShell backslash as a path separator, a wait loop to the done that closes it, a pause with a fraction, no flag from the environment, and a credential-print command but not a message that names one"
+
+  # The guard reads a long file body in time: the hook's timeout in settings.json is 10 seconds, and a hook that times out doesn't
+  # block, so a command padded with a long body could pass unguarded. 900 lines of GDScript ($Node.method("x") calls, about 29 KB),
+  # written from a Bash heredoc and from a PowerShell here-string, each under 5 seconds. Bash's time keyword reads the clock, so the
+  # measurement starts no process of its own, and the best of three runs counts, since a busy machine can slow a run but not all three.
+  slow_fail=""; slow_times=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    slow_body=""; for ((si = 0; si < 900; si++)); do slow_body+=$'$AnimationPlayer.play("walk_1")\n'; done
+    for slow_tool in Bash PowerShell; do
+      if [ "$slow_tool" = Bash ]; then slow_cmd=$'cat > x.gd <<\'EOF\'\n'"$slow_body"$'EOF'
+      else slow_cmd=$'@\'\n'"$slow_body"$'\'@ | Set-Content x.gd'; fi
+      json_str "$slow_cmd"
+      printf '{"session_id":"s","tool_name":"%s","tool_input":{"command":"%s","description":"run"}}' "$slow_tool" "$JSON_STR" > "$guard_dir/slow.json"
+      slow_best=999; slow_rc=0
+      for slow_try in 1 2 3; do
+        TIMEFORMAT='%R'
+        { time bash .claude/hooks/guard-commands.sh < "$guard_dir/slow.json" >/dev/null 2>&1; slow_rc=$?; } 2> "$guard_dir/slow.time"
+        slow_s=$(<"$guard_dir/slow.time")
+        [ "${slow_s%%[.,]*}" -lt "${slow_best%%[.,]*}" ] 2>/dev/null && slow_best="$slow_s"
+        [ "${slow_s%%[.,]*}" -lt 5 ] 2>/dev/null && break
+      done
+      slow_times="$slow_times ($slow_tool ${slow_best}s)"
+      [ "$slow_rc" = 0 ] || slow_fail="$slow_fail"$'\n'"  ($slow_tool) the guard exited $slow_rc on a 29 KB file body, expected 0"
+      [ "${slow_best%%[.,]*}" -lt 5 ] 2>/dev/null || slow_fail="$slow_fail"$'\n'"  ($slow_tool) the guard took ${slow_best}s on a 29 KB file body, over 5 seconds"
+    done
+    rm -f "$guard_dir/slow.json" "$guard_dir/slow.time" "$guard_dir/env.json"
+  fi
+  guard_report "$slow_fail" "the guard is too slow on a long file body" "the guard reads a 29 KB GDScript heredoc and here-string, each in under 5 seconds:$slow_times"
+
   # The PowerShell tool (B24) has its own name. The guard runs for it only when the hook's matcher names it,
   # and a Bash(...) deny or ask rule stops the same command in PowerShell only through its PowerShell(...)
   # twin, in the same list. The allow list names no PowerShell command, so nothing PowerShell runs is allowed
