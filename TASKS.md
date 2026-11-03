@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T39 · B8 · R1
+**Next IDs:** T40 · B8 · R1
 
 ## Queue
+
+### T39 · The guard and the deny rules reach the PowerShell tool, and a continuation, a tab or a PowerShell read can't hide from it · done · M · agent
+- Touches: framework/.claude/settings.json, framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
+- Done when: the guard hook's matcher names `Bash|Monitor|PowerShell` and every Bash deny rule in `framework/.claude/settings.json` has a `PowerShell(...)` twin, with no PowerShell allow rule; the guard closes the gaps Director-Driven-Development closed in its B25, B27 to B40, B42 to B52, B55 and B60 (a line continuation, a tab, PowerShell's readers and backtick, comments, command substitutions, variables, shell wrappers, wait loops, heredoc bodies, git configuration and program flags, a quoted or capitalised name, Invoke-Expression), including the readings of a continued command (as written, as joined, and joined from each line after a comment), with every case in the selftest, run in parallel batches; the hook uses no bash 4 form (case conversion, a negative substring offset, a quoted replacement string); the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T276
 
 ### T38 · A quoted no-verify, an inline allow and a gate edit can't get a commit past the hooks · done · S · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/hooks/guard-protected.sh, framework/.githooks/pre-commit, framework/tools/prototype.sh, selftest.sh, CHANGELOG.md

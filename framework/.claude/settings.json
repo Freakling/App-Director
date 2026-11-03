@@ -54,13 +54,21 @@
       "Read(~/.config/gh/**)",
       "Read(~/AppData/Roaming/GitHub CLI/**)",
       "Bash(git *--output*)",
+      "PowerShell(git *--output*)",
       "Bash(git *--no-index*)",
+      "PowerShell(git *--no-index*)",
       "Bash(git *--ext-diff*)",
+      "PowerShell(git *--ext-diff*)",
       "Bash(git commit *--file*)",
+      "PowerShell(git commit *--file*)",
       "Bash(git grep *--open*)",
+      "PowerShell(git grep *--open*)",
       "Bash(git grep *-O*)",
+      "PowerShell(git grep *-O*)",
       "Bash(git tag *--file*)",
-      "Bash(bash tools/*..*)"
+      "PowerShell(git tag *--file*)",
+      "Bash(bash tools/*..*)",
+      "PowerShell(bash tools/*..*)"
     ]
   },
   "hooks": {
@@ -78,7 +86,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Monitor",
+        "matcher": "Bash|Monitor|PowerShell",
         "hooks": [
           {
             "type": "command",
