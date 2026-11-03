@@ -411,6 +411,50 @@ grep -qF '`/prototype`' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
 [ -z "$wired" ] && ok "prototypes: the procedure, the skill and tools/prototype.sh exist, and the rules, the item format, the design procedure, the settings, the hooks and the docs name them" \
   || bad "prototypes aren't wired into:$wired"
 
+# Nothing is written without the human's approval of a summary: rules.md has the bullet right after the
+# design-call bullet, design.md holds the answers in the conversation, has Summary and approval between
+# For each question and Record each decision in one change, and Finish writes what the summary lists, and
+# every procedure that records from a conversation (design.md's validation and harvest, research.md,
+# next-task.md, drift-reset.md, ui-design.md, acceptance.md, align.md and ONBOARDING.md) carries the pointer.
+wired=""
+_ap_ptr='Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options.'
+_ap_rules="$adir/rules.md"
+_ap_dm="$adir/procedures/design.md"
+_ap_call="$(grep -n '^- A design call is a feature behaviour' "$_ap_rules" | cut -d: -f1)"
+_ap_rule="$(grep -n "^- \*\*Nothing is written without the human.s explicit approval\.\*\* While a session runs, the answers stay in the conversation\." "$_ap_rules" | cut -d: -f1)"
+[ -n "$_ap_call" ] && [ -n "$_ap_rule" ] && [ "$_ap_rule" -eq $((_ap_call + 1)) ] \
+  && grep -qF 'is a scope change or a modification, not an answer to record: it re-opens the options it touches, and the session reassesses, then restarts or continues.' "$_ap_rules" \
+  && grep -qF 'show a summary of every file, line, item and story to be written (`design.md` › Summary and approval), and write and commit all of it in one change only after the human approves the summary.' "$_ap_rules" \
+  || wired="$wired rules.md(the approval bullet after the design-call bullet)"
+_ap_each="$(grep -n '^## For each question$' "$_ap_dm" | cut -d: -f1)"
+_ap_sum="$(grep -n '^## Summary and approval$' "$_ap_dm" | cut -d: -f1)"
+_ap_rec="$(grep -n '^## Record each decision in one change$' "$_ap_dm" | cut -d: -f1)"
+[ -n "$_ap_each" ] && [ -n "$_ap_sum" ] && [ -n "$_ap_rec" ] && [ "$_ap_each" -lt "$_ap_sum" ] && [ "$_ap_sum" -lt "$_ap_rec" ] \
+  || wired="$wired design.md(Summary and approval between For each question and Record)"
+grep -qF 'Hold the answer in the conversation: nothing is recorded yet, and an answered part is not recorded by itself.' "$_ap_dm" \
+  && ! grep -qF 'record only that part' "$_ap_dm" || wired="$wired design.md(the wait holds the answers)"
+grep -qF 'Nothing is written before the human approves it.' "$_ap_dm" && grep -qF 'Approve this summary, or tell me what to change?' "$_ap_dm" \
+  && grep -qF 'Only a yes to the summary as shown approves it.' "$_ap_dm" \
+  && grep -qF 'each user story with its ID and its Confirmed date, or `unconfirmed`;' "$_ap_dm" \
+  && grep -qF 'the research notes and `R<n>` items.' "$_ap_dm" || wired="$wired design.md(the summary's list)"
+grep -qF 'Write everything the approved summary lists and commit it as one change, `docs: <summary>`' "$_ap_dm" \
+  && grep -qF 'The approval of the summary is the approval to commit (`rules.md` › Git).' "$_ap_dm" || wired="$wired design.md(Finish)"
+[ "$(grep -cF "$_ap_ptr" "$_ap_dm")" -ge 2 ] || wired="$wired design.md(pointers in the validation and the harvest)"
+for _ap_f in research.md next-task.md ui-design.md acceptance.md align.md; do
+  grep -qF "$_ap_ptr" "$adir/procedures/$_ap_f" || wired="$wired $_ap_f(pointer)"
+done
+[ "$(grep -cF "$_ap_ptr" "$adir/procedures/drift-reset.md")" -ge 2 ] || wired="$wired drift-reset.md(pointers in the reset and the postmortem)"
+grep -qF "$_ap_ptr" "$src/ONBOARDING.md" && grep -q '^### Summary and approval$' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md(pointer and Summary and approval)"
+grep -qF 'Inside a session or onboarding the fixes join its summary.' "$adir/procedures/align.md" || wired="$wired align.md(the fixes join the summary)"
+grep -qF 'the decision lines word for word, the design diff' "$adir/procedures/drift-reset.md" && grep -qF 'and each TASKS.md item in full' "$adir/procedures/drift-reset.md" \
+  || wired="$wired drift-reset.md(the summary's list)"
+grep -qF 'Hold the note and the item in the conversation.' "$adir/procedures/research.md" || wired="$wired research.md(holds the note and the item)"
+grep -qF 'the summary lists its records, as `design.md` lists them' "$adir/procedures/next-task.md" || wired="$wired next-task.md(blocked)"
+grep -qF 'The summary lists the spec, the decision lines, the open questions and the item.' "$adir/procedures/ui-design.md" || wired="$wired ui-design.md(the summary's list)"
+grep -q 'once the human approves a summary of them' "$src/framework/.claude/skills/design/SKILL.md" || wired="$wired skills/design/SKILL.md(description)"
+[ -z "$wired" ] && ok "nothing is written until the human approves a summary: the rule, design.md's Summary and approval, and the pointer in each procedure that records from a conversation" \
+  || bad "the approval of a summary isn't wired into:$wired"
+
 # Agent permissions: the template's allow rules run without a prompt. A generic code runner with a
 # wildcard runs any code, so a prompt-injected page could push or read credentials (the docs repo's
 # security assessment, product/security/2026-10-26.md, F1). A rule that names a script under tools/

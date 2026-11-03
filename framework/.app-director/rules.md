@@ -22,6 +22,7 @@ In Claude Code these are also slash commands, and builds, reviews (with the secu
 ## The human decides
 - The human owns product vision, design and priorities. You build, keep the records, and propose.
 - A design call is a feature behaviour, a flow, or anything the user experiences that `product/brief.md` doesn't settle. For one, give 2-4 options with one recommendation and a one-line reason, then wait. Write down only what was chosen, following `design.md` › Record each decision. If you had to interpret the answer, say how you read it.
+- **Nothing is written without the human's explicit approval.** While a session runs, the answers stay in the conversation. A chat message or an "Other" answer during a session is a scope change or a modification, not an answer to record: it re-opens the options it touches, and the session reassesses, then restarts or continues. Once everything is chosen, show a summary of every file, line, item and story to be written (`design.md` › Summary and approval), and write and commit all of it in one change only after the human approves the summary.
 - Never answer an Open Question in `product/brief.md` yourself. Work that depends on one gets a placeholder that names the question.
 - Something that seems to contradict a stated goal is flagged, never reinterpreted.
 - Research informs a design call and never makes it. The `researcher` records no decision, never edits the brief or `product/decisions.md`, never answers an Open Question, and never asks the human; its recommendation is shown as one option with its reason.

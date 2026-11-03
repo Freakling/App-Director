@@ -69,6 +69,8 @@ Then run `bash tools/check.sh` once and keep the result. An existing app often f
 
 ## 5. Product interview (fresh) or fill brief from existing code
 
+The answers stay in the conversation, and the records below are drafts, until the human approves the summary at the end of this section (Summary and approval).
+
 ### Your own product brief (fresh start and existing app; before the interview or the brief)
 Every project has `product/director-brief.md`: the human's own product brief template, in their own words. It is the human's file: you read it and never edit it. `product/brief.md` stays the design record you maintain, so each fact lives in one place; the human's brief is input that stays as they wrote it.
 1. **Is it filled?** It is still the template while its title reads `# Product Brief: [App Name]` and its sections hold only the prompts. If the human points to another document (notes, a spec, or a file in `director/`), read that instead.
@@ -83,25 +85,32 @@ Every project has `product/director-brief.md`: the human's own product brief tem
    - Fresh start: take the interview's answers from it (step 1 of Fresh start below). Show each answer taken, marked `(from your brief)`, and ask only what it leaves open. An answer you worked out from the brief without it saying so is `(inferred, please confirm)`.
    - Existing app: read it with the existing documents and the code, and use it to build the initial assessment: Architecture rows, `product/brief.md` sections and the first TASKS.md items. Mark each statement it supplied `(from your brief)` and each you inferred `(inferred, please confirm)`.
    - Both: where the brief and the code or the earlier docs disagree, say so and let the human decide.
-4. **Record it.** Write the `product/brief.md` sections from it, and a `product/decisions.md` line for each decision (`why: from your brief` when that is the reason). Anything the brief leaves undecided becomes an Open Question (`Q<n>`). Don't copy the brief wholesale into `product/brief.md`; write the current design in the brief's own sections.
-5. **Upgrade.** On an upgrade the installer adds `product/director-brief.md` when it is missing; offer it as above. Later, when the human says the brief changed, read it again and bring `product/brief.md` in line, marking what you inferred.
+4. **Draft the records.** Draft the `product/brief.md` sections from it, and a `product/decisions.md` line for each decision (`why: from your brief` when that is the reason). Anything the brief leaves undecided becomes an Open Question (`Q<n>`). Don't copy the brief wholesale into `product/brief.md`; write the current design in the brief's own sections. They are written after the summary below is approved.
+5. **Upgrade.** On an upgrade the installer adds `product/director-brief.md` when it is missing; offer it as above. Later, when the human says the brief changed, read it again and bring `product/brief.md` in line, marking what you inferred; show the changes as a summary and write them after the human approves it.
 
 ### Fresh start
-1. **A short product interview**, in short rounds, after reading the human's brief if they filled one (above): ask only what it leaves open, and confirm what you took from it. For each question, give options with a recommendation and let the human pick:
+1. **A short product interview**, in short rounds, after reading the human's brief if they filled one (above): ask only what it leaves open, and confirm what you took from it. For each question, give options with a recommendation and let the human pick, and hold the answers in the conversation:
    1. Pitch: what the app does, who it's for, and the feeling it should give.
    2. Core flows: the 3-5 things a user actually does (not screens, but actions with an outcome).
    3. Platforms and constraints: web, mobile, desktop, or a mix; offline support; auth required.
-2. **Record it.** Write the answers into `product/brief.md` as the current design. Anything undecided becomes an Open Question.
-3. **Draft the first user stories** in `product/user-stories.md`, replacing its worked example and its `{{APP_NAME}}`: a role for each kind of user the pitch names, the value for each role in one paragraph, and a story for each thing they do in the core flows, in the form `.app-director/procedures/design.md` › User stories gives. Put them to the human with the brief, as drafts for them to confirm, correct or drop. Each one they confirm gets today's date; the rest stay `unconfirmed`. When they've gone through them, set Last validated to today and `git rev-parse --short HEAD` (the date alone while the repository has no commit yet); if they'd rather do it later, leave it `never`, and `/next-task` proposes it.
-4. **Seed TASKS.md:** folder layout, first passing check, first working screen for the primary flow. Each item with Size, `Touches`, tagged `Done when`, `Brief:` and `Stories:` (the first screen serves a story; the layout and the check are `-`).
+2. **Draft the records.** Draft the answers as `product/brief.md` text, the current design. Anything undecided becomes an Open Question.
+3. **Draft the first user stories** for `product/user-stories.md`, which replace its worked example and its `{{APP_NAME}}`: a role for each kind of user the pitch names, the value for each role in one paragraph, and a story for each thing they do in the core flows, in the form `.app-director/procedures/design.md` › User stories gives. Put them to the human with the brief, as drafts for them to confirm, correct or drop. Each one they confirm gets today's date; the rest stay `unconfirmed`. When they've gone through them, set Last validated to today and `git rev-parse --short HEAD` (the date alone while the repository has no commit yet); if they'd rather do it later, leave it `never`, and `/next-task` proposes it.
+4. **Draft the TASKS.md seed:** folder layout, first passing check, first working screen for the primary flow. Each item with Size, `Touches`, tagged `Done when`, `Brief:` and `Stories:` (the first screen serves a story; the layout and the check are `-`).
 
 ### Existing app
+Draft each of these in the conversation; what they produce joins the summary below.
 1. **AGENTS.md › Architecture:** one row per significant system. Take "Owns" from public exports and module boundaries, not from guesses.
 2. **product/brief.md:** fill each section from the existing code, any docs, and the human's own brief if they filled one (above). Mark anything inferred `(inferred, please confirm)` and anything the brief supplied `(from your brief)`, and turn anything unknown into an Open Question.
 3. **product/user-stories.md:** write the stories from the code, as the brief is filled, replacing the worked example and its `{{APP_NAME}}`: the roles the app serves, the value for each role in one paragraph, and a story for each thing a role can do today, one table per area, in the form `.app-director/procedures/design.md` › User stories gives. A story describes what works now, not a plan. Every story is `unconfirmed` and Last validated stays `never`. Under the first paragraph, add `US-1 to US-<n> were written from the code on <date>, before the app kept user stories.`, so align leaves that range out of the stories no item serves. Offer to go through them with the human now (`design.md` › Validate the stories); otherwise `/next-task` proposes it.
 4. **TASKS.md:** turn TODOs, known bugs and the human's priorities into items, each with its `Stories:`. A feature item whose story isn't in the file gets one drafted, `unconfirmed` (`design.md` › User stories), with an ID after the range written from the code; `-` is only for foundation, tooling and infrastructure.
 5. **UI files that break the layer rule.** Set `tools/check.cfg` › `[ui] dirs` to the UI folders. Each file that imports from data-layer folders directly gets its own `M` item "Decouple: <file>".
 6. **Check failures** from the toolchain check (section 3) become the first items. Crashes or data-loss bugs are `high`.
+
+### Summary and approval
+At the end of the interview (fresh start), or when the records are drafted from the code and the human's documents (existing app), show one summary of everything this section will write, and wait. Nothing is written before the human approves it.
+1. **List it.** For each file, what it gets, as it will read: the `product/brief.md` text; each line for `product/decisions.md`, word for word; the Open Questions; the user stories with their IDs and their Confirmed dates, or `unconfirmed`, and the Last validated line; the TASKS.md items in full; and for an existing app the AGENTS.md › Architecture rows. Mark what came from the human's brief `(from your brief)` and what you inferred `(inferred, please confirm)`.
+2. **Ask:** "Approve this summary, or tell me what to change?"
+3. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options. Then write all of it; it goes into the install commit (section 10).
 
 ## 6. Choose stack
 
@@ -178,7 +187,7 @@ If the flows aren't decided yet, leave the placeholders and add an agent item "F
 
 1. Run `bash tools/check.sh` and report the result.
 2. Search for `{{` with `git grep -n "{{" -- '*.md'`. Only postponed template flows may remain, and only if an item exists for them. `git ls-files -o -i --exclude-standard -- '*.adir-new' | grep '\.adir-new$'` must print nothing (the grep drops nested clones, which `ls-files` lists as directories).
-3. Walk through the checks in `.app-director/procedures/align.md`. Its fixes go into the install commit.
+3. Walk through the checks in `.app-director/procedures/align.md`. List the mechanical fixes it finds, and write them after the human approves them; they go into the install commit.
 4. List every file created, changed or deleted (`git status`).
 5. **Commit it all in one commit, after the human approves.**
    - Stage the files: `git add` only the files created or changed.

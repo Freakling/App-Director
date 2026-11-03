@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T40 · B8 · R1
+**Next IDs:** T41 · B8 · R1
 
 ## Queue
+
+### T40 · Nothing is written until the director approves a summary of it · done · M · agent
+- Touches: framework/.app-director/rules.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/research.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/drift-reset.md, framework/.app-director/procedures/ui-design.md, framework/.app-director/procedures/acceptance.md, framework/.app-director/procedures/align.md, framework/.claude/skills/design/SKILL.md, ONBOARDING.md, selftest.sh, CHANGELOG.md
+- Done when: `rules.md` › The human decides has the bullet that nothing is written without the human's explicit approval, right after the design-call bullet; `design.md` holds an answer in the conversation instead of recording a part, has a Summary and approval section between For each question and Record each decision in one change, and its Finish writes and commits what the approved summary lists; the stories validation and the prototype harvest summarise before they write; `research.md` holds the note and its `R<n>` item until the summary is approved, in a design session and in a standalone `/research`; `next-task.md` › Report `blocked` records the design decision only after the summary is approved; `drift-reset.md` shows one summary with the decisions, the design diff and the rebuild plan (TASKS.md items included) before it writes, and a postmortem's chosen checks and items likewise; `ui-design.md` process step 5 records once the human approves a summary of the spec, the decision lines, the open questions and the item; `acceptance.md` summarises the `B` items, the story rewrites and ticks, the design findings and the Processed line before writing; `align.md` lists its mechanical fixes in the summary and writes one only after the approval; `ONBOARDING.md` writes the interview's records after the summary is approved; the design skill's description mentions the approval; `selftest.sh` checks the bullet, the section and each pointer, and the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T280
 
 ### T39 · The guard and the deny rules reach the PowerShell tool, and a continuation, a tab or a PowerShell read can't hide from it · done · M · agent
 - Touches: framework/.claude/settings.json, framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md

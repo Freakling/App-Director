@@ -42,7 +42,8 @@ Every subagent launch sets its model explicitly, from the sizing table (the Mode
 - **Other tools:** follow `build.md` yourself, or in a subagent if your tool has them, with its model set as section 3 says.
 - **A rebuild** (after a failure, a blocked report or review findings) gets the previous report, anything the human said about the item, and word that the earlier attempt's edits are still in the tree to continue from.
 - **Report `blocked`:** the report brings the question with options and a recommendation. Put it to the human.
-  - If the answer is a design decision, record it following `design.md` › Record each decision before rebuilding. It's committed with the item.
+  - If the answer is a design decision, the summary lists its records, as `design.md` lists them. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options.
+  - Once it is approved, record it following `design.md` › Record each decision before rebuilding. It's committed with the item.
   - Then rebuild, including the answer.
 - **Report `failed`:**
   - If the item is not `XL` and has not already been escalated, retry once with its model set to the next size's entry (XS→S, S→M, M→L, L→XL), or the session model where that size has no entry, as section 3 says. Update the item label to `<next-size> (escalated from <original-size>)`, e.g. `M (escalated from S)`.
