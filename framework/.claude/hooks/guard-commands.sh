@@ -41,7 +41,8 @@
 # nested in it, and a pause may have a fraction (sleep 600.5, Start-Sleep 280.5). A Python interpreter that reads its script from a
 # heredoc or a here-string (python - <<'EOF', python <<<"x", cat <<'EOF' | python -) is blocked whatever the body, also behind a path
 # (/usr/bin/python3) or a wrapper (timeout 60); a script file given a heredoc of data (python tool.py <<'EOF') passes, and so does
-# a message that names the form.
+# a message that names the form. A Python with nothing to run (python3 -, python, py -3 with no script, -c, -m or input) is blocked
+# too, since it waits for input that never comes (B66); python3 - < x.py, cat x.py | python3 - and python3 --version pass.
 # A shell or PowerShell name starts a script anywhere except right after a word that only prints its words (echo, printf,
 # Write-Output, Write-Host, write): `echo PowerShell 'x'` is text, and `ssh host pwsh -c 'x'` is still read (B48).
 #
@@ -1546,7 +1547,7 @@ git_print_re='(^|[^[:alnum:]_.-])[Gg][Ii][Tt](\.[Ee][Xx][Ee])?[[:space:]]+([^;&|
 
 # --- Hangs ---------------------------------------------------------------------------------------
 # A command that never returns, or runs past five minutes, lets the prompt cache expire, and the next
-# turn rewrites the whole context. So: no Python reading its script from a heredoc, no unbounded wait loops, no long sleeps.
+# turn rewrites the whole context. So: no Python reading its script from a heredoc, no Python with nothing to run (B66), no unbounded wait loops, no long sleeps.
 # Text matching only: a loop built another way isn't seen. The guard is also wired to Monitor. The rules
 # read the command without the bodies no shell runs (B50, hang_strip), so a message can name them.
 hang() {
@@ -1649,11 +1650,11 @@ blank_q() {
 }
 # The Python rule below reads hcode, so a quoted interpreter path is made the name the shell finds before the quoted strings are
 # blanked: "C:/Program Files/Python313/python.exe" and '/usr/bin/python3' are python. A string that ends in the name is one, and only
-# a command that can hold the rule's form (py, <<, a quote) is read. The names and the options an interpreter takes are py_name and py_opt.
+# a command that can hold the rule's forms (py and a quote, rules 1 and 1b) is read. The names and the options an interpreter takes are py_name and py_opt.
 py_name='(python[0-9]*(\.[0-9]+)*|pythonw|py)(\.exe)?'
 py_dq='"([^"]*[/\\])?'"$py_name"'"'
 py_sq="'([^']*[/\\\\])?${py_name}'"
-if [[ $hcode == *[Pp][Yy]* && $hcode == *'<<'* && $hcode == *[\"\']* ]]; then
+if [[ $hcode == *[Pp][Yy]* && $hcode == *[\"\']* ]]; then
   shopt -s nocasematch
   while [[ $hcode =~ $py_dq ]]; do hcode="${hcode/"${BASH_REMATCH[0]}"/ python }"; done
   while [[ $hcode =~ $py_sq ]]; do hcode="${hcode/"${BASH_REMATCH[0]}"/ python }"; done
@@ -1691,6 +1692,100 @@ if [[ $hbt == *py* && ( $hbt == *"@'"* || $hbt == *'@"'* ) ]]; then
   [[ $hbt =~ $py_hs_re ]] && hang "$MSG_PY1" "$MSG_PY2"
 fi
 shopt -u nocasematch
+
+# 1b. B66: Python with nothing to run. python3 -, python or py -3 with no script, no -c, no -m and nothing fed to it (no < on its
+#    command, no pipe into it) waits for input that never comes, and a time limit doesn't change that, so a bounded form is blocked
+#    too. It is read in hcode, as rule 1 is, behind a path (/usr/bin/python3), a wrapper (timeout 60, env, sudo) or in a chain, and
+#    only the first stage of a pipeline counts. Still allowed: python3 - < x.py, cat x.py | python3 -, a script file, -c, -m,
+#    python3 --version (and -V, -h, py --list), and command -v python3, which names Python as text. Known limits: a Python behind a
+#    variable ("$PY" -) isn't read; a wrapper option that takes a value (sudo -u x python3 -) ends the reading, so it passes; ;; python)
+#    in a case is read as a command, and so is a bare python line in the data heredoc of a script (python3 tool.py <<'E'): a false
+#    block beats a miss.
+py_cut='[&(){}`]'
+py_word="^$py_name\$"
+MSG_BARE1="python with no script and nothing fed to it waits for input that never comes."
+MSG_BARE2="Run a script file (python3 script.py), use python3 -c for one line, feed it a file (python3 - < script.py), and run python3 --version to test whether Python is there."
+# py_bare_args <the words after the interpreter's name>: 0 when nothing gives Python a program: no script, no -c or -m, no version,
+# help or list option, and no < on its command. Options are case-sensitive (-x is not -X); the caller runs this with nocasematch off.
+py_bare_args() {
+  local w
+  while (($# > 0)); do
+    w="$1"; shift
+    case $w in
+      -) continue ;;
+      *'<'*) return 1 ;;
+      [0-9]'>'* | '*>'* | '>'*) if [[ $w == *'>' && $# -gt 0 ]]; then shift; fi; continue ;;
+      -[XW]) (($# > 0)) && shift; continue ;;
+      -[XW]* | -V:*) continue ;;
+      --check-hash-based-pycs) (($# > 0)) && shift; continue ;;
+      --version | --help* | --list* | -V | -VV | -h | '-?' | -0*) return 1 ;;
+      --*) continue ;;
+      -*[cm]*) return 1 ;;
+      -*) continue ;;
+    esac
+    return 1
+  done
+  return 0
+}
+# py_bare <text with its quoted strings blanked and its line breaks as ;>: blocks a command that runs Python with nothing to run. The
+# text is cut at the operators that end a command. Only the first stage of a pipeline counts, since a later stage is fed by the one
+# before it, and only a name in command position does, past keywords, NAME=value and the wrappers that run the words after them, so
+# `command -v python`, `pip install python` and `for p in python py` are text.
+py_bare() {
+  local t="$1" c i n w o IFS
+  local -a ck=() pw=()
+  t="${t//>&/> }"; t="${t//&>/> }"; t="${t//<&/< }"
+  t="${t//'||'/;}"; t="${t//'&&'/;}"; t="${t//'|&'/|}"; t="${t//'|;'/|}"; t="${t//'| ;'/|}"
+  t="${t//$py_cut/;}"
+  IFS=';'; set -f; ck=($t); set +f
+  IFS=$' \t'
+  for c in "${ck[@]}"; do
+    [[ $c == *[Pp][Yy]* ]] || continue
+    c="${c%%|*}"
+    set -f; pw=($c); set +f
+    n=${#pw[@]}; i=0
+    while ((i < n)); do
+      w="${pw[i]##*[/\\]}"
+      case $w in
+        if | then | do | else | elif | while | until | time | '!') i=$((i + 1)) ;;
+        command)
+          o="${pw[i + 1]:-}"
+          [[ $o == -[vV]* ]] && continue 2
+          i=$((i + 1)) ;;
+        env | sudo | doas | nohup | nice | ionice | exec | builtin | stdbuf | setsid | winpty | timeout)
+          i=$((i + 1))
+          while ((i < n)); do
+            o="${pw[i]}"
+            case $o in
+              -* | [0-9] | [0-9]*[0-9smhd.]) i=$((i + 1)) ;;
+              *) break ;;
+            esac
+          done ;;
+        uv | poetry | pipenv | conda | pdm | hatch | rye)
+          [[ ${pw[i + 1]:-} == run ]] || continue 2
+          i=$((i + 2)) ;;
+        [A-Za-z_]*=)
+          [[ ${pw[i + 1]:-} == Q ]] || continue 2
+          i=$((i + 2)) ;;
+        [A-Za-z_]*=*)
+          [[ $w =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue 2
+          i=$((i + 1)) ;;
+        *) break ;;
+      esac
+    done
+    ((i < n)) || continue
+    w="${pw[i]##*[/\\]}"
+    shopt -s nocasematch
+    [[ $w =~ $py_word ]]; o=$?
+    shopt -u nocasematch
+    ((o == 0)) || continue
+    py_bare_args "${pw[@]:i+1}" && hang "$MSG_BARE1" "$MSG_BARE2"
+  done
+  return 0
+}
+# The as-written reading (view 0) cuts a line that continues, so `python3 \` then `tool.py` looks bare there. A command with a
+# continuation is judged in its joined readings, which are what the shell runs, and any other command in its one reading.
+if [[ $hcode == *[Pp][Yy]* && ( $vi -gt 0 || $pl != *"$x4"* ) ]]; then py_bare "$hcode"; fi
 
 # 3. A lone sleep over 280 seconds. A count may have a fraction (sleep 600.5), read to the millisecond.
 sleep_re='(^|[^[:alnum:]_./-])sleep[[:space:]]+([0-9]+)(\.[0-9]*)?([smhd]?)([[:space:]]|$|[;&|)])'
