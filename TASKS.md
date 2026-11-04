@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T42 · B8 · R1
+**Next IDs:** T43 · B8 · R1
 
 ## Queue
+
+### T42 · The selftest's independent parts run side by side, and the guard cases run in lanes · done · S · agent
+- Touches: selftest.sh, CHANGELOG.md
+- Done when: `bash selftest.sh` in App-Director finishes in under five minutes on this machine, with the same checks and output, measured before and after per section (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T283
 
 ### T41 · The guard takes the fixes its ports found: a path-qualified git, a nested wait loop, a pause with a fraction, no flag from the environment and a long file body in time · done · M · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
