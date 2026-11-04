@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.14.0 (2026-11-04)
 
 - **The guard and the deny rules reach the PowerShell tool.** Claude Code's PowerShell tool has its own name, so a hook matched on `Bash|Monitor` never saw its commands, and a `Bash(...)` deny rule didn't stop the same command there. The guard's matcher now names `Bash|Monitor|PowerShell`, and each Bash deny rule has a `PowerShell(...)` twin. The allow list names no PowerShell command, so PowerShell runs nothing without a prompt. `selftest.sh` checks the matcher, each twin and the allow list, and runs the guard's cases for the PowerShell tool too.
   - **Upgrade steps:** the hook and `.claude/settings.json` are framework-owned and arrive with the upgrade (if you edited `.claude/settings.json`, merge its `.adir-new` file); restart Claude Code so the new matcher and deny rules load.
