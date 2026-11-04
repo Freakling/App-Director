@@ -15,7 +15,13 @@
 set -u
 src="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
-if [ "${KEEP:-0}" = "1" ]; then echo "keeping $work"; else trap 'rm -rf "$work"' EXIT; fi
+cleanup() { # stops the app and the browser a capture left running, then removes the temporary folder (unless KEEP=1)
+  stop_ui_leftovers
+  [ "${KEEP:-0}" = "1" ] && return 0
+  rm -rf "$work" 2>/dev/null || { sleep 2; rm -rf "$work"; }
+}
+if [ "${KEEP:-0}" = "1" ]; then echo "keeping $work"; fi
+trap cleanup EXIT
 
 passed=0; failed=0
 nl='
@@ -42,6 +48,52 @@ finish() {
 new_repo() { # new_repo <folder>
   mkdir -p "$1" && (cd "$1" && git init -q && git config core.autocrlf false \
     && printf '# app\n' > README.md && git add -A && git_q commit -qm init)
+}
+# What a capture leaves behind when it is killed (T304). A capture killed while Chromium starts leaves the browser's helper processes
+# running on Windows (they hold the folder the browser was started in, which can't then be removed). Windows keeps a gone process's
+# children listed under its id, even when it has gone itself, so they are found from the capture's id through the processes under
+# it, and each is stopped by itself (taskkill's /T can't walk through a browser process that has already gone). The second pass
+# catches what the first one raced with. Elsewhere the browser ends with the capture.
+stop_orphans_of() { # stop_orphans_of <pid of a process that is gone> <pid to leave running, with what is under it>
+  case "${1:-}" in ''|*[!0-9]*) return 0 ;; esac
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      ADIR_ROOT="$1" ADIR_KEEP="${2:-0}" MSYS_NO_PATHCONV=1 powershell -NoProfile -NonInteractive -Command '
+        $root = [int]$env:ADIR_ROOT; $keep = [int]$env:ADIR_KEEP
+        for ($pass = 0; $pass -lt 2; $pass++) {
+          $all = @(Get-CimInstance Win32_Process); $todo = @($root); $ids = @()
+          while ($todo.Count -gt 0) {
+            $next = @()
+            foreach ($parent in $todo) {
+              foreach ($child in @($all | Where-Object { $_.ParentProcessId -eq $parent })) {
+                if ($child.ProcessId -ne $keep -and $child.ProcessId -ne $PID -and $ids -notcontains $child.ProcessId) { $ids += $child.ProcessId; $next += $child.ProcessId }
+              }
+            }
+            $todo = $next
+          }
+          foreach ($id in $ids) { taskkill /PID $id /F | Out-Null }
+          Start-Sleep -Milliseconds 300
+        }' >/dev/null 2>&1 ;;
+  esac
+  return 0
+}
+# The app and the browser of a capture that never stopped them (the run was interrupted, or ended early), named by the record the
+# capture keeps in the example app: "<app pid> <capture pid>". A capture that finished leaves no record.
+stop_ui_leftovers() {
+  local record="$work/todo-web/.app-director/state/ui_app.pid" app_pid="" capture_pid=""
+  [ -f "$record" ] || return 0
+  read -r app_pid capture_pid < "$record" || true
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      [ -z "$capture_pid" ] || taskkill //PID "$capture_pid" //T //F >/dev/null 2>&1
+      stop_orphans_of "$capture_pid" 0
+      [ -z "$app_pid" ] || taskkill //PID "$app_pid" //T //F >/dev/null 2>&1
+      stop_orphans_of "$app_pid" 0 ;;
+    *)
+      [ -z "$capture_pid" ] || kill -9 "$capture_pid" 2>/dev/null
+      [ -z "$app_pid" ] || kill -9 -- "-$app_pid" "$app_pid" 2>/dev/null ;;
+  esac
+  return 0
 }
 
 stories_seed="$src/project/product/user-stories.md"
@@ -4698,8 +4750,12 @@ else
   else
     rm -rf uifixture && cp -R "$src/tests/ui-web" uifixture && rm -rf uifixture/node_modules
     port=$((40000 + $$ % 20000))
+    # The runs that capture states that finish keep the shipped 60-second setup_timeout: a state here takes a fraction of a second,
+    # but on a busy machine (the other parts of this selftest run beside this one, and so may other work) it can take seconds, and
+    # a short limit made it fail (T304). Only the run of the one state that never finishes sets 3 seconds, so that it fails at once.
     sed -e "s#^base_url =.*#base_url = http://127.0.0.1:$port#" -e "s#^start_command =.*#start_command = node uifixture/serve.mjs $port#" \
-      -e 's#^list = .*#list = 1280x720 800x600#' -e 's#^setup_timeout = .*#setup_timeout = 3#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+      -e 's#^list = .*#list = 1280x720 800x600#' -e 's#^setup_timeout = .*#setup_timeout = 60#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+    cp tools/ui_capture.cfg "$work/fixture-cfg"
     cat > tools/ui/screens.mjs <<'EOF'
 export default {
   screens: [
@@ -4722,7 +4778,13 @@ export default {
 };
 EOF
     captures=product/ui/captures
+    # Every screen but the one that never finishes (it would wait out the whole limit, twice); then that one with the short limit and
+    # the screen after it, which shows the run goes on after a state is cut off.
+    sed 's#^skip =.*#skip = stuck#' "$work/fixture-cfg" > tools/ui_capture.cfg
     out="$(bash tools/ui_capture.sh --all 2>&1)"; status=$?
+    sed -e 's#^setup_timeout = .*#setup_timeout = 3#' -e 's#^skip =.*#skip = clean lint order broken gone apiaway modal reload#' "$work/fixture-cfg" > tools/ui_capture.cfg
+    stuck_out="$(bash tools/ui_capture.sh --all --size 1280x720 2>&1)"
+    cp "$work/fixture-cfg" tools/ui_capture.cfg
     expect_status "a screen that fails fails the run (exit 1), and the others are captured" 1 "$status" "$out"
     missing=""
     for base in clean clean.busy lint order away modal; do
@@ -4759,7 +4821,11 @@ EOF
       && ok "a page error fails its screen, which is still captured, with the error at the top of its lint file" || bad "a page error fails its screen, with the error at the top of its lint file" "$out"
     grep -q '^error: /missing answered 404' "$captures/gone@1280x720.lint.txt" && [ ! -f "$captures/gone@1280x720.png" ] \
       && ok "a route that answers 404 fails its screen and leaves only the error" || bad "a route that answers 404 fails its screen and leaves only the error" "$out"
-    expect_output "a state that doesn't finish fails only its screen" "FAIL: stuck@1280x720: the setup didn't finish within 3 seconds" "$out"
+    if printf '%s' "$stuck_out" | grep -qE -- "FAIL: stuck@1280x720: the setup didn't finish within 3 seconds" && printf '%s' "$stuck_out" | grep -q -- "begin away@1280x720"; then
+      ok "a state that doesn't finish fails only its screen"
+    else
+      bad "a state that doesn't finish fails only its screen (no match for its failure, then the next screen's start)" "$stuck_out"
+    fi
     expect_output "a broken catalog entry is named" "FAIL: bad: its route must be a path" "$out"
     away="$(cat "$captures/away@1280x720.lint.txt")"
     expect_output "a request to a host that isn't this machine is blocked and noted" "^note: blocked requests to 192\.0\.2\.1: not this machine" "$away"
@@ -4808,21 +4874,25 @@ EOF
     # A capture killed mid-run leaves the app it started running; the next capture stops it first,
     # instead of taking it for an app the human started.
     answers() { node -e 'require("http").get(process.argv[1], () => process.exit(0)).on("error", () => process.exit(1));' "http://127.0.0.1:$port/"; }
-    cp tools/ui_capture.cfg "$work/fixture-cfg"
     sed 's#^setup_timeout = .*#setup_timeout = 120#' "$work/fixture-cfg" > tools/ui_capture.cfg
     rm -f .app-director/state/ui_app.pid
     bash tools/ui_capture.sh stuck > "$work/stuck.log" 2>&1 &
+    stuck_pid=$!
     waited=0
-    until [ -f .app-director/state/ui_app.pid ] && answers; do
+    # Killed once it is at work in the browser ("begin stuck@..." comes after Chromium has started), not while Chromium is starting:
+    # a capture killed then leaves the browser running (T304). Whatever it left is stopped below, except the app.
+    until [ -f .app-director/state/ui_app.pid ] && answers && grep -q 'begin stuck@' "$work/stuck.log" 2>/dev/null; do
       waited=$((waited + 1)); [ "$waited" -ge 60 ] && break; sleep 1
     done
     sleep 1
+    app_pid="$(cut -d' ' -f1 .app-director/state/ui_app.pid 2>/dev/null)"
     capture_pid="$(cut -d' ' -f2 .app-director/state/ui_app.pid 2>/dev/null)"
     case "$(uname -s)" in
       MINGW*|MSYS*|CYGWIN*) taskkill //PID "$capture_pid" //F >/dev/null 2>&1 ;;
       *) kill -9 "$capture_pid" 2>/dev/null ;;
     esac
-    wait 2>/dev/null
+    wait "$stuck_pid" 2>/dev/null
+    stop_orphans_of "$capture_pid" "$app_pid"
     sleep 1
     if answers; then ok "a capture killed mid-run leaves the app it started running"; else bad "a capture killed mid-run leaves the app it started running" "$(cat "$work/stuck.log")"; fi
     cp "$work/fixture-cfg" tools/ui_capture.cfg

@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T46 · B8 · R1
+**Next IDs:** T47 · B8 · R1
 
 ## Queue
+
+### T46 · The selftest's UI capture section passes on every run, and a capture it kills leaves no browser behind · done · M · agent
+- Touches: selftest.sh, CHANGELOG.md
+- Done when: `bash selftest.sh` in App-Director passes five runs in a row on this machine, with the same checks and output (check) · the capture of the fixture web app gives the states that finish the shipped 60-second `setup_timeout`, and only the run of the state that never finishes uses 3 seconds, together with the screen after it, so it still fails at once and the run still goes on (check) · the check that kills a capture mid-run kills it once it is at work in the browser and stops the browser processes a kill leaves running on Windows, and the run's cleanup stops the app and the browser of a capture that never stopped them (check) · `framework/tools/ui` is unchanged · the entry sits under the 1.14.0 heading, with upgrade steps: none
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T304
 
 ### T45 · The hook timeouts are in seconds, as Claude Code reads them · done · XS · agent
 - Touches: framework/.claude/settings.json, selftest.sh, CHANGELOG.md
