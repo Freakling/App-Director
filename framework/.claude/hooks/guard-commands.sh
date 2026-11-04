@@ -1779,6 +1779,11 @@ py_bare() {
     [[ $w =~ $py_word ]]; o=$?
     shopt -u nocasematch
     ((o == 0)) || continue
+    # A heredoc's delimiter on its own line (python3 tool.py <<PY, a body, then PY) is the end of a body, not a command.
+    if ((n == 1)) && [[ $hbt == *'<<'* ]]; then
+      o="<<-?[[:space:]]*[\\\\\"']?$w[\"']?([[:space:]]|\$)"
+      [[ $hbt =~ $o ]] && continue
+    fi
     py_bare_args "${pw[@]:i+1}" && hang "$MSG_BARE1" "$MSG_BARE2"
   done
   return 0

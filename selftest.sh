@@ -4145,6 +4145,7 @@ EOF
       $'python3 \\\n  -u \\\n  -' \
       $'timeout 60 \\\n  python3 -' \
       $'# note \\\npython3 -' \
+      $'cat <<E | head\nx\nE\npython3' \
       $'bash <<\'X\'\npython3 -\nX'; do
       guard 2 "$cmd" Bash "$bare_msg"
     done
@@ -4263,6 +4264,10 @@ EOF
       $'cat x.py | \\\n  python3 -' \
       $'cat x.py |\n  python3 -' \
       $'# note \\\npython3 tool.py' \
+      $'python3 tool.py <<\'PY\'\ndata\nPY' \
+      $'python3 tool.py <<PY\ndata\nPY' \
+      $'node x.js <<-PY\n\tdata\n\tPY' \
+      $'ruby x.rb <<"python"\ndata\npython' \
       $'gh pr create --title t --body-file - <<\'E\'\npython3 -\nE'; do
       guard 0 "$cmd"
     done

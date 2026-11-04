@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T52 · B8 · R1
+**Next IDs:** T53 · B8 · R1
 
 ## Queue
+
+### T52 · A heredoc's delimiter isn't read as a Python with nothing to run · done · S · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: a heredoc that ends in a line named `PY` or `python` passes, whether a script or another interpreter reads it, and a bare `python3` after a heredoc with another delimiter is still blocked (test) · the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development B66
 
 ### T51 · The guard blocks a Python with nothing to run · done · M · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md, TASKS.md
