@@ -24,6 +24,8 @@ Two readers:
 ## Core procedure
 Research one question and report a note. You inform; the human decides.
 
+A shell command, where your tool gives you one, follows `rules.md` › Shell commands: one short command at a time, never a heredoc, and none of yours left in the background when you report.
+
 1. **Frame.** Read the item's `Question:` and the records it touches: AGENTS.md (the stack is in Project facts), the brief sections under `Brief:`, `product/decisions.md`, and notes on the same topic in `product/research/`. Settle the decision or outcome sought, the scope, the exclusions, the project's constraints and the depth needed. State a reasonable assumption instead of asking; never ask for what you can discover. Read `.app-director/research-domain.md` when the question concerns stacks and libraries, licences, or app-store and platform requirements; other questions stay technology-neutral.
 2. **Decompose** into the subquestions that matter. Use only the categories that apply: current state and constraints, capabilities, options, security and requirements, operation and support, resilience, cost, dependencies, migration.
 3. **Plan sources.** Pick the strongest applicable sources before searching broadly. Plan separate searches for the project's own records, binding requirements, official documentation, standards, independent evidence, and views that contradict the likely answer.

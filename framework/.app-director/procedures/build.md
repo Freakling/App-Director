@@ -3,6 +3,8 @@
 
 Build one TASKS.md item that has already been claimed, and report back briefly. Until you've written the report, don't pick items, don't edit TASKS.md, AGENTS.md or `product/`, and don't commit. Whoever handed you the item does that; if that's you, carry on with `next-task.md` afterwards.
 
+Shell commands follow `.app-director/rules.md` › Shell commands. Write files with the file tools (Write or Edit in Claude Code), never with a shell heredoc or an `echo` or `printf` redirect of multi-line content, since a heredoc can hang the shell; write a multi-line script to a file and run it from there. Keep every shell call one short command that finishes well inside the tool's timeout; only the check, a build and a host start run long, with an explicit long timeout.
+
 1. **Read what the item needs.** You have the item's ID and full text, and on a rebuild also the previous report and the human's instructions. Read its `Touches`, the AGENTS.md › Architecture rows involved, the brief sections under `Brief:` (`grep -n "^#" product/brief.md` lists the headings), and the stories under `Stories:` (`grep -n "US-2 " product/user-stories.md`), which say who it's for and why. An item with `Prototype: proto/<name>` was tried there first: while that branch exists, read the prototype's diff for the item's paths (`git diff main...proto/<name> -- <path>`) as a reference for what was tried. Build to the item; never merge or cherry-pick the prototype. Follow references from there, reading by heading or line range.
 2. **Open questions.** If `Done when` names a question still listed in brief › Open Questions, build the rest and stand in for the answer:
    - a missing value becomes a `PLACEHOLDER` default with a comment citing the question;
@@ -23,7 +25,8 @@ Build one TASKS.md item that has already been claimed, and report back briefly. 
    - After two failed attempts at the same problem, stop and report.
    - A failure in files the item doesn't touch, which was there before you started, isn't yours: report `failed: pre-existing` with its lines.
    - Exit 3 means the check couldn't run; report that.
-7. **Report** in at most about 20 lines. It's all the caller keeps, so no file dumps:
+7. **Stop background commands.** If the tool moved a command of yours to the background (it says so when the command outlives its timeout), stop it before you report: with the tool's own stop if it offers one, or else kill the process (`kill` or `taskkill` with its pid; `ps` lists it when the tool gives only a task ID). Never report while a background command of yours is still alive: until it ends, the caller sees you as running.
+8. **Report** in at most about 20 lines. It's all the caller keeps, so no file dumps:
    ```
    Result: done | blocked: <question, options, recommendation> | failed: <last check lines> | failed: pre-existing: <lines>
    Files: <changed and new files>
@@ -35,4 +38,5 @@ Build one TASKS.md item that has already been claimed, and report back briefly. 
    For the human: <questions or decisions | none>
    Found: <work outside this item, one line each | none>
    Touches: <files changed that aren't listed, and listed files not needed | same>
+   Background: <each command moved to the background, and how it was stopped | none>
    ```

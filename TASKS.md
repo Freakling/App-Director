@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T47 · B8 · R1
+**Next IDs:** T48 · B8 · R1
 
 ## Queue
+
+### T47 · Subagents write no shell heredocs, and the background commands they leave are stopped · done · M · agent
+- Touches: framework/.app-director/rules.md, framework/.app-director/procedures/build.md, research.md, review.md and next-task.md, framework/.claude/agents/builder.md, researcher.md and reviewer.md, CHANGELOG.md, TASKS.md
+- Done when: `rules.md` › Doing the work has a Shell commands bullet: files are written with the file tools, never with a shell heredoc or an `echo` or `printf` redirect of multi-line content; a multi-line script goes in a file first; every shell call is one short command, and the only long runs are the check, a build and a host start, each with an explicit long timeout or in the background; a command moved to the background is stopped before a report or the end of a turn (check) · `build.md` says it before step 1, has a step before Report that stops a command moved to the background and never reports while one is alive, and a `Background:` line in the report (check) · `research.md` › Core procedure and `review.md` say it in one sentence each (check) · `next-task.md` › 3. Build stops what a subagent left in the background before it deletes `.app-director/state/building` and moves on, tool-neutral, with its In Claude Code bullet naming TaskStop; Review (step 6) and Research items point to it (check) · `builder.md`, `researcher.md` and `reviewer.md` each carry one line with the rule, their tools lists unchanged, and in `reviewer.md` the line goes after the drift-reset and security paragraph (check) · the entry sits under the 1.14.0 heading, with upgrade steps: none, and `bash selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T307
 
 ### T46 · The selftest's UI capture section passes on every run, and a capture it kills leaves no browser behind · done · M · agent
 - Touches: selftest.sh, CHANGELOG.md
