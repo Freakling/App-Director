@@ -4,9 +4,93 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T39 · B8 · R1
+**Next IDs:** T51 · B8 · R1
 
 ## Queue
+
+### T50 · A session reports processes that outlived the shell that started them · done · M · agent
+- Touches: framework/.claude/hooks/orphan-report.sh (new), framework/.claude/settings.json, PRIVACY.md, README.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: a new SessionStart hook, `orphan-report.sh`, added to the `startup|resume` entry in `settings.json` next to the release check with a timeout of 10, reads the process list (on Windows, where `uname -s` is `MINGW*`, `MSYS*` or `CYGWIN*`, from `powershell.exe -NoProfile -NonInteractive -Command` with `Get-CimInstance Win32_Process`, the age computed from `CreationDate` and a process with none skipped, under `timeout 8` when `timeout` exists; elsewhere from `ps -A -o pid=,ppid=,etime=,comm=`, with `etime`'s `[[dd-]hh:]mm:ss` read into seconds and `comm` reduced to its base name) and lists the processes named python, python3, python3.<n>, pythonw, py, node, bash, sh, godot* or chrome-headless-shell (any case, `.exe` dropped; `chrome-headless`, the name Linux cuts it to, too) that are an hour old or more and whose parent is gone (a ppid of 0 or 1, no row with that pid, or a parent row younger than the process): the oldest ten and how many more, as one line of JSON with `systemMessage` and `additionalContext` ("Tell the human this once, in your first reply, and don't stop them unless the human asks."), ages as `<n> h` up to 48 hours and then `<n> d`, names reduced to `[A-Za-z0-9._-]`, and nothing otherwise; every path ends in exit 0, `APP_DIRECTOR_ORPHAN_REPORT=0` exits at once, a missing or failing process tool prints nothing, it stops, signals and writes nothing, and it uses bash 3.2 and BSD tools (check) · `selftest.sh` runs a section against stand-in `uname`, `powershell.exe` and `ps`, with stand-in `kill`, `taskkill`, `pkill` and `killall` that no case calls: for the Windows and the `ps` shape an hour-old `python3.13` with a dead parent is listed, one with a live parent or 59 minutes old is not, one whose parent row is younger is, unlisted names (`notepad`, `sshd`) are not, eleven orphans print ten and `and 1 more` oldest first, a name with odd characters can't break the JSON, `[[dd-]hh:]mm:ss` reads right in all three shapes, and the off switch and a failed or missing process tool are silent with exit 0; `tools/check.sh` never runs it (check) · the installer installs the hook (check) · `PRIVACY.md` says the hook reads the names, ids and ages of the processes and names `APP_DIRECTOR_ORPHAN_REPORT=0`, and the README names the hook (check) · the entry sits under 1.14.0, with upgrade steps, and `selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T310
+
+### T49 · A session says when the project is behind the latest release · done · M · agent
+- Touches: framework/.claude/hooks/release-check.sh (new), framework/.claude/settings.json, PRIVACY.md, README.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: a new SessionStart hook, `release-check.sh`, wired in `settings.json` with matcher `startup|resume` and a timeout of 10, reads the installed version from the first line of `.app-director/manifest` (without any ` + unreleased ...` tail) and the latest from `.app-director/state/latest-release`, refreshed at most once a day (missing or a day old) with `git ls-remote --tags --refs` for `refs/tags/v*` under `timeout 5` when `timeout` exists, keeping the highest `v<major>.<minor>.<patch>` by numeric fields and ignoring other tags; a failed lookup keeps the old value and touches the file, so an offline machine pays for one try a day; when the latest is above the installed version it prints one line of JSON with `systemMessage` and `additionalContext` (the text, and "Tell the human this once, in your first reply."), otherwise nothing; every path ends in exit 0, `APP_DIRECTOR_RELEASE_CHECK=0`, a missing manifest or no version line exits at once, and the hook uses bash 3.2 and BSD tools (check) · `selftest.sh` runs a section against a stand-in git that records its calls: behind warns with the JSON, 1.9.0 against 1.14.0 warns and the reverse doesn't, equal and newer are silent, ` + unreleased (abc)` and a CRLF manifest read as their version, a fresh cache doesn't call git, a day-old cache calls it once, a failed git prints nothing and isn't asked again that day, other tags are ignored, the off switch and a missing manifest are silent, and `tools/check.sh` never runs it; the installer installs the hook and git ignores its cache (check) · `PRIVACY.md` says it sends nothing apart from the release check and has a Release check paragraph naming `APP_DIRECTOR_RELEASE_CHECK=0`, and the README names the hook and its privacy line (check) · the entry sits under 1.14.0, with upgrade steps, and `selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T308
+
+### T48 · The guard blocks any Python that reads its script from a heredoc · done · M · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, framework/.app-director/rules.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: the guard blocks `python`, `python3` and `py`, path-qualified too, reading its script from a heredoc or a here-string, whatever the body, in place of the empty-body check, so the form with a quoted multi-line string before the delimiter is blocked, with a case for each form (test) · a script file fed data from a heredoc, `python -c`, `python -m` and a message that names the form still pass (test) · a bounded form (`timeout 60 python - <<E`) is blocked too (test) · `rules.md` › Commands that may run long says to put the script in a file and probe with `python3 --version` (check) · the entry sits under the 1.14.0 heading, with upgrade steps: none, and `bash selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T309
+
+### T47 · Subagents write no shell heredocs, and the background commands they leave are stopped · done · M · agent
+- Touches: framework/.app-director/rules.md, framework/.app-director/procedures/build.md, research.md, review.md and next-task.md, framework/.claude/agents/builder.md, researcher.md and reviewer.md, CHANGELOG.md, TASKS.md
+- Done when: `rules.md` › Doing the work has a Shell commands bullet: files are written with the file tools, never with a shell heredoc or an `echo` or `printf` redirect of multi-line content; a multi-line script goes in a file first; every shell call is one short command, and the only long runs are the check, a build and a host start, each with an explicit long timeout or in the background; a command moved to the background is stopped before a report or the end of a turn (check) · `build.md` says it before step 1, has a step before Report that stops a command moved to the background and never reports while one is alive, and a `Background:` line in the report (check) · `research.md` › Core procedure and `review.md` say it in one sentence each (check) · `next-task.md` › 3. Build stops what a subagent left in the background before it deletes `.app-director/state/building` and moves on, tool-neutral, with its In Claude Code bullet naming TaskStop; Review (step 6) and Research items point to it (check) · `builder.md`, `researcher.md` and `reviewer.md` each carry one line with the rule, their tools lists unchanged, and in `reviewer.md` the line goes after the drift-reset and security paragraph (check) · the entry sits under the 1.14.0 heading, with upgrade steps: none, and `bash selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T307
+
+### T46 · The selftest's UI capture section passes on every run, and a capture it kills leaves no browser behind · done · M · agent
+- Touches: selftest.sh, CHANGELOG.md
+- Done when: `bash selftest.sh` in App-Director passes five runs in a row on this machine, with the same checks and output (check) · the capture of the fixture web app gives the states that finish the shipped 60-second `setup_timeout`, and only the run of the state that never finishes uses 3 seconds, together with the screen after it, so it still fails at once and the run still goes on (check) · the check that kills a capture mid-run kills it once it is at work in the browser and stops the browser processes a kill leaves running on Windows, and the run's cleanup stops the app and the browser of a capture that never stopped them (check) · `framework/tools/ui` is unchanged · the entry sits under the 1.14.0 heading, with upgrade steps: none
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T304
+
+### T45 · The hook timeouts are in seconds, as Claude Code reads them · done · XS · agent
+- Touches: framework/.claude/settings.json, selftest.sh, CHANGELOG.md
+- Done when: the guard's hook (guard-commands.sh) has a timeout of 10, each guard-protected.sh entry (Edit and Write) 5, and the Stop hook (stop-check.sh) 3600, all in seconds; the session-touched.sh entries are unchanged; the top-level `bash` block is gone, and the JSON is valid (check) · `selftest.sh` checks that every hook timeout in settings.json is at most 3600, the guard's at most 10, and that the file has no bash key (check) · the entry sits under the Unreleased heading, with upgrade steps
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T299
+
+### T44 · The Stop hook runs the check only for the session that changed the code · done · M · agent
+- Touches: framework/.claude/hooks/stop-check.sh, framework/.claude/hooks/session-touched.sh (new), framework/.claude/settings.json, framework/.app-director/rules.md, README.md, selftest.sh, CHANGELOG.md
+- Done when: the Stop hook runs the project check only when this session itself wrote or edited a source file (any file but `*.md` and `.app-director/state/`, the hook's present rule) since its last passing check: a new PostToolUse hook, `session-touched.sh`, on Edit, Write, MultiEdit and NotebookEdit records the paths the tool touched in `.app-director/state/sessions/<session_id>.touched` (the hook input's `session_id`), and for Bash and PowerShell a PreToolUse snapshot of `git status --porcelain --untracked-files=all` and the same hook after the command record the source files that are new in the list or modified since (one `find -newer` for all of them); a session that touched only docs (`*.md`, product/, TASKS.md) never triggers the check; the builder marker, the fingerprint (the same failure isn't reported twice), `APP_DIRECTOR_STOP_CHECK=0`, the prototype exit and the exit 0 when tools/check.sh is missing keep working; no or a malformed `session_id` behaves as before; the session's record is removed when the check passes, and records older than a day are ignored and deleted (check) · in a design session that edits only Markdown while another session has uncommitted a source file in the same folder, the Stop hook exits at once without running the check, tested with scripted hook input; a session that edits a source file still gets the check and is blocked once on failure; a Bash command that creates a source file is recorded; a passing check removes the record; a record older than a day is ignored; no session_id behaves as before; settings.json wires the hook; both hooks use no bash 4 form or GNU-only flag; the installer installs the hook and git ignores the records; `selftest.sh` passes (check) · the entry sits under the Unreleased heading, with upgrade steps
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T296
+
+### T43 · A quoted path with a space, or a backslash path, can't hide git from the guard · done · S · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
+- Done when: the guard blocks `"C:\Program Files\Git\bin\git.exe" push --force`, `& 'C:\Program Files\Git\bin\git.exe' push --force` and `C:\Git\bin\git.exe push --force` in the Bash and PowerShell tools, as it blocks the bare name; a command name quoted with a space or a path, or an unquoted backslash path that starts with a drive, `.`, `..`, `~` or two backslashes, is read as its last part without `.exe`, `.cmd` or `.bat`; `& 'C:\Program Files\Git\bin\git.exe' status`, `"C:\Program Files\Git\bin\git.exe" log -1`, a commit message naming the path, `echo "C:\Program Files\Git"` and `c\at README.md` still pass; `selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T292
+
+### T42 · The selftest's independent parts run side by side, and the guard cases run in lanes · done · S · agent
+- Touches: selftest.sh, CHANGELOG.md
+- Done when: `bash selftest.sh` in App-Director finishes in under five minutes on this machine, with the same checks and output, measured before and after per section (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T283
+
+### T41 · The guard takes the fixes its ports found: a path-qualified git, a nested wait loop, a pause with a fraction, no flag from the environment and a long file body in time · done · M · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
+- Done when: the guard reads a path-qualified or `.exe` git (`/usr/bin/git push --force`, `git.exe push --force`, `GIT.EXE`) as git in every rule; the empty-heredoc probe reads its body line by line, so a heredoc of blank lines isn't empty, and `/usr/bin/python3` counts as `python3`; in the PowerShell tool a backslash at a line's end is a path separator, not a continuation, so `# c\` followed by `gh auth token` is blocked; the wait-loop reader ends a loop at the `done` that closes it, counting the `do` and `done` of nested loops, so `until [ -f done ]; do sleep 5; done` and `while true; do for f in a b; do :; done; sleep 5; done` are wait loops; a pause with a fraction (`sleep 600.5`, `Start-Sleep 280.5`) is a pause; the view flags (`vdep`, `vcov`, `vpx`, `vhang`) and the other state the hook reads before it sets it start empty, so `vhang=1` in the environment doesn't let `git push --force origin main` pass; the walks that read a command a character at a time skip the bodies nothing runs, PowerShell here-strings included, so a 29 KB heredoc and the same body in a here-string (900 lines of `$AnimationPlayer.play("walk_1")`) are judged well within the hook's 10 s limit, with a timed case for each shell failing above 5 s; the credential-print rules read the command without its messages, so a commit or `gh` message may name `gh auth token`; `selftest.sh` feeds the hook each case and passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T285
+
+### T40 · Nothing is written until the director approves a summary of it · done · M · agent
+- Touches: framework/.app-director/rules.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/research.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/drift-reset.md, framework/.app-director/procedures/ui-design.md, framework/.app-director/procedures/acceptance.md, framework/.app-director/procedures/align.md, framework/.claude/skills/design/SKILL.md, ONBOARDING.md, selftest.sh, CHANGELOG.md
+- Done when: `rules.md` › The human decides has the bullet that nothing is written without the human's explicit approval, right after the design-call bullet; `design.md` holds an answer in the conversation instead of recording a part, has a Summary and approval section between For each question and Record each decision in one change, and its Finish writes and commits what the approved summary lists; the stories validation and the prototype harvest summarise before they write; `research.md` holds the note and its `R<n>` item until the summary is approved, in a design session and in a standalone `/research`; `next-task.md` › Report `blocked` records the design decision only after the summary is approved; `drift-reset.md` shows one summary with the decisions, the design diff and the rebuild plan (TASKS.md items included) before it writes, and a postmortem's chosen checks and items likewise; `ui-design.md` process step 5 records once the human approves a summary of the spec, the decision lines, the open questions and the item; `acceptance.md` summarises the `B` items, the story rewrites and ticks, the design findings and the Processed line before writing; `align.md` lists its mechanical fixes in the summary and writes one only after the approval; `ONBOARDING.md` writes the interview's records after the summary is approved; the design skill's description mentions the approval; `selftest.sh` checks the bullet, the section and each pointer, and the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T280
+
+### T39 · The guard and the deny rules reach the PowerShell tool, and a continuation, a tab or a PowerShell read can't hide from it · done · M · agent
+- Touches: framework/.claude/settings.json, framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
+- Done when: the guard hook's matcher names `Bash|Monitor|PowerShell` and every Bash deny rule in `framework/.claude/settings.json` has a `PowerShell(...)` twin, with no PowerShell allow rule; the guard closes the gaps Director-Driven-Development closed in its B25, B27 to B40, B42 to B52, B55 and B60 (a line continuation, a tab, PowerShell's readers and backtick, comments, command substitutions, variables, shell wrappers, wait loops, heredoc bodies, git configuration and program flags, a quoted or capitalised name, Invoke-Expression), including the readings of a continued command (as written, as joined, and joined from each line after a comment), with every case in the selftest, run in parallel batches; the hook uses no bash 4 form (case conversion, a negative substring offset, a quoted replacement string); the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T276
 
 ### T38 · A quoted no-verify, an inline allow and a gate edit can't get a commit past the hooks · done · S · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, framework/.claude/hooks/guard-protected.sh, framework/.githooks/pre-commit, framework/tools/prototype.sh, selftest.sh, CHANGELOG.md

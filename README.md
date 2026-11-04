@@ -25,7 +25,7 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 
 ## Install
 
-**Start here: write your product brief.** Before you install, describe your app in your own words in a copy of the [product brief template](https://raw.githubusercontent.com/Freakling/App-Director/v1.13.0/project/product/director-brief.md), saved as `product/director-brief.md` in your app. Fill in what you know and leave the rest blank. Then install: onboarding reads your brief and asks only what you left open.
+**Start here: write your product brief.** Before you install, describe your app in your own words in a copy of the [product brief template](https://raw.githubusercontent.com/Freakling/App-Director/v1.14.0/project/product/director-brief.md), saved as `product/director-brief.md` in your app. Fill in what you know and leave the rest blank. Then install: onboarding reads your brief and asks only what you left open.
 
 > You've read this far, so App Director may be what you're looking for. It's free and open source, and if it helps you build your app, a tip on Ko-fi or a sponsorship on GitHub helps me keep building it. I greatly appreciate your support.
 >
@@ -160,7 +160,10 @@ your-app/
 │  App Director's, Claude Code adapter: updated on upgrade
 ├── .claude/skills/             /next-task and the rest: each points to its procedure
 ├── .claude/agents/             builder (builds each item in a fresh context) · reviewer and researcher (read-only)
-├── .claude/hooks/              runs the check before a turn ends; blocks risky git commands
+├── .claude/hooks/              runs the check before a turn ends, for a session that changed code;
+│                               blocks risky git commands; says at session start when the
+│                               project is behind the latest release, and lists the processes
+│                               an ended session left behind
 └── .claude/settings.json       permissions, hooks, timeouts
 ```
 Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/settings.local.json`.
@@ -217,6 +220,6 @@ It exits 0 on pass, 1 on fail, and 3 when it can't run. It caches the last passi
 
 ## License
 
-Privacy: App Director runs on your machine and sends nothing anywhere; see [PRIVACY.md](PRIVACY.md).
+Privacy: App Director runs on your machine and sends nothing anywhere, apart from a release check at most once a day; see [PRIVACY.md](PRIVACY.md).
 
 MIT © 2026 Vikingur Saemundsson: see [LICENSE](LICENSE). You may use, fork and change App Director, including in commercial apps, as long as the copyright notice and the license stay with it. Installed apps carry a copy in `.app-director/LICENSE`.

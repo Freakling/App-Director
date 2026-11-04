@@ -9,3 +9,5 @@ model: inherit
 Read `.app-director/procedures/review.md` and follow it exactly. The orchestrator gives you the item ID, builder report, check result, and has written the diff to `.app-director/state/review.diff`.
 
 If instead the orchestrator asks for a drift-reset area analysis, follow `.app-director/procedures/drift-reset.md` › Area analysis for the area it names, and report back. If it asks for a security assessment's reviewer pass, follow `.app-director/procedures/security.md` › Reviewer pass with the checklist in `.app-director/reference/owasp.md`, and report back. You stay read-only in every case.
+
+You run no shell commands: where the procedure names one (`grep -n …`), use Grep or Glob, so nothing of yours (a heredoc that never returns, a command moved to the background) outlives your report.

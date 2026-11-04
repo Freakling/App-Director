@@ -1,7 +1,7 @@
 <!-- App Director · framework-owned: replaced on upgrade. -->
 # Align
 
-A consistency pass across the brief, decisions, the user stories, TASKS.md, AGENTS.md and check config. Check everything below, fix what's mechanical, and list what needs the human, with a recommendation for each. Never change design.
+A consistency pass across the brief, decisions, the user stories, TASKS.md, AGENTS.md and check config. Check everything below, work out the fixes that are mechanical, and list what needs the human, with a recommendation for each. The fixes are part of the summary in Report: write one only after the human approves. Never change design.
 
 1. **Placeholders.** No `{{…}}` left in AGENTS.md, TASKS.md, `product/` or `validation/TEMPLATE.md` (`git grep -n "{{" -- AGENTS.md TASKS.md product validation/TEMPLATE.md`). The template's flow sections may wait until the core flows are decided, but only if an item for filling them exists.
 2. **Entry files.**
@@ -34,7 +34,7 @@ A consistency pass across the brief, decisions, the user stories, TASKS.md, AGEN
    - Read `product/brief.md` from its first line to its last.
    - For every statement of state, check it against what exists: the built app, the done items (`TASKS.md` and `TASKS-archive.md`) and, where the project tracks them, the latest releases (the app's deploys, where a release is a release tag and its contents are the done items since the last tag; see `release.md`). A statement of state is a section marked later or planned, a count, a list of what exists, a line saying work waits on something, and "once X exists". Fix a stale statement as mechanical drift when the fact is settled (the item is done, the page exists). Report it to the human when the fix is a design call.
    - Check every line added to `product/decisions.md` since the last `docs: align` commit (`git log --grep="^docs: align"` for the last one; all lines if there is none) against the brief, one by one and not a sample. Each is reflected in it, and no older text contradicts it.
-   - Report what was fixed and what needs the human, naming each stale statement, so the next align can tell a repeat.
+   - Report what the fixes change and what needs the human, naming each stale statement, so the next align can tell a repeat.
 8. **Setup.**
    - `bash tools/check.sh` passes.
    - The `.gitignore` and `.gitattributes` lines that install.sh adds are still there (among them `/product/ui/captures/`, `/tools/ui/node_modules/` and `/tools/ui/.auth/`).
@@ -44,5 +44,5 @@ A consistency pass across the brief, decisions, the user stories, TASKS.md, AGEN
    - Every `director/ui/<screen>.excalidraw` has a spec whose recorded sha1 matches the file (`sha1sum`, or `shasum` on macOS). A newer drawing: report "drawing changed since it was processed".
    - Every item's `UI:` points at an existing spec.
    - On an upgrade, this is the check that lists the app's screens the catalog doesn't cover yet.
-10. **Report.** Say what you fixed and what needs the human. Commit the fixes as `docs: align` after the human approves, naming the conflicts that need the human in the commit body so the next align can tell a repeat; during onboarding they go into the install commit instead.
+10. **Report.** Say what needs the human, and list the mechanical fixes before they are written, each as it will read. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options. Inside a session or onboarding the fixes join its summary. Once the human approves, write the fixes and commit them as `docs: align`, naming the conflicts that need the human in the commit body so the next align can tell a repeat; the approval of the summary is the approval to commit. During onboarding they go into the install commit instead.
 11. **Recommend a reset when patching won't hold.** If a conflict you report has come up before (an earlier `docs: align` commit body names it, or `product/decisions.md` already settled it), or one conflict involves several brief principles, recommend `/drift-reset` (`drift-reset.md`) in the report instead of a patch. Never start it yourself.

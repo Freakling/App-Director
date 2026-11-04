@@ -69,13 +69,13 @@ The layout lint runs in capture, in verify and in a build's Screens step, never 
    - `Repair button (removed).`
 
    Include what the drawing leaves ambiguous, every `unparsed` entry, and anything it conflicts with: recorded rules, project rules, other screens' specs (Back in the same place).
-4. **Confirm the reading** ("Is this what you drew?"). Then, for each open point, offer 2-4 options with a recommendation, as `design.md` › For each question does. Typical open points: what a box does at another size (a phone, a wide screen), what happens when a list is empty or overflows, the keyboard focus order, which element has focus when a dialog opens, the keys for new actions.
-5. **Record in one change**, once the human has settled the points:
+4. **Confirm the reading** ("Is this what you drew?"). Then, for each open point, offer 2-4 options with a recommendation, as `design.md` › For each question does. Typical open points: what a box does at another size (a phone, a wide screen), what happens when a list is empty or overflows, the keyboard focus order, which element has focus when a dialog opens, the keys for new actions. Hold the answers in the conversation.
+5. **Record in one change**, once the human has settled the points. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options. The summary lists the spec, the decision lines, the open questions and the item. Then write:
    - `product/ui/<id>.md` (the template below), replacing superseded content.
    - `product/decisions.md`: one line per real decision, in its format, with `from: drawing director/ui/<id>.excalidraw`.
    - The brief only when the drawing changed what the screen does (a new action, a removed feature); layout lives in the spec. A point left undecided becomes an open question (`Q<n>`, bump the counter), and the spec's Open section names it.
    - `TASKS.md`: one item per screen (split an `L`), with `UI: product/ui/<id>.md`, `Touches`, a tagged `Done when`, the `Brief:` line and the `Stories:` line. The usual outcomes: every element in the spec exists under its `data-testid` and the screen opens without errors `(test)` · the capture is lint-clean at every configured size and matches the spec within tolerance `(check)` · the screen reads as drawn and works by mouse, touch and keyboard where the app supports them `(demo)`.
-6. **Commit** as `docs: ui <id>` once the human approves, then suggest a fresh session before the next screen (`design.md` › Finish).
+6. **Commit** the approved summary as `docs: ui <id>`; its approval is the approval to commit. Then suggest a fresh session before the next screen (`design.md` › Finish).
 
 ## verify
 `verify <screen>` checks the built screen against `product/ui/<id>.md`, and writes the compare images. It needs the spec; if there is none, say so and point at `process`.

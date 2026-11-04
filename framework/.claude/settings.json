@@ -54,16 +54,41 @@
       "Read(~/.config/gh/**)",
       "Read(~/AppData/Roaming/GitHub CLI/**)",
       "Bash(git *--output*)",
+      "PowerShell(git *--output*)",
       "Bash(git *--no-index*)",
+      "PowerShell(git *--no-index*)",
       "Bash(git *--ext-diff*)",
+      "PowerShell(git *--ext-diff*)",
       "Bash(git commit *--file*)",
+      "PowerShell(git commit *--file*)",
       "Bash(git grep *--open*)",
+      "PowerShell(git grep *--open*)",
       "Bash(git grep *-O*)",
+      "PowerShell(git grep *-O*)",
       "Bash(git tag *--file*)",
-      "Bash(bash tools/*..*)"
+      "PowerShell(git tag *--file*)",
+      "Bash(bash tools/*..*)",
+      "PowerShell(bash tools/*..*)"
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/release-check.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/orphan-report.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
@@ -71,19 +96,19 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-check.sh\"",
-            "timeout": 660000
+            "timeout": 3600
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Monitor",
+        "matcher": "Bash|Monitor|PowerShell",
         "hooks": [
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-commands.sh\"",
-            "timeout": 10000
+            "timeout": 10
           }
         ]
       },
@@ -93,7 +118,7 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-protected.sh\"",
-            "timeout": 5000
+            "timeout": 5
           }
         ]
       },
@@ -103,13 +128,54 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-protected.sh\"",
-            "timeout": 5000
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-touched.sh\" before",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-touched.sh\" after",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-touched.sh\" after",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-touched.sh\" after",
+            "timeout": 20
           }
         ]
       }
     ]
-  },
-  "bash": {
-    "timeout": 600000
   }
 }

@@ -19,14 +19,27 @@ Brainstorm a topic, answer open design questions, change how part of the app wor
 ## For each question
 1. **Research first when the options depend on facts you don't have,** or when the human asks for it, such as which library fits, what a licence allows, or what an app store requires.
    - A single fact one source settles (a version, a licence, a limit) you may check yourself. Anything larger goes to the `researcher`, as `research.md` › Starting research describes, so this session's context stays small.
-   - The result is a note in `product/research/` and a done `R<n>` item. Tell the human where the researcher's assumptions are, since those are the first thing to check.
+   - The result is a note for `product/research/` and a done `R<n>` item, held in the conversation with the answers until the human approves the summary. Tell the human where the researcher's assumptions are, since those are the first thing to check.
    - The researcher's recommendation is one option, shown with its reason like any other. It informs; the human decides.
 2. Offer 2-4 concrete options. For each: what the user experiences, what it would take to build (which systems in AGENTS.md › Architecture), and how it fits the product goals. Name the stories it serves, and draft the new or changed stories it needs (User stories, below), so the human confirms them with the option.
    Where an option touches security (input, authentication, authorization, sessions, secrets, data access, file or network access, dependencies), state its effect on the OWASP baseline in `rules.md` › Architecture defaults: the item it touches (such as Broken Access Control) and whether it meets, strengthens or would deviate from it. An option that would deviate is shown with the accepted decision it needs, and never recommended without saying so.
 3. Recommend one, with a one-line reason.
-4. Wait for the human. If they answer only part, record only that part. If you had to interpret the answer, write down your reading and ask them to confirm it.
+4. Wait for the human. Hold the answer in the conversation: nothing is recorded yet, and an answered part is not recorded by itself. If you had to interpret the answer, state your reading and ask them to confirm it.
+
+## Summary and approval
+When every question of the session is answered, show one summary of everything the session will write, and wait. Nothing is written before the human approves it.
+1. **List it.** For each file, what it gets, as it will read:
+   - the brief text written or replaced;
+   - each line for `product/decisions.md`, word for word;
+   - the brief › Open Questions removed or added;
+   - each TASKS.md item, new or changed, in full;
+   - each user story with its ID and its Confirmed date, or `unconfirmed`;
+   - the research notes and `R<n>` items.
+2. **Ask:** "Approve this summary, or tell me what to change?"
+3. **Re-open on any change.** A chat message or an "Other" answer, before the summary or after it, is a scope change or a modification: re-open the options it touches, research a new fact if the options now depend on one, then restart the session from the first affected question or continue, and show a new summary. Only a yes to the summary as shown approves it.
 
 ## Record each decision in one change
+Write these only after the human has approved the summary, as the summary shows them.
 1. **brief:** write the rule into its section as the current design, replacing any text it supersedes. A new area gets a new subsection.
 2. **`product/decisions.md`:** append one line in the format given at the top of that file. When the decision followed research, end the `why` with the note's path, as in `why (research: product/research/<note>.md)`, so later sessions reuse the evidence instead of redoing it.
 3. **brief › Open Questions:** delete the answered question. Follow-up questions become new open questions (bump the counter in the brief's Open Questions section).
@@ -40,8 +53,8 @@ Brainstorm a topic, answer open design questions, change how part of the app wor
 7. **Layout:** where things sit on a screen goes to `ui-design.md`. A design session settles what a screen is for, not where its elements are.
 
 ## Finish
-- Summarise what was decided, what's still open, and the next most useful question.
-- Commit the product files as `docs: <summary>`, with a body listing the decisions, after the human approves (see `rules.md` › Git). The session's research notes and `R<n>` items go in the same commit. A design session doesn't edit source code.
+- Write everything the approved summary lists and commit it as one change, `docs: <summary>`, with a body listing the decisions. The approval of the summary is the approval to commit (`rules.md` › Git). The session's research notes and `R<n>` items go in the same commit. A design session doesn't edit source code.
+- Say what was decided, what's still open, and the next most useful question.
 - After the commit, suggest `/clear` (or starting a fresh session) before the next topic. The brief, decisions.md, the stories and TASKS.md hold everything; the conversation history no longer adds value and only grows the context.
 
 ## User stories
@@ -59,11 +72,11 @@ Brainstorm a topic, answer open design questions, change how part of the app wor
    - **correct:** write the new wording and date it. If you had to interpret the answer, show your reading and keep it `unconfirmed` until they confirm it. A correction that means the built behaviour is wrong is a design question: offer options as For each question says, or add an Open Question;
    - **drop:** delete its row. A `todo` item that names it goes to the human, who decides whether it's still needed.
 
-   A story the human doesn't answer stays as it is; an unconfirmed one comes back next time.
-3. **Record.** Set the header's Last validated to today and `git rev-parse --short HEAD`, as in ``**Last validated:** 2026-11-14 at `4e1f0c2` ``. Commit `product/user-stories.md` (and any items or Open Questions it changed) as `docs: validate the user stories`, after the human approves.
+   A story the human doesn't answer stays as it is; an unconfirmed one comes back next time. Hold the answers in the conversation: nothing is written yet.
+3. **Record.** Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options. The summary lists the stories changed, their Confirmed dates, and the Last validated line. Then set the header's Last validated to today and `git rev-parse --short HEAD`, as in ``**Last validated:** 2026-11-14 at `4e1f0c2` ``. Commit `product/user-stories.md` (and any items or Open Questions it changed) as `docs: validate the user stories`; the approval of the summary is the approval to commit.
 
 ## Harvest a prototype
 `prototype.md` › Harvest brings a prototype here: its notes (`PROTOTYPE.md`: what was tried, how it felt, what to keep) and its diff against main. It shows how a change feels; it decides nothing, and its code is never merged or cherry-picked.
 1. **Context.** Show the notes in the human's words, then what the prototype changes as a user would see it, area by area from the diff rather than the code, with the brief sections, stories and decisions it touches, as Prepare says. Name what it skipped that a real build needs: tests, the layers in `rules.md` › Architecture defaults, and anything the OWASP baseline asks.
 2. **Options,** as For each question says. They are usually to build it as tried, a variant the notes point to, or to leave it, and each says what it would take to build from main.
-3. **Record** what the human chooses, as Record each decision says, naming the prototype in each: the decision's `why` ends with `(prototype: proto/<name>)`; a story it adds or changes gets the line `US-<n> came from the prototype proto/<name> on <date>.` under its area's table; and each item gets `- Prototype: proto/<name>` (`.app-director/tasks.md`). The items are built from main like any other, with the check and reviews. Nothing is filed without the human's answer: a part they don't answer stays out, and leaving the prototype files nothing. Unlike Record step 4, a drafted story the human doesn't answer stays out too. Commit as Finish says, as `docs: harvest the <name> prototype`.
+3. **Record** what the human chooses, as Record each decision says, naming the prototype in each: the decision's `why` ends with `(prototype: proto/<name>)`; a story it adds or changes gets the line `US-<n> came from the prototype proto/<name> on <date>.` under its area's table; and each item gets `- Prototype: proto/<name>` (`.app-director/tasks.md`). The items are built from main like any other, with the check and reviews. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options. The summary lists the decisions, stories and items, each naming the prototype. Nothing is filed without the human's answer: a part they don't answer stays out, and leaving the prototype files nothing. Unlike Record step 4, a drafted story the human doesn't answer stays out too. Write and commit what the approved summary lists as Finish says, as `docs: harvest the <name> prototype`.

@@ -15,7 +15,13 @@
 set -u
 src="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
-if [ "${KEEP:-0}" = "1" ]; then echo "keeping $work"; else trap 'rm -rf "$work"' EXIT; fi
+cleanup() { # stops the app and the browser a capture left running, then removes the temporary folder (unless KEEP=1)
+  stop_ui_leftovers
+  [ "${KEEP:-0}" = "1" ] && return 0
+  rm -rf "$work" 2>/dev/null || { sleep 2; rm -rf "$work"; }
+}
+if [ "${KEEP:-0}" = "1" ]; then echo "keeping $work"; fi
+trap cleanup EXIT
 
 passed=0; failed=0
 nl='
@@ -43,7 +49,60 @@ new_repo() { # new_repo <folder>
   mkdir -p "$1" && (cd "$1" && git init -q && git config core.autocrlf false \
     && printf '# app\n' > README.md && git add -A && git_q commit -qm init)
 }
+# What a capture leaves behind when it is killed (T304). A capture killed while Chromium starts leaves the browser's helper processes
+# running on Windows (they hold the folder the browser was started in, which can't then be removed). Windows keeps a gone process's
+# children listed under its id, even when it has gone itself, so they are found from the capture's id through the processes under
+# it, and each is stopped by itself (taskkill's /T can't walk through a browser process that has already gone). The second pass
+# catches what the first one raced with. Elsewhere the browser ends with the capture.
+stop_orphans_of() { # stop_orphans_of <pid of a process that is gone> <pid to leave running, with what is under it>
+  case "${1:-}" in ''|*[!0-9]*) return 0 ;; esac
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      ADIR_ROOT="$1" ADIR_KEEP="${2:-0}" MSYS_NO_PATHCONV=1 powershell -NoProfile -NonInteractive -Command '
+        $root = [int]$env:ADIR_ROOT; $keep = [int]$env:ADIR_KEEP
+        for ($pass = 0; $pass -lt 2; $pass++) {
+          $all = @(Get-CimInstance Win32_Process); $todo = @($root); $ids = @()
+          while ($todo.Count -gt 0) {
+            $next = @()
+            foreach ($parent in $todo) {
+              foreach ($child in @($all | Where-Object { $_.ParentProcessId -eq $parent })) {
+                if ($child.ProcessId -ne $keep -and $child.ProcessId -ne $PID -and $ids -notcontains $child.ProcessId) { $ids += $child.ProcessId; $next += $child.ProcessId }
+              }
+            }
+            $todo = $next
+          }
+          foreach ($id in $ids) { taskkill /PID $id /F | Out-Null }
+          Start-Sleep -Milliseconds 300
+        }' >/dev/null 2>&1 ;;
+  esac
+  return 0
+}
+# The app and the browser of a capture that never stopped them (the run was interrupted, or ended early), named by the record the
+# capture keeps in the example app: "<app pid> <capture pid>". A capture that finished leaves no record.
+stop_ui_leftovers() {
+  local record="$work/todo-web/.app-director/state/ui_app.pid" app_pid="" capture_pid=""
+  [ -f "$record" ] || return 0
+  read -r app_pid capture_pid < "$record" || true
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      [ -z "$capture_pid" ] || taskkill //PID "$capture_pid" //T //F >/dev/null 2>&1
+      stop_orphans_of "$capture_pid" 0
+      [ -z "$app_pid" ] || taskkill //PID "$app_pid" //T //F >/dev/null 2>&1
+      stop_orphans_of "$app_pid" 0 ;;
+    *)
+      [ -z "$capture_pid" ] || kill -9 "$capture_pid" 2>/dev/null
+      [ -z "$app_pid" ] || kill -9 -- "-$app_pid" "$app_pid" 2>/dev/null ;;
+  esac
+  return 0
+}
 
+stories_seed="$src/project/product/user-stories.md"
+# The parts of the selftest that share nothing run side by side (T283). The framework checks run on their own. The installer
+# and the project check run in order, and then the guard cases (on a copy of the app as the check left it), the security and
+# user story checks and the prototype checks start beside the hooks and /ui-design. Each part writes its output and its counts
+# to its own file here, and the files print in the order of the sections, so the output reads as it always did.
+seg="$work/seg"; mkdir -p "$seg"
+( trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-framework"' EXIT
 # --- framework files ------------------------------------------------------------------------------
 echo "framework"
 
@@ -334,7 +393,6 @@ grep -q '`/security`' "$src/ONBOARDING.md" && grep -q '`\[security\] every`' "$s
 # User stories: the seed has its header line, its sections and a worked example in the story format; the
 # item format and the TASKS.md seed carry Stories:; the check.cfg seed has the cadence; and the rules,
 # the procedures, the settings and the docs name them. tools/stories.sh --due is tested under "user stories".
-stories_seed="$src/project/product/user-stories.md"
 wired=""
 [ -f "$stories_seed" ] && [ -f "$src/framework/tools/stories.sh" ] || wired="$wired files"
 grep -q '^# User stories: {{APP_NAME}}$' "$stories_seed" || wired="$wired seed(title)"
@@ -410,6 +468,50 @@ grep -qF '`/prototype {name}`' "$src/README.md" && grep -qF 'tools/prototype.sh'
 grep -qF '`/prototype`' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
 [ -z "$wired" ] && ok "prototypes: the procedure, the skill and tools/prototype.sh exist, and the rules, the item format, the design procedure, the settings, the hooks and the docs name them" \
   || bad "prototypes aren't wired into:$wired"
+
+# Nothing is written without the human's approval of a summary: rules.md has the bullet right after the
+# design-call bullet, design.md holds the answers in the conversation, has Summary and approval between
+# For each question and Record each decision in one change, and Finish writes what the summary lists, and
+# every procedure that records from a conversation (design.md's validation and harvest, research.md,
+# next-task.md, drift-reset.md, ui-design.md, acceptance.md, align.md and ONBOARDING.md) carries the pointer.
+wired=""
+_ap_ptr='Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options.'
+_ap_rules="$adir/rules.md"
+_ap_dm="$adir/procedures/design.md"
+_ap_call="$(grep -n '^- A design call is a feature behaviour' "$_ap_rules" | cut -d: -f1)"
+_ap_rule="$(grep -n "^- \*\*Nothing is written without the human.s explicit approval\.\*\* While a session runs, the answers stay in the conversation\." "$_ap_rules" | cut -d: -f1)"
+[ -n "$_ap_call" ] && [ -n "$_ap_rule" ] && [ "$_ap_rule" -eq $((_ap_call + 1)) ] \
+  && grep -qF 'is a scope change or a modification, not an answer to record: it re-opens the options it touches, and the session reassesses, then restarts or continues.' "$_ap_rules" \
+  && grep -qF 'show a summary of every file, line, item and story to be written (`design.md` › Summary and approval), and write and commit all of it in one change only after the human approves the summary.' "$_ap_rules" \
+  || wired="$wired rules.md(the approval bullet after the design-call bullet)"
+_ap_each="$(grep -n '^## For each question$' "$_ap_dm" | cut -d: -f1)"
+_ap_sum="$(grep -n '^## Summary and approval$' "$_ap_dm" | cut -d: -f1)"
+_ap_rec="$(grep -n '^## Record each decision in one change$' "$_ap_dm" | cut -d: -f1)"
+[ -n "$_ap_each" ] && [ -n "$_ap_sum" ] && [ -n "$_ap_rec" ] && [ "$_ap_each" -lt "$_ap_sum" ] && [ "$_ap_sum" -lt "$_ap_rec" ] \
+  || wired="$wired design.md(Summary and approval between For each question and Record)"
+grep -qF 'Hold the answer in the conversation: nothing is recorded yet, and an answered part is not recorded by itself.' "$_ap_dm" \
+  && ! grep -qF 'record only that part' "$_ap_dm" || wired="$wired design.md(the wait holds the answers)"
+grep -qF 'Nothing is written before the human approves it.' "$_ap_dm" && grep -qF 'Approve this summary, or tell me what to change?' "$_ap_dm" \
+  && grep -qF 'Only a yes to the summary as shown approves it.' "$_ap_dm" \
+  && grep -qF 'each user story with its ID and its Confirmed date, or `unconfirmed`;' "$_ap_dm" \
+  && grep -qF 'the research notes and `R<n>` items.' "$_ap_dm" || wired="$wired design.md(the summary's list)"
+grep -qF 'Write everything the approved summary lists and commit it as one change, `docs: <summary>`' "$_ap_dm" \
+  && grep -qF 'The approval of the summary is the approval to commit (`rules.md` › Git).' "$_ap_dm" || wired="$wired design.md(Finish)"
+[ "$(grep -cF "$_ap_ptr" "$_ap_dm")" -ge 2 ] || wired="$wired design.md(pointers in the validation and the harvest)"
+for _ap_f in research.md next-task.md ui-design.md acceptance.md align.md; do
+  grep -qF "$_ap_ptr" "$adir/procedures/$_ap_f" || wired="$wired $_ap_f(pointer)"
+done
+[ "$(grep -cF "$_ap_ptr" "$adir/procedures/drift-reset.md")" -ge 2 ] || wired="$wired drift-reset.md(pointers in the reset and the postmortem)"
+grep -qF "$_ap_ptr" "$src/ONBOARDING.md" && grep -q '^### Summary and approval$' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md(pointer and Summary and approval)"
+grep -qF 'Inside a session or onboarding the fixes join its summary.' "$adir/procedures/align.md" || wired="$wired align.md(the fixes join the summary)"
+grep -qF 'the decision lines word for word, the design diff' "$adir/procedures/drift-reset.md" && grep -qF 'and each TASKS.md item in full' "$adir/procedures/drift-reset.md" \
+  || wired="$wired drift-reset.md(the summary's list)"
+grep -qF 'Hold the note and the item in the conversation.' "$adir/procedures/research.md" || wired="$wired research.md(holds the note and the item)"
+grep -qF 'the summary lists its records, as `design.md` lists them' "$adir/procedures/next-task.md" || wired="$wired next-task.md(blocked)"
+grep -qF 'The summary lists the spec, the decision lines, the open questions and the item.' "$adir/procedures/ui-design.md" || wired="$wired ui-design.md(the summary's list)"
+grep -q 'once the human approves a summary of them' "$src/framework/.claude/skills/design/SKILL.md" || wired="$wired skills/design/SKILL.md(description)"
+[ -z "$wired" ] && ok "nothing is written until the human approves a summary: the rule, design.md's Summary and approval, and the pointer in each procedure that records from a conversation" \
+  || bad "the approval of a summary isn't wired into:$wired"
 
 # Agent permissions: the template's allow rules run without a prompt. A generic code runner with a
 # wildcard runs any code, so a prompt-injected page could push or read credentials (the docs repo's
@@ -534,7 +636,431 @@ printf '{\n  "permissions": {\n    "deny": [\n      "Read(~/.ssh/**)",\n      "R
 [ -z "$(read_deny_missing "$work/read-deny-all.json")" ] || read_planted="$read_planted all"
 [ -z "$read_planted" ] && ok "the Read deny check flags each missing credential-store and .env rule, and passes settings with all seventeen" \
   || bad "the Read deny check misses a planted case:$read_planted"
+# Claude Code reads a hook's timeout in seconds and cancels the hook past it, so the guard's limit is 10 seconds (the guard's
+# long file body is timed above), and no hook waits an hour or more. settings.json has no bash key: Claude Code doesn't read
+# one, and the Bash tool's limits are the BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS variables (T45).
+hook_timeouts="$(grep -oE '"timeout"[[:space:]]*:[[:space:]]*[0-9]+' "$settings" | grep -oE '[0-9]+$')"
+guard_timeout="$(awk '/guard-commands\.sh/ { g = 1 } g && /"timeout"/ { gsub(/[^0-9]/, ""); print; exit }' "$settings")"
+timeout_fail=""
+[ -n "$hook_timeouts" ] || timeout_fail="$timeout_fail none-found"
+for hook_t in $hook_timeouts; do [ "$hook_t" -le 3600 ] || timeout_fail="$timeout_fail $hook_t"; done
+[ -n "$guard_timeout" ] && [ "$guard_timeout" -le 10 ] || timeout_fail="$timeout_fail guard=${guard_timeout:-none}"
+grep -qE '"bash"[[:space:]]*:' "$settings" && timeout_fail="$timeout_fail bash-key"
+[ -z "$timeout_fail" ] && ok "every hook timeout in settings.json is at most 3600 seconds, the guard's at most 10, and the file has no bash key" \
+  || bad "settings.json's hook timeouts (seconds: at most 3600, the guard's at most 10) or its bash key are wrong:$timeout_fail"
 
+# --- release check hook -------------------------------------------------------------------------
+# release-check.sh runs when a session starts and says when the installed version (the manifest's first line) is below the
+# latest release tag on GitHub. A throwaway project holds the manifest and the cache, and a stand-in git (first on PATH) records
+# each call and answers with the tags a case sets, so no case reaches the network (T308).
+echo "release check hook"
+rc_hook="$src/framework/.claude/hooks/release-check.sh"
+rc_proj="$work/rc-project"; rc_stub="$work/rc-stub"; rc_tstub="$work/rc-tstub"
+rc_cache="$rc_proj/.app-director/state/latest-release"
+rc_url="https://github.com/Freakling/App-Director.git"
+mkdir -p "$rc_proj/.app-director" "$rc_stub" "$rc_tstub"
+cat > "$rc_stub/git" <<'EOF'
+#!/bin/bash
+# a stand-in git: it records each call (the prompt setting and the arguments), then fails when git-fails exists, or prints the tags file
+printf '%s|%s\n' "${GIT_TERMINAL_PROMPT:-unset}" "$*" >> "$RC_STUB/calls"
+[ -e "$RC_STUB/git-fails" ] && exit 128
+while IFS= read -r line; do printf '%s\n' "$line"; done < "$RC_STUB/tags"
+exit 0
+EOF
+cat > "$rc_tstub/timeout" <<'EOF'
+#!/bin/bash
+# a stand-in timeout: it records its limit and runs the command
+printf '%s\n' "$1" >> "$RC_STUB/timeouts"
+shift
+exec "$@"
+EOF
+chmod +x "$rc_stub/git" "$rc_tstub/timeout"
+unset APP_DIRECTOR_RELEASE_CHECK
+export CLAUDE_PROJECT_DIR="$rc_proj" RC_STUB="$rc_stub"
+rc_sha="0123456789abcdef0123456789abcdef01234567"
+rc_set() { # rc_set <manifest first line> [tag…]: a project at that version, no cache, and a git that lists these tags
+  local t
+  rm -rf "$rc_proj/.app-director/state" "$rc_stub/calls" "$rc_stub/timeouts" "$rc_stub/git-fails"
+  printf '%s\n# source %s\n%s\t.claude/settings.json\n' "$1" "$rc_sha" "$rc_sha" > "$rc_proj/.app-director/manifest"
+  shift
+  : > "$rc_stub/tags"
+  for t in "$@"; do printf '%s\trefs/tags/%s\n' "$rc_sha" "$t" >> "$rc_stub/tags"; done
+}
+rc_cache_is() { # rc_cache_is <version>: write the cache with that value
+  mkdir -p "$rc_proj/.app-director/state"; printf '%s\n' "$1" > "$rc_cache"
+}
+rc_run() { # the hook's output, stdout and stderr together; its exit status is the hook's
+  printf '{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}' | PATH="$rc_stub:$PATH" bash "$rc_hook" 2>&1
+}
+rc_calls() { # how many times git was called
+  local n=0 l
+  [ -f "$rc_stub/calls" ] && while IFS= read -r l; do n=$((n + 1)); done < "$rc_stub/calls"
+  echo "$n"
+}
+rc_json() { # rc_json <installed> <latest>: the line the hook prints
+  local t="App Director $1 is installed, and the latest release is $2. Ask the agent to upgrade it when it suits you."
+  printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s Tell the human this once, in your first reply."}}' "$t" "$t"
+}
+
+# 1. Behind the latest release: it warns, with the text for the human and for Claude in one line of JSON, and looks the tags up once.
+rc_set "# app-director 1.14.0" v1.13.0 v1.15.0 v1.14.0
+out="$(rc_run)"; status=$?
+expect_status "a project behind the latest release: the hook exits 0" 0 "$status" "$out"
+[ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && ok "and prints one line of JSON with the message for the human and the same text and the instruction for Claude" \
+  || bad "and prints one line of JSON with the message for the human and the same text and the instruction for Claude" "$out"
+if command -v node >/dev/null 2>&1; then
+  RC_OUT="$out" node -e 'const o = JSON.parse(process.env.RC_OUT); const h = o.hookSpecificOutput; if (typeof o.systemMessage !== "string" || h.hookEventName !== "SessionStart" || h.additionalContext.indexOf(o.systemMessage) !== 0) process.exit(1);' \
+    && ok "and the line parses as JSON: systemMessage for the human, additionalContext for Claude" || bad "and the line parses as JSON: systemMessage for the human, additionalContext for Claude" "$out"
+else
+  echo "  skip  the line parses as JSON (node not found)"
+fi
+[ "$(rc_calls)" = "1" ] && [ "$(<"$rc_stub/calls")" = "0|ls-remote --tags --refs $rc_url refs/tags/v*" ] \
+  && ok "it asked git once, for the release tags only, with the terminal prompt off" || bad "it asked git once, for the release tags only, with the terminal prompt off" "$(<"$rc_stub/calls")"
+[ "$(<"$rc_cache")" = "1.15.0" ] && ok "and kept the highest version in .app-director/state/latest-release" || bad "and kept the highest version in .app-director/state/latest-release" "$(<"$rc_cache")"
+rc_set "# app-director 1.9.0" v1.14.0 v1.9.0
+out="$(rc_run)"; [ "$out" = "$(rc_json 1.9.0 1.14.0)" ] && ok "1.9.0 is below 1.14.0: versions compare field by field as numbers" || bad "1.9.0 is below 1.14.0: versions compare field by field as numbers" "$out"
+rc_set "# app-director 1.14.0" v1.9.0
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "and 1.14.0 is not below 1.9.0" || bad "and 1.14.0 is not below 1.9.0" "$out"
+rc_set "# app-director 9.9.9" v10.0.0
+out="$(rc_run)"; [ "$out" = "$(rc_json 9.9.9 10.0.0)" ] && ok "9.9.9 is below 10.0.0" || bad "9.9.9 is below 10.0.0" "$out"
+
+# 2. Up to date, ahead, and nothing found: silent.
+rc_set "# app-director 1.15.0" v1.14.0 v1.15.0
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "the latest release installed: nothing is printed" || bad "the latest release installed: nothing is printed" "$out"
+rc_set "# app-director 1.16.0" v1.15.0
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "a newer install than the latest tag: nothing is printed" || bad "a newer install than the latest tag: nothing is printed" "$out"
+rc_set "# app-director 1.14.0"
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "a lookup that finds no tag: nothing is printed" || bad "a lookup that finds no tag: nothing is printed" "$out"
+
+# 3. A development snapshot's ' + unreleased (...)' tail is read as its version, and a CRLF manifest as the same one.
+rc_set "# app-director 1.14.0 + unreleased (abc1234)" v1.15.0
+out="$(rc_run)"; [ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && ok "a manifest saying '1.14.0 + unreleased (abc1234)' is read as 1.14.0" || bad "a manifest saying '1.14.0 + unreleased (abc1234)' is read as 1.14.0" "$out"
+rc_set "# app-director 1.14.0 + unreleased" v1.14.0
+out="$(rc_run)"; [ -z "$out" ] && ok "and a snapshot of the latest release is up to date" || bad "and a snapshot of the latest release is up to date" "$out"
+rc_set "# app-director 1.14.0" v1.15.0
+printf '# app-director 1.14.0\r\n# source %s\r\n' "$rc_sha" > "$rc_proj/.app-director/manifest"
+out="$(rc_run)"; [ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && ok "a manifest with CRLF line endings is read too" || bad "a manifest with CRLF line endings is read too" "$out"
+
+# 4. The cache: a fresh one is used without git, a day-old one is refreshed once, and the day's next start doesn't ask again.
+rc_set "# app-director 1.14.0" v1.16.0
+rc_cache_is 1.15.0
+out="$(rc_run)"; status=$?
+[ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && [ "$(rc_calls)" = "0" ] && [ "$status" -eq 0 ] && ok "a fresh cache is used and git isn't called" || bad "a fresh cache is used and git isn't called" "$out"
+touch -t 202001010000 "$rc_cache"
+out="$(rc_run)"
+[ "$out" = "$(rc_json 1.14.0 1.16.0)" ] && [ "$(rc_calls)" = "1" ] && [ "$(<"$rc_cache")" = "1.16.0" ] \
+  && ok "a cache a day old calls git once and takes the new value" || bad "a cache a day old calls git once and takes the new value" "calls $(rc_calls): $out"
+out="$(rc_run)"; [ "$out" = "$(rc_json 1.14.0 1.16.0)" ] && [ "$(rc_calls)" = "1" ] && ok "and the next start the same day doesn't call it again" || bad "and the next start the same day doesn't call it again" "calls $(rc_calls): $out"
+rc_set "# app-director 1.14.0" v1.16.0
+rc_cache_is "not a version"
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ "$(rc_calls)" = "0" ] && ok "a cache that doesn't hold a version is silent until it is a day old" || bad "a cache that doesn't hold a version is silent until it is a day old" "$out"
+
+# 5. A lookup that fails: nothing printed, exit 0, and the day's one try is spent; an old value is kept.
+rc_set "# app-director 1.14.0" v1.16.0
+: > "$rc_stub/git-fails"
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ "$(rc_calls)" = "1" ] && [ -f "$rc_cache" ] && [ ! -s "$rc_cache" ] \
+  && ok "a failed git prints nothing, exits 0 and leaves an empty cache" || bad "a failed git prints nothing, exits 0 and leaves an empty cache" "exit $status, calls $(rc_calls): $out"
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ "$(rc_calls)" = "1" ] && ok "and doesn't call git again that day" || bad "and doesn't call git again that day" "exit $status, calls $(rc_calls): $out"
+rc_set "# app-director 1.14.0" v1.16.0
+: > "$rc_stub/git-fails"
+rc_cache_is 1.15.0; touch -t 202001010000 "$rc_cache"
+out="$(rc_run)"; status=$?
+[ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && [ "$status" -eq 0 ] && [ "$(rc_calls)" = "1" ] && [ "$(<"$rc_cache")" = "1.15.0" ] \
+  && ok "a failed refresh keeps the old value, and still warns by it" || bad "a failed refresh keeps the old value, and still warns by it" "exit $status, calls $(rc_calls): $out"
+out="$(rc_run)"; [ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && [ "$(rc_calls)" = "1" ] && ok "and the old value's day starts again, so git isn't called a second time that day" || bad "and the old value's day starts again, so git isn't called a second time that day" "calls $(rc_calls): $out"
+rc_set "# app-director 1.14.0" v1.16.0
+out="$(printf '{}' | PATH="/nonexistent" "$BASH" "$rc_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "a PATH with no git at all prints nothing and exits 0" || bad "a PATH with no git at all prints nothing and exits 0" "exit $status: $out"
+
+# 6. Only v<major>.<minor>.<patch> tags count.
+rc_set "# app-director 1.14.0" v2.0.0-rc1 latest v1.15.0 v5.0.0-beta v1.16 v1.16.0.1 v1.17.0-rc1 nightly/v9.9.9 V9.0.0
+out="$(rc_run)"
+[ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && [ "$(<"$rc_cache")" = "1.15.0" ] && ok "tags of any other shape (-rc1, a name, two or four fields, a prefix, a capital V) are ignored" \
+  || bad "tags of any other shape (-rc1, a name, two or four fields, a prefix, a capital V) are ignored" "$out"
+rc_set "# app-director 1.14.0" v2.0.0-rc1 latest
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ ! -s "$rc_cache" ] && ok "and with only such tags nothing is printed" || bad "and with only such tags nothing is printed" "$out"
+rc_set "# app-director 1.14.0" v08.09.0
+out="$(rc_run)"; status=$?
+[ "$out" = "$(rc_json 1.14.0 8.9.0)" ] && [ "$status" -eq 0 ] && ok "a field with a leading zero is a decimal number, not an octal one" || bad "a field with a leading zero is a decimal number, not an octal one" "exit $status: $out"
+
+# 7. The time limit: 5 seconds when timeout exists, and the lookup still runs without it.
+rc_set "# app-director 1.14.0" v1.15.0
+out="$(printf '{}' | PATH="$rc_tstub:$rc_stub:$PATH" bash "$rc_hook" 2>&1)"
+[ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && [ "$(<"$rc_stub/timeouts")" = "5" ] && ok "the lookup runs under timeout 5 when timeout exists" || bad "the lookup runs under timeout 5 when timeout exists" "$out"
+rc_set "# app-director 1.14.0" v1.15.0
+out="$(printf '{}' | PATH="$rc_stub:/nonexistent" "$BASH" "$rc_hook" 2>&1)"
+[ "$out" = "$(rc_json 1.14.0 1.15.0)" ] && [ "$(rc_calls)" = "1" ] && [ ! -e "$rc_stub/timeouts" ] && ok "and without timeout on PATH it still looks the tags up" || bad "and without timeout on PATH it still looks the tags up" "calls $(rc_calls): $out"
+
+# 8. Off, and nothing to compare: silent, and git is never called.
+rc_set "# app-director 1.14.0" v1.15.0
+out="$(printf '{}' | APP_DIRECTOR_RELEASE_CHECK=0 PATH="$rc_stub:$PATH" bash "$rc_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ "$(rc_calls)" = "0" ] && [ ! -e "$rc_cache" ] && ok "APP_DIRECTOR_RELEASE_CHECK=0 turns the hook off: nothing printed, git not called" || bad "APP_DIRECTOR_RELEASE_CHECK=0 turns the hook off" "exit $status: $out"
+rc_set "# app-director 1.14.0" v1.15.0
+rm -f "$rc_proj/.app-director/manifest"
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ "$(rc_calls)" = "0" ] && ok "a project with no manifest: nothing printed, git not called" || bad "a project with no manifest: nothing printed, git not called" "exit $status: $out"
+printf '# source %s\n%s\t.claude/settings.json\n' "$rc_sha" "$rc_sha" > "$rc_proj/.app-director/manifest"
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ "$(rc_calls)" = "0" ] && ok "a manifest with no version line: nothing printed, git not called" || bad "a manifest with no version line: nothing printed, git not called" "exit $status: $out"
+rc_set "# app-director 1.x" v1.15.0
+out="$(rc_run)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ "$(rc_calls)" = "0" ] && ok "and one whose version isn't three numbers" || bad "and one whose version isn't three numbers" "exit $status: $out"
+out="$(printf '{}' | CLAUDE_PROJECT_DIR="$work/no-such-folder" PATH="$rc_stub:$PATH" bash "$rc_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "a project folder that doesn't exist: nothing printed, exit 0" || bad "a project folder that doesn't exist: nothing printed, exit 0" "exit $status: $out"
+
+# 9. The project check never runs it, so a warning can't fail tools/check.sh; settings.json runs it at session start only.
+if ! grep -rq 'release-check' "$src/framework/tools" "$src/framework/.githooks" "$src/framework/.app-director"; then ok "the project check and the git hooks don't run the release check, so a warning never fails tools/check.sh"
+else bad "the project check and the git hooks don't run the release check" "$(grep -rn 'release-check' "$src/framework/tools" "$src/framework/.githooks" "$src/framework/.app-director")"; fi
+rc_wiring="$(awk '/^    "[A-Za-z]+": \[/ { ev = $1; gsub(/[":]/, "", ev) } /"matcher"/ { split($0, a, "\""); m = a[4] }
+  /release-check\.sh/ { hit = ev ";" m; next } hit != "" && /"timeout"/ { t = $2; gsub(/[^0-9]/, "", t); print hit ";" t; hit = "" }' "$settings")"
+[ "$rc_wiring" = "SessionStart;startup|resume;10" ] && ok "settings.json runs the release check at SessionStart, on startup and resume, with a timeout of 10 seconds" \
+  || bad "settings.json runs the release check at SessionStart, on startup and resume, with a timeout of 10 seconds" "$rc_wiring"
+rc_bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|local|typeset) +-[a-zA-Z]*A|(^|[;&| ])(mapfile|readarray) +|(^|[;&| ])coproc +[A-Za-z]|[[:space:]]\|&[[:space:]]|\$\{[A-Za-z_0-9@*]+(\[[^]]*\])?: -[0-9]|stat +-c|date +-d|sed +-i|readlink +-f|-printf|-delete)' \
+  "$rc_hook" || true)
+if [ -z "$rc_bash4" ]; then ok "the release check uses no bash 4 form and no GNU-only tool flag"; else bad "the release check uses no bash 4 form and no GNU-only tool flag" "$rc_bash4"; fi
+
+# --- orphan report hook -------------------------------------------------------------------------
+# orphan-report.sh runs when a session starts and lists the Python, node, shell, Godot and headless browser processes that are
+# an hour old or more and whose parent is gone. Stand-ins first on PATH answer for the process list (powershell.exe on Windows, ps
+# elsewhere, and uname to choose between them), and others stand in for every program that stops a process, so no case reads this
+# machine's own processes or could stop one (T310).
+echo "orphan report hook"
+or_hook="$src/framework/.claude/hooks/orphan-report.sh"
+or_stub="$work/or-stub"; or_tstub="$work/or-tstub"; or_t124="$work/or-t124"; or_bare="$work/or-bare"; or_cwd="$work/or-cwd"
+mkdir -p "$or_stub" "$or_tstub" "$or_t124" "$or_bare" "$or_cwd"
+cat > "$or_stub/uname" <<'EOF'
+#!/bin/bash
+# a stand-in uname: the system a case sets in uname-is, Linux when it sets none
+if [ -f "$OR_STUB/uname-is" ]; then IFS= read -r line < "$OR_STUB/uname-is"; echo "$line"; else echo Linux; fi
+EOF
+cat > "$or_stub/ps" <<'EOF'
+#!/bin/bash
+# a stand-in ps: it records its arguments, then fails when ps-fails exists, or prints the rows a case sets
+printf '%s\n' "$*" >> "$OR_STUB/ps-calls"
+[ -e "$OR_STUB/ps-fails" ] && exit 1
+while IFS= read -r line; do printf '%s\n' "$line"; done < "$OR_STUB/ps-rows"
+EOF
+cat > "$or_stub/powershell.exe" <<'EOF'
+#!/bin/bash
+# a stand-in powershell.exe: it records its arguments, then fails when pwsh-fails exists, or prints the rows a case sets, with PowerShell's line ends
+printf '%s\n' "$*" >> "$OR_STUB/pwsh-calls"
+[ -e "$OR_STUB/pwsh-fails" ] && exit 1
+while IFS= read -r line; do printf '%s\r\n' "$line"; done < "$OR_STUB/win-rows"
+EOF
+cat > "$or_stub/kill" <<'EOF'
+#!/bin/bash
+# a stand-in for a program that stops a process: it records the call, and no case should make one
+printf '%s %s\n' "${0##*/}" "$*" >> "$OR_STUB/killed"
+EOF
+cp "$or_stub/kill" "$or_stub/taskkill"; cp "$or_stub/kill" "$or_stub/taskkill.exe"; cp "$or_stub/kill" "$or_stub/pkill"; cp "$or_stub/kill" "$or_stub/killall"
+cat > "$or_tstub/timeout" <<'EOF'
+#!/bin/bash
+# a stand-in timeout: it records its limit and runs the command
+printf '%s\n' "$1" >> "$OR_STUB/timeouts"
+shift
+exec "$@"
+EOF
+cat > "$or_t124/timeout" <<'EOF'
+#!/bin/bash
+# a stand-in timeout that runs out: the command runs, then the status is 124, as when the limit ends it
+shift
+"$@"
+exit 124
+EOF
+cat > "$or_bare/uname" <<'EOF'
+#!/bin/bash
+echo MINGW64_NT-10.0-26300
+EOF
+chmod +x "$or_stub"/* "$or_tstub/timeout" "$or_t124/timeout" "$or_bare/uname"
+# The builtin kill is no program on PATH, so a function stands in for it, exported to reach the hook's own bash.
+kill() { printf 'kill %s\n' "$*" >> "$OR_STUB/killed"; }
+export -f kill
+unset APP_DIRECTOR_ORPHAN_REPORT
+export OR_STUB="$or_stub"
+or_ask="Tell the human this once, in your first reply, and don't stop them unless the human asks."
+or_set() { # or_set <win|ps> [<pid> <ppid> <age in seconds> <name>]…: that machine, with these processes, in the shape of its list
+  local shape="$1" f d h m s
+  shift
+  rm -f "$or_stub/ps-calls" "$or_stub/pwsh-calls" "$or_stub/ps-fails" "$or_stub/pwsh-fails" "$or_stub/timeouts" "$or_stub/uname-is" "$or_stub/ps-rows" "$or_stub/win-rows"
+  if [ "$shape" = win ]; then echo MINGW64_NT-10.0-26300 > "$or_stub/uname-is"; f="$or_stub/win-rows"; else f="$or_stub/ps-rows"; fi
+  : > "$f"
+  while [ "$#" -ge 4 ]; do
+    if [ "$shape" = win ]; then
+      printf '%s %s %s %s\n' "$1" "$2" "$3" "$4" >> "$f"
+    else   # etime as ps writes it: dd-hh:mm:ss, hh:mm:ss or mm:ss
+      d=$(($3 / 86400)); h=$(($3 % 86400 / 3600)); m=$(($3 % 3600 / 60)); s=$(($3 % 60))
+      if [ "$d" -gt 0 ]; then printf '%6s %5s %d-%02d:%02d:%02d %s\n' "$1" "$2" "$d" "$h" "$m" "$s" "$4" >> "$f"
+      elif [ "$h" -gt 0 ]; then printf '%6s %5s %02d:%02d:%02d %s\n' "$1" "$2" "$h" "$m" "$s" "$4" >> "$f"
+      else printf '%6s %5s %02d:%02d %s\n' "$1" "$2" "$m" "$s" "$4" >> "$f"; fi
+    fi
+    shift 4
+  done
+}
+or_raw() { # or_raw <win|ps> <line>…: that machine, with these lines as its list, as given
+  local shape="$1" f l
+  or_set "$shape"
+  shift
+  if [ "$shape" = win ]; then f="$or_stub/win-rows"; else f="$or_stub/ps-rows"; fi
+  for l in "$@"; do printf '%s\n' "$l" >> "$f"; done
+}
+or_run() { # the hook's output, stdout and stderr together; its exit status is the hook's
+  printf '{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}' | PATH="$or_stub:$PATH" bash "$or_hook" 2>&1
+}
+or_json() { # or_json <list>: the line the hook prints for this list
+  local t="Processes that outlived the shell that started them (parent gone, over an hour old): $1. They may be left over from an ended session. Stopping them is your call."
+  printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s %s"}}' "$t" "$t" "$or_ask"
+}
+or_expect() { # or_expect <what> [<list>]: the process list was read, the hook exits 0 and prints the line for this list, or nothing without one
+  local out status read_it=no
+  out="$(or_run)"; status=$?
+  { [ -e "$or_stub/ps-calls" ] || [ -e "$or_stub/pwsh-calls" ]; } && read_it=yes
+  if [ -z "${2:-}" ]; then
+    [ -z "$out" ] && [ "$status" -eq 0 ] && [ "$read_it" = yes ] && ok "$1" || bad "$1" "exit $status, list read: $read_it: $out"
+  else
+    [ "$out" = "$(or_json "$2")" ] && [ "$status" -eq 0 ] && [ "$read_it" = yes ] && ok "$1" || bad "$1" "exit $status, list read: $read_it: $out"
+  fi
+}
+
+# 0. The stand-ins are in place: the stop programs are first on PATH, and the builtin kill is a function in the hook's own bash.
+if [ "$(PATH="$or_stub:$PATH" type -P taskkill)" = "$or_stub/taskkill" ] && [ "$(PATH="$or_stub:$PATH" type -P pkill)" = "$or_stub/pkill" ] && [ "$(bash -c 'type -t kill')" = function ]; then
+  ok "stand-ins for kill, taskkill and pkill are in place before every case"
+else bad "stand-ins for kill, taskkill and pkill are in place before every case" "$(PATH="$or_stub:$PATH" type -P taskkill) $(bash -c 'type -t kill')"; fi
+
+# 1. The cases that read the same on both machines, with the rows in the shape of each one's list.
+or_cases() { # or_cases <win|ps> <label>
+  local sh="$1" lb="$2" x="" X="" odd good
+  if [ "$sh" = win ]; then x=".exe"; X=".EXE"; fi
+  or_set "$sh" 4 0 900000 System 500 999 3600 "python3.13$x"
+  or_expect "$lb: an hour-old python3.13 with a dead parent is listed" "pid 500 python3.13 (1 h)"
+  or_set "$sh" 600 700 7200 "python3.13$x" 700 4 9000 "explorer$x"
+  or_expect "$lb: a process with a live parent isn't" ""
+  or_set "$sh" 500 999 3540 "python3.13$x" 501 999 3599 "node$x"
+  or_expect "$lb: processes 59 minutes old aren't" ""
+  or_set "$sh" 500 600 7200 "node$x" 600 4 100 "cmd$x"
+  or_expect "$lb: a process whose parent row is younger is listed (a reused pid)" "pid 500 node (2 h)"
+  or_set "$sh" 500 600 7200 "node$x" 600 4 7200 "cmd$x"
+  or_expect "$lb: and one whose parent is as old is not" ""
+  or_set "$sh" 40 999 7200 "notepad$x" 41 999 7200 "sshd$x" 42 999 7200 "nodejs$x" 43 999 7200 "bashful$x" 44 999 7200 "pythonista$x" 45 999 7200 "python3.x$x" 46 999 7200 "pyw$x" 47 999 7200 "shell$x" 48 999 7200 "godo$x" 49 999 7200 "chrome-headless-shells$x"
+  or_expect "$lb: names that aren't on the list (notepad, sshd, nodejs, bashful, python3.x, godo...) aren't listed" ""
+  or_set "$sh" 25 999 37000 "pythonw$x" 30 999 32000 "Godot_v4.7.2-stable_win64_console$x" 21 999 41000 "python$x" 28 999 34000 "bash$x" 22 999 40000 "python3$x" 26 999 36000 "py$x" 24 999 38000 "PYTHON3.13$X" 29 999 33000 "sh$x" 23 999 39000 "python3.9$x" 27 999 35000 "node$x"
+  or_ten="pid 21 python (11 h), pid 22 python3 (11 h), pid 23 python3.9 (10 h), pid 24 PYTHON3.13 (10 h), pid 25 pythonw (10 h), pid 26 py (10 h), pid 27 node (9 h), pid 28 bash (9 h), pid 29 sh (9 h), pid 30 Godot_v4.7.2-stable_win64_console (8 h)"
+  or_expect "$lb: python, python3, python3.<n>, pythonw, py, node, bash, sh and godot*, in any case, are listed, oldest first" "$or_ten"
+  or_set "$sh" 31 999 31000 "chrome-headless-shell$x" 25 999 37000 "pythonw$x" 30 999 32000 "Godot_v4.7.2-stable_win64_console$x" 21 999 41000 "python$x" 28 999 34000 "bash$x" 22 999 40000 "python3$x" 26 999 36000 "py$x" 24 999 38000 "PYTHON3.13$X" 29 999 33000 "sh$x" 23 999 39000 "python3.9$x" 27 999 35000 "node$x"
+  or_expect "$lb: eleven orphans print the oldest ten and 'and 1 more' (a headless browser is on the list)" "$or_ten, and 1 more"
+  or_set "$sh" 31 999 31000 "chrome-headless-shell$x" 32 999 30000 "node$x" 33 999 29000 "node$x" 25 999 37000 "pythonw$x" 30 999 32000 "Godot_v4.7.2-stable_win64_console$x" 21 999 41000 "python$x" 28 999 34000 "bash$x" 22 999 40000 "python3$x" 26 999 36000 "py$x" 24 999 38000 "PYTHON3.13$X" 29 999 33000 "sh$x" 23 999 39000 "python3.9$x" 27 999 35000 "node$x"
+  or_expect "$lb: thirteen print ten and 'and 3 more'" "$or_ten, and 3 more"
+  or_set "$sh" 31 999 172801 "node$x" 32 999 172800 "node$x" 33 999 50400 "python3.13$x" 34 999 259200 "node$x" 35 999 7199 "bash$x"
+  or_expect "$lb: ages read as hours up to 48 and as days after" "pid 34 node (3 d), pid 31 node (2 d), pid 32 node (48 h), pid 33 python3.13 (14 h), pid 35 bash (1 h)"
+  odd='godot "x" \y {z}, $(w) `v` 100%'
+  or_set "$sh" 70 999 7200 "$odd$x" 71 999 3700 $'godot\303\276x'"$x"
+  or_expect "$lb: a name with quotes, backslashes, braces, a substitution and a percent sign is cut down to [A-Za-z0-9._-], so the JSON holds" "pid 70 godotxyzwv100 (2 h), pid 71 godotx (1 h)"
+  if [ "$sh" = win ]; then good="80 999 7200 node.exe"; else good="   80   999 02:00:00 node"; fi
+  or_raw "$sh" 'PID PPID ELAPSED COMM' '1 2' 'a b c d' "5 6 -3 node$x" "7 8 9999999999999 node$x" '' "$good"
+  or_expect "$lb: rows that aren't pid, ppid, age and name (a header, a short row, words, a negative age) are skipped" "pid 80 node (2 h)"
+  or_set "$sh"
+  or_expect "$lb: an empty list prints nothing" ""
+  or_set "$sh" 500 999 7200 "node$x"
+  if [ "$sh" = win ]; then : > "$or_stub/pwsh-fails"; else : > "$or_stub/ps-fails"; fi
+  or_expect "$lb: a process tool that fails prints nothing and exits 0" ""
+  or_set "$sh" 500 999 7200 "node$x"
+  out="$(printf '{}' | APP_DIRECTOR_ORPHAN_REPORT=0 PATH="$or_stub:$PATH" bash "$or_hook" 2>&1)"; status=$?
+  if [ -z "$out" ] && [ "$status" -eq 0 ] && [ ! -e "$or_stub/ps-calls" ] && [ ! -e "$or_stub/pwsh-calls" ]; then ok "$lb: APP_DIRECTOR_ORPHAN_REPORT=0 turns the hook off: nothing printed, the process list not read"
+  else bad "$lb: APP_DIRECTOR_ORPHAN_REPORT=0 turns the hook off" "exit $status: $out"; fi
+}
+or_cases win "Windows list"
+or_cases ps "ps list"
+
+# 2. Windows: PowerShell is asked for the processes, under timeout 8 when timeout exists, and the list's own shape is read.
+or_set win 500 999 7200 node.exe
+out="$(or_run)"
+case "$(<"$or_stub/pwsh-calls")" in
+  "-NoProfile -NonInteractive -Command "*"Get-CimInstance Win32_Process"*"CreationDate"*) ok "Windows: PowerShell runs with -NoProfile -NonInteractive -Command, and asks Get-CimInstance Win32_Process for each CreationDate" ;;
+  *) bad "Windows: PowerShell runs with -NoProfile -NonInteractive -Command, and asks Get-CimInstance Win32_Process for each CreationDate" "$(<"$or_stub/pwsh-calls")" ;;
+esac
+case "$(<"$or_stub/pwsh-calls")" in
+  *'if($_.CreationDate)'*) ok "and skips a process that has no CreationDate" ;;
+  *) bad "and skips a process that has no CreationDate" "$(<"$or_stub/pwsh-calls")" ;;
+esac
+[ ! -e "$or_stub/ps-calls" ] && ok "and ps isn't run" || bad "and ps isn't run" "$(<"$or_stub/ps-calls")"
+or_set win 500 999 7200 node.exe
+out="$(printf '{}' | PATH="$or_tstub:$or_stub:$PATH" bash "$or_hook" 2>&1)"
+[ "$out" = "$(or_json 'pid 500 node (2 h)')" ] && [ "$(<"$or_stub/timeouts")" = "8" ] && [ -e "$or_stub/pwsh-calls" ] && ok "the PowerShell run is under timeout 8 when timeout exists" || bad "the PowerShell run is under timeout 8 when timeout exists" "$out"
+or_set win 500 999 7200 node.exe
+out="$(printf '{}' | PATH="$or_stub:/nonexistent" "$BASH" "$or_hook" 2>&1)"
+[ "$out" = "$(or_json 'pid 500 node (2 h)')" ] && [ ! -e "$or_stub/timeouts" ] && ok "and without timeout on PATH it still asks" || bad "and without timeout on PATH it still asks" "$out"
+or_set win 500 999 7200 node.exe
+out="$(printf '{}' | PATH="$or_t124:$or_stub:$PATH" bash "$or_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ -e "$or_stub/pwsh-calls" ] && ok "a PowerShell run that times out (status 124) prints nothing, even with rows read, and exits 0" || bad "a PowerShell run that times out prints nothing" "exit $status: $out"
+out="$(printf '{}' | PATH="$or_bare" "$BASH" "$or_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "a Windows machine with no PowerShell prints nothing and exits 0" || bad "a Windows machine with no PowerShell prints nothing and exits 0" "exit $status: $out"
+or_set win 600 0 7200 node.exe
+or_expect "Windows: a ppid of 0 is a gone parent" "pid 600 node (2 h)"
+for or_sys in MSYS_NT-10.0-26200 CYGWIN_NT-10.0-19045; do
+  or_set win 500 999 7200 node.exe
+  echo "$or_sys" > "$or_stub/uname-is"
+  or_expect "$or_sys is a Windows machine too" "pid 500 node (2 h)"
+done
+
+# 3. Elsewhere: ps -A -o pid=,ppid=,etime=,comm=, with etime read from [[dd-]hh:]mm:ss and comm cut to its base name.
+or_set ps 500 999 7200 node
+out="$(printf '{}' | PATH="$or_tstub:$or_stub:$PATH" bash "$or_hook" 2>&1)"
+[ "$out" = "$(or_json 'pid 500 node (2 h)')" ] && [ "$(<"$or_stub/ps-calls")" = "-A -o pid=,ppid=,etime=,comm=" ] && [ ! -e "$or_stub/pwsh-calls" ] && [ ! -e "$or_stub/timeouts" ] \
+  && ok "elsewhere ps -A -o pid=,ppid=,etime=,comm= is run, with no PowerShell and no timeout" || bad "elsewhere ps -A -o pid=,ppid=,etime=,comm= is run" "$out"
+or_raw ps '   11     1 10-00:00:00 node' '   12     1  2-01:00:00 node' '   13     1  1-23:59:59 node' '   14     1  1-08:09:09 node' '   15     1    08:09:09 node' \
+  '   16     1    01:08:09 node' '   17     1       60:00 node' '   18     1       59:59 node' '   19     1    00:59:59 node'
+or_expect "etime reads right as dd-hh:mm:ss, hh:mm:ss and mm:ss, with zeros that aren't octal (08:09:09), and 59:59 is under the hour" \
+  "pid 11 node (10 d), pid 12 node (2 d), pid 13 node (47 h), pid 14 node (32 h), pid 15 node (8 h), pid 16 node (1 h), pid 17 node (1 h)"
+or_raw ps '   81     1 05:00:00 /usr/local/bin/node' '   82     1 04:00:00 /Applications/Some App.app/Contents/MacOS/python3.13' '   83     1 03:00:00 chrome-headless' \
+  '   84     1 02:00:01 Godot_v4.7-stab' '   85     1 02:00:00 /usr/sbin/sshd'
+or_expect "comm is cut to its base name (a path with spaces too), and Linux's 15-character chrome-headless counts" \
+  "pid 81 node (5 h), pid 82 python3.13 (4 h), pid 83 chrome-headless (3 h), pid 84 Godot_v4.7-stab (2 h)"
+or_raw ps '    1     0 10-00:00:00 launchd' '   90     1 02:00:00 node' '   91     0 02:00:00 sh'
+or_expect "a ppid of 1 or 0 is a gone parent, though a row for pid 1 exists and is older" "pid 90 node (2 h), pid 91 sh (2 h)"
+or_set ps 500 999 7200 node
+out="$(printf '{}' | PATH="/nonexistent" "$BASH" "$or_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "a machine with no ps (and no uname) prints nothing and exits 0" || bad "a machine with no ps (and no uname) prints nothing and exits 0" "exit $status: $out"
+or_set ps 500 999 7200 node
+echo Darwin > "$or_stub/uname-is"
+or_expect "Darwin reads ps too" "pid 500 node (2 h)"
+
+# 4. It only reads: nothing is stopped, signalled or written.
+if [ ! -e "$or_stub/killed" ]; then ok "no case called kill, taskkill, pkill or killall"; else bad "no case called kill, taskkill, pkill or killall" "$(<"$or_stub/killed")"; fi
+or_set ps 500 999 7200 node
+out="$(cd "$or_cwd" && printf '{}' | PATH="$or_stub:$PATH" bash "$or_hook" 2>&1)"
+if [ -n "$out" ] && [ -z "$(ls -A "$or_cwd")" ]; then ok "a run writes no file in the folder it runs in"; else bad "a run writes no file in the folder it runs in" "$(ls -A "$or_cwd")"; fi
+or_stops=$(grep -vE '^[[:space:]]*#' "$or_hook" | grep -niE 'kill|Stop-Process|Remove-|Set-|New-Item|Out-File|Add-Content|Invoke-' || true)
+if [ -z "$or_stops" ]; then ok "the hook names no command that stops, changes or writes anything"; else bad "the hook names no command that stops, changes or writes anything" "$or_stops"; fi
+or_writes=$(grep -vE '^[[:space:]]*#' "$or_hook" | grep '>' | grep -v '/dev/null' || true)
+if [ -z "$or_writes" ]; then ok "and redirects its output nowhere but /dev/null"; else bad "and redirects its output nowhere but /dev/null" "$or_writes"; fi
+unset -f kill
+
+# 5. The project check never runs it; settings.json runs it at session start with the release check, in one entry.
+if ! grep -rq 'orphan-report' "$src/framework/tools" "$src/framework/.githooks" "$src/framework/.app-director"; then ok "the project check and the git hooks don't run the orphan report, so a report never fails tools/check.sh"
+else bad "the project check and the git hooks don't run the orphan report" "$(grep -rn 'orphan-report' "$src/framework/tools" "$src/framework/.githooks" "$src/framework/.app-director")"; fi
+or_wiring="$(awk '/^    "[A-Za-z]+": \[/ { ev = $1; gsub(/[":]/, "", ev) } /"matcher"/ { split($0, a, "\""); m = a[4] }
+  /orphan-report\.sh/ { hit = ev ";" m; next } hit != "" && /"timeout"/ { t = $2; gsub(/[^0-9]/, "", t); print hit ";" t; hit = "" }' "$settings")"
+[ "$or_wiring" = "SessionStart;startup|resume;10" ] && ok "settings.json runs the orphan report at SessionStart, on startup and resume, with a timeout of 10 seconds" \
+  || bad "settings.json runs the orphan report at SessionStart, on startup and resume, with a timeout of 10 seconds" "$or_wiring"
+or_entry="$(awk '/^    "[A-Za-z]+": \[/ { ev = $1; gsub(/[":]/, "", ev) } ev == "SessionStart" && /"matcher"/ { m++ } ev == "SessionStart" && /"command":/ { n++ } END { print m ";" n }' "$settings")"
+[ "$or_entry" = "1;2" ] && ok "and in the same entry as the release check: one matcher, two hooks" || bad "and in the same entry as the release check: one matcher, two hooks" "$or_entry"
+or_bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|local|typeset) +-[a-zA-Z]*A|(^|[;&| ])(mapfile|readarray) +|(^|[;&| ])coproc +[A-Za-z]|[[:space:]]\|&[[:space:]]|\$\{[A-Za-z_0-9@*]+(\[[^]]*\])?: -[0-9]|stat +-c|date +-d|sed +-i|readlink +-f|-printf|-delete)' \
+  "$or_hook" || true)
+if [ -z "$or_bash4" ]; then ok "the orphan report uses no bash 4 form and no GNU-only tool flag"; else bad "the orphan report uses no bash 4 form and no GNU-only tool flag" "$or_bash4"; fi
+if grep -q 'APP_DIRECTOR_ORPHAN_REPORT=0' "$src/PRIVACY.md" && grep -q 'names, ids and ages of the processes on this machine' "$src/PRIVACY.md" && grep -q 'ended session left behind' "$src/README.md"; then
+  ok "PRIVACY.md says the hook reads the names, ids and ages of the processes and names the switch, and the README names the hook"
+else bad "PRIVACY.md says the hook reads the names, ids and ages of the processes and names the switch, and the README names the hook"; fi
+
+) > "$seg/1-framework" 2>&1 &
+(
+  trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-main"' EXIT
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
 app="$work/todo-web"
@@ -592,6 +1118,17 @@ git check-ignore -q .claude/settings.local.json && ok "ignores .claude/settings.
   || bad "ignores .claude/settings.local.json, the personal settings file" "$(cat .gitignore)"
 grep -q "$(printf '\t')tools/ui/capture.mjs$" .app-director/manifest && ! grep -q "$(printf '\t')tools/ui/screens.mjs$" .app-director/manifest \
   && ok "the manifest lists the capture tools, not the app's own catalog" || bad "the manifest lists the capture tools, not the app's own catalog"
+[ -x .claude/hooks/session-touched.sh ] && grep -q "$(printf '\t').claude/hooks/session-touched.sh$" .app-director/manifest \
+  && git check-ignore -q .app-director/state/sessions/design.touched && git check-ignore -q .app-director/state/sessions/design.before \
+  && ok "installs the session record hook, and git ignores the records it keeps" || bad "installs the session record hook, and git ignores the records it keeps" "$(cat .gitignore)"
+[ -x .claude/hooks/release-check.sh ] && grep -q "$(printf '\t').claude/hooks/release-check.sh$" .app-director/manifest \
+  && grep -q 'release-check\.sh' .claude/settings.json && git check-ignore -q .app-director/state/latest-release \
+  && ok "installs the release check hook, wires it into settings.json, and git ignores the cache it keeps" \
+  || bad "installs the release check hook, wires it into settings.json, and git ignores the cache it keeps" "$(cat .gitignore)"
+[ -x .claude/hooks/orphan-report.sh ] && grep -q "$(printf '\t').claude/hooks/orphan-report.sh$" .app-director/manifest \
+  && grep -q 'orphan-report\.sh' .claude/settings.json \
+  && ok "installs the orphan report hook and wires it into settings.json" \
+  || bad "installs the orphan report hook and wires it into settings.json"
 
 out="$(bash "$src/install.sh" . 2>&1)"
 expect_output "a second run changes nothing" "0 new, 0 updated" "$out"
@@ -1070,19 +1607,72 @@ cp "$work/saved-ui-cache" src/ui/TodoList.ts
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes again once the UI violation is removed" 0 $? "$out"
 
+  rm -rf "$work/guard-app"; cp -R "$app" "$work/guard-app" || exit 3
+  (
+    trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-guard"' EXIT
+    passed=0; failed=0
+    cd "$work/guard-app" || exit 3
 # --- guard-commands hook --------------------------------------------------------------------------
 echo "guard-commands hook"
-guard() { # guard <expected-exit> <command>
-  local escaped="${2//\\/\\\\}"
-  escaped="${escaped//\"/\\\"}"; escaped="${escaped//$'\n'/\\n}"; escaped="${escaped//$'\t'/\\t}"
-  printf '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"%s","description":"run"}}' \
-    "$escaped" | bash .claude/hooks/guard-commands.sh >/dev/null 2>&1
-  local got=$?
-  if [ "$got" -eq "$1" ]; then
-    ok "$([ "$1" -eq 2 ] && echo blocks || echo allows): $2"
-  else
-    bad "guard exit $got, expected $1: $2"
-  fi
+guard_dir="$work/guard-cases"; mkdir -p "$guard_dir"
+git_fail=""
+guard_report() { # guard_report <failed cases> <what is wrong> <what holds>
+  if [ -n "$1" ]; then
+    bad "$2"
+    printf '%s\n' "${1#$'\n'}" | sed 's/^/          /'
+  else ok "$3"; fi
+}
+# json_str <text>: sets JSON_STR to the text as the inside of a JSON string, with \, ", a line break, a tab and a return escaped. (A ${//}
+# replacement left a backslash single and turned a line break into n, so a newline case reached the guard as a joined word.)
+json_str() {
+  local s="$1" out="" i c
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    case $c in
+      '\') out+='\\' ;;
+      '"') out+='\"' ;;
+      $'\n') out+='\n' ;;
+      $'\t') out+='\t' ;;
+      $'\r') out+='\r' ;;
+      *) out+="$c" ;;
+    esac
+  done
+  JSON_STR="$out"
+}
+# The guard cases (Director-Driven-Development B41). guard queues a case: its JSON payload goes to a file, and its expected
+# exit code, tool and text are kept. guard_run runs the queued cases, guard_jobs at a time, each as its own run of the hook
+# with its own payload, then checks every exit code against that case's expected one, in the order the cases were queued,
+# so a failure names its case and why. Each block of cases ends with guard_run and guard_report.
+guard_jobs=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4); [ "$guard_jobs" -le 12 ] || guard_jobs=12
+guard_cmds=(); guard_exps=(); guard_tools=(); guard_msgs=()
+guard() { # guard <expected-exit> <command> [tool name: Bash by default, or PowerShell] [pattern its message must match, any case]
+  local n=${#guard_cmds[@]} tool="${3:-Bash}"
+  json_str "$2"
+  printf '{"session_id":"s","tool_name":"%s","tool_input":{"command":"%s","description":"run"}}' "$tool" "$JSON_STR" > "$guard_dir/$n.json"
+  guard_cmds+=("$2"); guard_exps+=("$1"); guard_tools+=("$tool"); guard_msgs+=("${4:-}")
+}
+guard_run() {
+  local n=${#guard_cmds[@]} lanes i k rc
+  lanes=$guard_jobs; [ "$lanes" -le "$n" ] || lanes=$n
+  for ((k = 0; k < lanes; k++)); do
+    (
+      for ((i = k; i < n; i += lanes)); do
+        bash .claude/hooks/guard-commands.sh < "$guard_dir/$i.json" >/dev/null 2>"$guard_dir/$i.err"
+        echo "$?" > "$guard_dir/$i.rc"
+      done
+    ) &
+  done
+  wait
+  for ((i = 0; i < n; i++)); do
+    read -r rc < "$guard_dir/$i.rc" || rc=-1
+    if [ "$rc" -ne "${guard_exps[i]}" ]; then
+      git_fail="$git_fail"$'\n'"  guard exited $rc, expected ${guard_exps[i]} (${guard_tools[i]}): ${guard_cmds[i]//$'\n'/ NL }"
+    elif [ -n "${guard_msgs[i]}" ] && ! grep -qi -- "${guard_msgs[i]}" "$guard_dir/$i.err"; then
+      git_fail="$git_fail"$'\n'"  guard's message lacks \"${guard_msgs[i]}\" (${guard_tools[i]}): ${guard_cmds[i]//$'\n'/ NL }"
+    fi
+  done
+  guard_cmds=(); guard_exps=(); guard_tools=(); guard_msgs=()
+  rm -f "$guard_dir"/*.json "$guard_dir"/*.rc "$guard_dir"/*.err
 }
 for cmd in \
     'git commit -m x --no-verify' \
@@ -1127,6 +1717,9 @@ for cmd in \
     'git worktree add -B proto/x ../x main' \
     'git worktree add -f ../x proto/x' \
     'git worktree add --forc ../x proto/x' \
+    'git --attr-source HEAD worktree remove -f x' \
+    'git --namespace x branch -df y' \
+    'git --super-prefix x worktree add -B y ../y main' \
     'cat .env' \
     'head .env' \
     'cat ./server.key' \
@@ -1153,6 +1746,8 @@ for cmd in \
     'git branch -m old new' \
     'git branch -c old new' \
     'git commit -m "a {b,c} message"' \
+    'git commit -m "-n"' \
+    "git commit -m '-n'" \
     'bash tools/prototype.sh start quick-add' \
     'bash tools/prototype.sh remove quick-add' \
     'cat .env.example'; do
@@ -1163,6 +1758,7 @@ for cmd in \
     $'python - <<EOF\nEOF' \
     $'py.exe - <<-"EOF"\n  EOF' \
     $'python3 - <<\'EOF\' 2>/dev/null || python - <<\'EOF2\'\nEOF\nprint(1)\nEOF2' \
+    $'python3 - <<\'EOF\'\nprint("hi")\nEOF' \
     'until grep -q "^exit" /tmp/x/tasks/abc.output; do sleep 5; done' \
     'until test -f done.txt; do sleep 5; done' \
     'while true; do sleep 2; done' \
@@ -1173,7 +1769,6 @@ for cmd in \
   guard 2 "$cmd"
 done
 for cmd in \
-    $'python3 - <<\'EOF\'\nprint("hi")\nEOF' \
     $'python3 --version 2>/dev/null || echo "no python"' \
     "timeout 240 bash -c 'until test -f x; do sleep 5; done'" \
     '(timeout 4m bash -c "while true; do sleep 1; done")' \
@@ -1373,11 +1968,2385 @@ for cmd in \
     'git tag -n'; do
   guard 0 "$cmd"
 done
-grep -q '"matcher": "Bash|Monitor"' .claude/settings.json && ok "the guard is wired to Monitor too" || bad "the guard is wired to Monitor too"
+# The PowerShell tool hands the hook the same text, so the branch and worktree rules block the same commands there.
+for cmd in \
+    'git worktree remove --force x' \
+    'git worktree add -B y ../y main' \
+    'git branch -M a b' \
+    'git branch -df x' \
+    'git branch -m -f a b' \
+    "git commit '-n' -m x"; do
+  guard 2 "$cmd" PowerShell
+done
+for cmd in \
+    'git worktree add --no-track -b proto/x ../x main' \
+    'git branch -m old new' \
+    'git branch -uorigin/feature-dev' \
+    'git commit -m "-n"'; do
+  guard 0 "$cmd" PowerShell
+done
+guard_run
+guard_report "$git_fail" "the guard hook blocks a destructive git command, a hang, a git flag that writes or reads a file and a credential read, or blocks a plain form" "the guard hook blocks a destructive git command, a hang, a git flag that writes or reads a file and a credential read, and passes the plain forms"
+git_fail=""
 grep -q "Commands that may run long" .app-director/rules.md && grep -q "run_in_background" .app-director/rules.md \
-  && grep -q "empty heredoc" .app-director/rules.md && ok "rules.md gives the time-limit, background and empty-heredoc rules" \
-  || bad "rules.md gives the time-limit, background and empty-heredoc rules"
+  && grep -q "Python its script from a heredoc" .app-director/rules.md && grep -q "python3 --version" .app-director/rules.md \
+  && ok "rules.md gives the time-limit, background and Python-heredoc rules" \
+  || bad "rules.md gives the time-limit, background and Python-heredoc rules"
 
+# The hook runs under macOS's bash 3.2 too (CLAUDE.md > Scripts), so it holds no bash 4 form: case conversion (${x,,}, ${x^^}),
+# an associative array, mapfile or readarray, coproc, |&, or a negative substring offset (${x: -1}). Comment lines are skipped.
+bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|local|typeset) +-[a-zA-Z]*A|(^|[;&| ])(mapfile|readarray) +|(^|[;&| ])coproc +[A-Za-z]|[[:space:]]\|&[[:space:]]|\$\{[A-Za-z_0-9@*]+(\[[^]]*\])?: -[0-9])' .claude/hooks/guard-commands.sh || true)
+if [ -z "$bash4" ]; then ok "the guard hook uses no bash 4 form, so it runs under bash 3.2"
+else bad "the guard hook uses a bash 4 form (bash 3.2 on macOS has none)" "$bash4"; fi
+
+# The guard's reading of a command, case by case (Director-Driven-Development T276; the B numbers are its bug IDs): the PowerShell
+# tool, the readers of credential files, continuations (a backslash in Bash, a backtick in PowerShell, and the comments
+# that end in one), tabs, command substitutions, variables, shell wrappers, wait loops, heredoc bodies, git configuration
+# and program flags, quoted and capitalised names, and Invoke-Expression.
+if [ ! -f .claude/settings.json ]; then
+  bad ".claude/settings.json is missing, so the guard's wiring can't be checked"
+else
+  git_fail=""
+  perm_allow=$(sed -n '/"allow": *\[/,/\]/p' .claude/settings.json)
+  if [ ! -f .claude/hooks/guard-commands.sh ]; then
+    git_fail="$git_fail"$'\n'"  .claude/hooks/guard-commands.sh is missing"
+  else
+    for cmd in \
+        'git log -1 --format=probe --output=/tmp/probe.txt' \
+        'git log --output /tmp/probe.txt' \
+        'git show --output /tmp/probe.txt HEAD' \
+        'git diff --output=probe.txt' \
+        'git stash show --output=/tmp/probe.txt' \
+        "git log '--output=/tmp/probe.txt'" \
+        'git log "--no-index"' \
+        'git log --out\put=/tmp/probe.txt' \
+        'git log --output="/tmp/my probe.txt"' \
+        'git diff --no-index a b' \
+        'git diff --no-index /dev/null /etc/hosts' \
+        'git log -p --ext-diff' \
+        'git diff --ext-diff' \
+        'git diff /etc/hosts README.md' \
+        'git diff ../other.txt README.md' \
+        'git commit -F /tmp/msg.txt' \
+        'git commit -F/tmp/msg.txt' \
+        'git commit -aF /tmp/msg.txt' \
+        'git commit -F "/tmp/my msg.txt"' \
+        'git commit --file /tmp/msg.txt' \
+        'git commit --file=/tmp/msg.txt' \
+        'git commit -F - -F /tmp/msg.txt' \
+        'git add -A && git commit -F /tmp/msg.txt' \
+        'git -C work/App-Director log --output=/tmp/probe.txt' \
+        $'git commit -q -F - <<\'EOF\'\nmsg\nEOF\ngit log --output=/tmp/probe.txt' \
+        'git grep -O foo' \
+        'git grep -Oecho foo' \
+        'git grep -n -Ovim foo' \
+        'git grep -iO foo' \
+        'git grep -nOvim foo' \
+        'git grep -e foo -Oecho' \
+        'git grep -A 1 -Oecho foo' \
+        'git grep --open-files-in-pager foo' \
+        'git grep --open-files-in-pager=echo foo' \
+        'git grep --open=echo foo' \
+        'git grep --op foo' \
+        'git grep "-Obj"' \
+        "git grep '-Oecho' foo" \
+        'git grep -nO"echo hi" foo' \
+        'git grep --"open-files-in-pager"=echo foo' \
+        'git -C work/App-Director grep -Oecho foo' \
+        'git add . && git grep -Oecho foo' \
+        'git tag -F /tmp/msg.txt v1' \
+        'git tag -aF /tmp/msg.txt v1' \
+        'git tag -a v1 -F/tmp/msg.txt' \
+        'git tag -a v1 --file=/tmp/msg.txt' \
+        'git tag --file /tmp/msg.txt v1' \
+        'git tag --fi=/tmp/msg.txt v1' \
+        'bash tools/stacks/../../x.sh' \
+        'bash -x tools/stacks/../x.sh' \
+        'bash tools/stacks/.\./x.sh' \
+        'bash tools/stacks/".."/x.sh' \
+        'sh ./tools/../x.sh' \
+        '/bin/bash tools/stacks/../x.sh' \
+        'cat ~/.ssh/id_ed25519' \
+        'head "$HOME/.git-credentials"' \
+        'cat ~/.config/gh/hosts.yml' \
+        'less "/c/Users/V/AppData/Roaming/GitHub CLI/hosts.yml"' \
+        'cat "C:\Users\V\.ssh\id_rsa"' \
+        'cat "certs/server.pem"' \
+        "head '.env'" \
+        'cat .env.local' \
+        'head ./.env.production' \
+        'cat "config/.env.staging"' \
+        'less .env.development.local' \
+        "tail '.env.test'" \
+        'tail -n 20 .env.local' \
+        'cat .env.example; cat .env.local' \
+        'cat README.md .env.local' \
+        'tail -n 20 .env' \
+        'head -5 certs/server.pem' \
+        'cat docs/a.md "deploy.key"' \
+        'less -R .env.production' \
+        'gh auth token' \
+        'gh auth status -t' \
+        "printf 'protocol=https\\nhost=github.com\\n' | git credential fill" \
+        "printf 'protocol=https\\nhost=github.com\\n' | git credential get" \
+        $'cd x\ngit branch -D y' \
+        $'cd x\ngit commit --no-verify -m x' \
+        $'cd x\n\tgit log --output=/tmp/x' \
+        $'echo a\ngit push --force' \
+        $'cd x\ngit commit -F /tmp/msg.txt' \
+        $'cd x\ngit credential fill' \
+        $'echo x\nbash tools/stacks/../x.sh' \
+        "git commit '-n' -m x" \
+        'git commit "-n" -m x' \
+        'git commit -""n -m x' \
+        "git commit --no-ve''rify -m x" \
+        "git commit -m -- '-n'" \
+        $'git commit \\\n-n -m x' \
+        $'git push \\\n--force' \
+        $'git push origin \\\n+main' \
+        $'git reset \\\n--hard' \
+        $'git credential \\\nfill' \
+        $'git log \\\n--output=/tmp/probe.txt' \
+        $'cat \\\n.env.local' \
+        $'cat README.md \\\n.env.local' \
+        $'cat\t.env.local' \
+        $'head\t-n\t20\t.env' \
+        $'git\tpush --force' \
+        $'git\tcommit -n -m x' \
+        $'git\tlog --output=/tmp/probe.txt' \
+        $'echo a\\\\\ngit push --force' \
+        $'echo a\\\\\ngit commit -F /tmp/msg.txt' \
+        $'sleep \\\n300'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'git log --oneline -5' \
+        'git diff HEAD' \
+        'git diff --cached --stat' \
+        'git diff origin/main..HEAD -- docs/index.md' \
+        'git show HEAD:README.md' \
+        'git commit -m "fix the --output handling"' \
+        'git commit -m x -- docs/index.md' \
+        "git commit -m x -- '-n'" \
+        'git commit -F -' \
+        'git commit --file=-' \
+        $'git commit -q -F - <<\'EOF\'\nfix the --output and --no-index handling, not -F /tmp/x\nEOF' \
+        'git stash list' \
+        'git worktree list' \
+        'git grep -n foo' \
+        "git grep -i -e x -- '*.md'" \
+        'git grep -ie -O' \
+        'git grep -e -Oecho' \
+        'git grep -n "an -Obj pattern"' \
+        'git grep -c --no-open-files-in-pager foo' \
+        'git grep --only-matching foo' \
+        'git log --grep -O' \
+        'git tag -a v1 -m x' \
+        'git tag -a v1 -m "see --file and -F"' \
+        'git tag -n' \
+        'git tag -a v1 -F -' \
+        'git tag --file=- -a v1' \
+        'bash tools/check.sh' \
+        'bash tools/work-publish.sh work/App-Director' \
+        'bash tools/stacks/godot.sh --since HEAD~3..HEAD' \
+        'bash tools/check.sh && git log origin/main..HEAD' \
+        'bash ../x.sh' \
+        'cd tools && bash ../x.sh' \
+        'cat README.md' \
+        'cat docs/how-to/where.md' \
+        'cat .env.example' \
+        'cat config/.env.sample' \
+        'head .env.template' \
+        'cat .env.dist' \
+        'cat README.md docs/x.md' \
+        'tail -n 20 .env.example' \
+        'head -5 notes.txt' \
+        'cat .env.example .env.sample' \
+        'grep -n ssh docs/how-to/trouble.md' \
+        'git log --oneline -3' \
+        'ls ~/.ssh' \
+        'gh auth status' \
+        $'git status\ngit log --oneline -3' \
+        $'git status\ngit commit -q -F - <<\'EOF\'\nfix the --output and --no-index handling, not -F /tmp/x\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nfix the -n flag, not a flag\nEOF' \
+        'echo x\\ngit branch -D y' \
+        $'git log \\\n--oneline -3' \
+        $'git status \\\n-s' \
+        $'git diff \\\nHEAD' \
+        $'echo a\\\\\nls' \
+        $'cat README.md \\\ndocs/x.md' \
+        $'cat\tREADME.md' \
+        $'git\tstatus'; do
+      guard 0 "$cmd"
+    done
+    # PowerShell (B24): its input carries the command as tool_input.command, like Bash's, so the hook must
+    # exit the same way on a PowerShell payload. These are the git flags the deny rules and the guard block.
+    for cmd in \
+        'git push --force' \
+        'git commit --no-verify -m x' \
+        'git reset --hard HEAD~1' \
+        'git log --output=/tmp/probe.txt' \
+        'git diff --no-index a b' \
+        'git commit -F /tmp/msg.txt' \
+        'git grep -Oecho foo' \
+        'git tag -F /tmp/msg.txt v1' \
+        'bash tools/stacks/../../x.sh' \
+        'cat .env.local'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in 'git status' 'git log --oneline -5' 'git diff HEAD'; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "git's file-writing, file-reading and external-command flags, and script paths outside tools/, are not all blocked" "the wildcard rules deny, and the guard hook blocks, git's file-writing, file-reading and external-command flags and script paths outside tools/"
+
+  # The PowerShell readers of credential files (B27): Get-Content and its aliases gc and type, Select-String
+  # and sls, and [IO.File]::ReadAll... block a credential file in any case, as cat does, and so does a reader
+  # inside a -Command or -c string. The same readers of ordinary files pass, and the checks run for the Bash
+  # tool too, since the hook reads every tool's command the same way.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for reader in 'Get-Content' 'gc' 'type' 'GET-CONTENT' 'Select-String -Pattern x' 'sls x' \
+        'Get-Content -Path' 'Get-Content -LiteralPath'; do
+      for target in '.env.local' '.env' '.env*' 'certs/server.pem' '~/.ssh/id_ed25519' \
+          '$HOME\.ssh\id_rsa' '~/.config/gh/hosts.yml' '"$env:APPDATA\GitHub CLI\hosts.yml"'; do
+        guard 2 "$reader $target" PowerShell
+      done
+    done
+    for cmd in \
+        "[IO.File]::ReadAllText('.env.local')" \
+        '[System.IO.File]::ReadAllLines(".env")' \
+        '[io.file]::readallbytes("certs/server.pem")' \
+        '[IO.File]::ReadLines("$HOME\.ssh\id_rsa")' \
+        'Get-Content .env.example; Get-Content .env.local' \
+        'powershell -NoProfile -Command "Get-Content .env.local"' \
+        'powershell -c "gc .env"' \
+        'cmd /c "type .env.local"' \
+        "bash -c 'cat .env.local'" \
+        'bash -c "cat .env.local"' \
+        'cat .env*' \
+        '\cat .env.local' \
+        'echo `cat .env.local`' \
+        'type .env.local' \
+        'gc .env.local'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'Get-Content README.md' \
+        'gc docs/index.md' \
+        'Get-Content -Path docs/index.md' \
+        'Get-Content -LiteralPath README.md' \
+        'Select-String -Path docs/index.md -Pattern title' \
+        'Get-Content .env.example' \
+        'gc config/.env.sample' \
+        '[IO.File]::ReadAllText("docs/index.md")' \
+        'Get-ChildItem ~/.ssh' \
+        'powershell -NoProfile -Command "Get-Content README.md"' \
+        'type git'; do
+      guard 0 "$cmd" PowerShell
+    done
+    guard 0 'type git'
+    guard 0 'type README.md'
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't block every read of a credential file, or blocks a read of an ordinary file (B27)" "the guard hook blocks the PowerShell and Bash readers of credential files, in any case, and passes the readers of ordinary files and templates"
+
+  # PowerShell's backtick (B28): a backtick that ends a line continues it, so a flag or a read it splits is
+  # blocked as the plain form is, and a benign continuation passes. An escaped backtick (``) and a backtick
+  # followed by spaces don't continue. In Bash a backtick is command substitution, so the same text passes
+  # there. A comment that ends in a backtick still shows the next line, which the joined text would hide.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        $'git push `\n--force' \
+        $'git commit `\n-n -m x' \
+        $'cat `\n.env.local' \
+        $'cat README.md `\n.env.local' \
+        $'git push `\r\n--force' \
+        $'git push `\r--force' \
+        $'git log `\n--output=/tmp/probe.txt' \
+        $'git pu`\nsh --force' \
+        $'cat .en`\nv.local' \
+        $'# note`\ngit push --force'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        $'git log `\n--oneline -3' \
+        $'git status `\n-s' \
+        $'cat ``\n.env.local' \
+        $'git push ``\n--force' \
+        $'git push ` \n--force'; do
+      guard 0 "$cmd" PowerShell
+    done
+    guard 0 $'cat README.md `\n.env.local'
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't treat a PowerShell backtick at a line's end as a continuation, or treats a Bash or an escaped one as one (B28)" "the guard hook blocks a flag or a read that a PowerShell backtick continuation splits, and passes the benign continuations and the escaped and Bash backticks (B28)"
+
+  # A Bash comment that ends in a backslash (B31): Bash ends the comment at the line break, so the line after it is a
+  # command of its own, and the guard reads it as written. A continued command after such a comment is read from its
+  # own line on. A # inside a word (a#b) is no comment, so its continuation is joined, as Bash joins it. The hang
+  # check reads a heredoc header joined to its delimiter (B29): python3 with - <<'EOF' on the next line, with a body or not.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        $'# note\\\ngit push --force' \
+        $'# note\\\ngit commit --no-verify -m x' \
+        $'git status # note\\\ngit push --force' \
+        $'# a\\\ngit commit \\\n-F /tmp/msg.txt' \
+        $'# a\\\ngit push \\\n--force' \
+        $'# a\\\n# b\\\ngit push \\\n--force' \
+        $'git push origin main#\\\n  --force' \
+        $'python3 \\\n- <<\'EOF\'\nEOF' \
+        $'python3 \\\n- <<\'EOF\'\nprint(1)\nEOF'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        $'# note\\\ngit status' \
+        $'git status # note\\\n-s' \
+        $'echo a#b\\\n--force' \
+        $'python3 tool.py \\\n--flag <<\'EOF\'\ndata\nEOF'; do
+      guard 0 "$cmd"
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook reads a command after a Bash comment that ends in a backslash as hidden, or blocks a benign one (B31, B29)" "the guard hook reads the line after a Bash comment that ends in a backslash, and the command continued after it, as Bash does (B31, B29)"
+
+  # A PowerShell comment that ends in a backtick (B35): PowerShell ends the comment at the line break too, so the line after it
+  # is a command of its own, and a continued command after it is read from its own line on, as for a Bash comment (B31). A CRLF
+  # break is the same. A comment that ends in a backtick, followed by a plain command, passes.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        $'# note`\ngit commit `\n-F x' \
+        $'# note`\r\ngit commit `\r\n-F x'; do
+      guard 2 "$cmd" PowerShell
+    done
+    guard 0 $'# note`\ngit status' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read a command after a PowerShell comment that ends in a backtick, or blocks a plain one (B35)" "the guard hook reads the command after a PowerShell comment that ends in a backtick, and the command continued after it, as PowerShell does (B35)"
+
+  # A quoted or path-qualified reader, a backtick inside a word and a StreamReader (B30): the call operator with a
+  # quoted name (& 'Get-Content' .env.local), a reader by its path (/bin/cat, cat.exe, the Management module's
+  # Get-Content), a backtick escape that leaves a letter or a dot in a reader or a name (Get-Con`tent, .en`v.local),
+  # and the StreamReader constructors are read as the plain forms are. A reader in a string with a backtick-escaped
+  # quote, a template and an ordinary file pass. In PowerShell the escape also reaches the git flag rules (--fo`rce).
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        "& 'Get-Content' .env.local" \
+        '& "gc" .env.local' \
+        ". 'type' .env.local" \
+        "& 'Get-Content' -Path '.env.local'" \
+        "Get-Content '.env.local'" \
+        'Get-Con`tent .env.local' \
+        'gc .en`v.local' \
+        'type `.env.local' \
+        'C:\Git\usr\bin\cat.exe .env.local' \
+        'Microsoft.PowerShell.Management\Get-Content .env.local' \
+        '[System.IO.StreamReader]::new(".env.local")' \
+        "[IO.StreamReader]::new('.env')" \
+        "New-Object System.IO.StreamReader('.env.local')" \
+        'New-Object -TypeName System.IO.StreamReader -ArgumentList .env.local' \
+        'git push --fo`rce' \
+        'Write-Output x; & "gc" .env'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        '/bin/cat .env.local' \
+        '/usr/bin/head -n 5 .env' \
+        "'/bin/cat' .env.local" \
+        '/usr/bin/tail -n 20 .env.production'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        "& 'Get-Content' README.md" \
+        "& 'Get-Content' '.env.example'" \
+        'Write-Output "say `"hi`" now"' \
+        'Write-Output "run `"gc README.md`" next"' \
+        "[System.IO.StreamReader]::new('docs/index.md')" \
+        "New-Object System.IO.StreamReader('README.md')" \
+        'Get-Con`tent README.md' \
+        'cat.exe README.md'; do
+      guard 0 "$cmd" PowerShell
+    done
+    for cmd in \
+        '/bin/cat README.md' \
+        '/usr/bin/head -n 5 .env.example' \
+        "'/bin/cat' README.md"; do
+      guard 0 "$cmd"
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook misses a quoted or path-qualified reader, a backtick inside a word or a StreamReader of a credential file (B30)" "the guard hook blocks a quoted or path-qualified reader, a backtick-escaped word and a StreamReader of a credential file, and passes the same readers of ordinary files (B30)"
+
+  # The common file readers (B36): grep, sed, awk, sort, base64, xxd and the rest of the list in the hook print a
+  # credential file as cat does, in Bash and in a PowerShell payload; a reader or a name split by quotes (ca''t, c"a"t)
+  # is read as the shell runs it; [IO.File]::OpenText, OpenRead and Open read one. A pattern is an argument as well
+  # (B27), so grep "\.env" and git grep .env are blocked, and the templates and ordinary files pass. A commit message
+  # that names a reader, with no credential file after it, passes.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'grep x .env.local' \
+        'awk 1 .env' \
+        'sed -n p .env.local' \
+        'base64 .env.local' \
+        'xxd .env.local' \
+        'egrep x .env' \
+        'fgrep -i x .env.production' \
+        'rg x .env.local' \
+        'gawk "{print}" .env.staging' \
+        'sort .env.local' \
+        'uniq .env' \
+        'cut -d= -f2 .env.local' \
+        'nl .env' \
+        'tac .env.local' \
+        'rev .env' \
+        'od -c .env' \
+        'hexdump -C .env.local' \
+        'diff .env.local .env.example' \
+        'cmp .env .env.example' \
+        '/usr/bin/grep x .env.local' \
+        'grep -rn "\.env" docs/' \
+        'git grep .env' \
+        "ca''t .env.local" \
+        'c"a"t .env.local' \
+        "'ca'\"t\" .env" \
+        'g""rep x .env' \
+        'ba"se"64 .env.local' \
+        'cat .en'"''"'v.local' \
+        'c'"'"'a'"'"'t .env.local'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        "[System.IO.File]::OpenText('.env.local')" \
+        '[IO.File]::OpenRead(".env")' \
+        "[System.IO.File]::Open('.env.local', 'Open', 'Read')" \
+        '[io.file]::opentext("certs/server.pem")' \
+        '[IO.File]::OpenRead("$HOME\.ssh\id_rsa")' \
+        '& "Get-Content" .env.local' \
+        'Select-String -Path .env -Pattern x'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        'grep x .env.example' \
+        'sed -n p .env.sample' \
+        'awk 1 .env.template' \
+        'base64 .env.dist' \
+        'xxd .env.example' \
+        'ca""t .env.example' \
+        'c"a"t config/.env.sample' \
+        'grep -n "DATABASE_URL" src/' \
+        'sed -n 1,5p docs/index.md' \
+        'awk 1 docs/index.md' \
+        'sort README.md' \
+        'cut -c1-3 README.md' \
+        'diff README.md docs/index.md' \
+        'git grep TODO' \
+        'git diff README.md' \
+        'git commit -m "fix: sort the docs and grep notes"' \
+        'git commit -m "docs: sed, awk and diff notes" -- docs/index.md' \
+        'rev-parse --show-toplevel'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        "[System.IO.File]::OpenText('docs/index.md')" \
+        '[IO.File]::OpenRead("README.md")' \
+        "[System.IO.File]::Open('docs/index.md', 'Open')" \
+        "[IO.File]::OpenText('.env.example')"; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook misses a common file reader, a reader or a name split by quotes, or an IO.File Open method of a credential file, or blocks an ordinary read (B36)" "the guard hook blocks grep, sed, awk, sort, base64, xxd and the other common readers, a reader or name split by quotes, and [IO.File]::OpenText, OpenRead and Open of a credential file, and passes the same readers of templates and ordinary files (B36)"
+
+  # A backslash that escapes an ordinary character in a Bash command is removed by the shell (B44): c\at is cat, and .en\v.local
+  # is .env.local, so the reader and the name are read as the shell runs them. An escaped backslash (\\) is one backslash, and a
+  # backslash before a space stays, as the shell keeps the name one word. Windows paths and the templates pass, and PowerShell's
+  # escape is the backtick (B30), so a backslash in a PowerShell payload is a path separator, not an escape.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'c\at .env.local' \
+        'he\ad .env' \
+        'cat .en\v.local' \
+        'cat .env\.local' \
+        'cat .e\nv.local' \
+        'c\a\t .env.local' \
+        'ca\t .en\v.local' \
+        'sed -n p .en\v.local' \
+        'C\AT .env.local' \
+        'c\at "config/.en\v.local"' \
+        'cat ~/.s\sh/id_rsa' \
+        'cat C:\Users\V\.env' \
+        'cat .\pem'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'c\\at .env.local' \
+        'cat .en\\v.local' \
+        'cat .en\v.example' \
+        'cat .en\v.sample' \
+        'cat .env\ .example' \
+        'c\at README.md' \
+        'cat C:\Users\V\README.md' \
+        'cat C:\Users\V\docs\index.md' \
+        'cat C:\repo\.env.example' \
+        'git commit -m "docs: c\at notes"'; do
+      guard 0 "$cmd"
+    done
+    guard 0 'c\at .env.local' PowerShell
+    guard 0 "bash -c 'c\at README.md'" PowerShell
+    guard 0 "powershell -c \"c\at .env.local\"" PowerShell
+    guard 2 "bash -c 'c\at .env.local'" PowerShell
+    guard 2 'bash -c "cat .en\v.local"' PowerShell
+    guard 2 'type C:\x\.env' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook misses a backslash that escapes a character in a Bash credential read, or blocks an ordinary read or a PowerShell backslash (B44)" "the guard hook blocks a Bash credential read whose reader or name has a backslash that escapes a character (c\\at, .en\\v.local), and passes the templates, Windows paths and a PowerShell backslash (B44)"
+
+  # The credential-read check (B52): an escaped space in a store path (GitHub\ CLI is the gh CLI's folder, and the backslash-space is
+  # the space in it); an ANSI-C string ($'...') in a reader's or a file's name, which is read as the shell reads it (\xHH, \NNN and the
+  # common escapes), with an escape the guard can't decode (\u, \0) blocked as unjudgeable; and a PowerShell command's $(...), read as
+  # a command of its own, so a Bash command in it that reads through a backslash (c\at) is blocked. A backslash-space in a name
+  # (.env\ .example) is one word, not .env, and passes. PowerShell's backslash is no escape (its escape is the backtick), so its store
+  # path passes as written (B44).
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'cat ~/AppData/Roaming/GitHub\ CLI/hosts.yml' \
+        'cat ~/AppData/Roaming/GitHub\ CLI' \
+        'cat "~/AppData/Roaming/GitHub\ CLI/hosts.yml"' \
+        'cat ~/AppData/Roaming/Git\Hub\ CLI/hosts.yml' \
+        "\$'\\x63at' .env.local" \
+        "\$'\\143at' .env.local" \
+        "cat \$'.en\\x76.local'" \
+        "cat \$'\\x2eenv.local'" \
+        "cat \$'\\x2e\\x65nv\\x2elocal'" \
+        "cat \$'\\x2eenv'\$'.local'" \
+        "cat \$'.env\\x2elocal' docs/index.md" \
+        "cat \$'\\x2eenv' .example" \
+        "cat \$'\\u0063at' .env.local" \
+        "cat \$'\\0' README.md" \
+        "echo \$(bash -c \$'c\\x61t .env.local')" \
+        "echo \$(bash -c 'c\\at .env.local')" \
+        "git log \$(bash -c 'c\\at .env.local')"; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        "echo \$(bash -c 'c\\at .env.local')" \
+        "echo \"\$(bash -c 'c\\at .env.local')\"" \
+        "Write-Output \$(bash -c \"c\\at ~/.ssh/id_rsa\")"; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        'cat .env\ .example' \
+        'cat README.md docs/index.md' \
+        "printf '%s' \$'\\e[31mred\\e[0m'" \
+        "tr -d \$'\\r' < docs/index.md" \
+        "cat \$'README\\56md'" \
+        "cat \$'\\101\\x42C.md'" \
+        "cat \$'.env.example'" \
+        "cat \$'\\x2eenv.template'" \
+        "echo \"\$(bash -c 'c\\at README.md')\"" \
+        "echo \$(bash -c 'echo hi')"; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        'cat ~/AppData/Roaming/GitHub\ CLI/hosts.yml' \
+        'Write-Output "$(Get-Content .env.example)"' \
+        'Write-Output "$(Get-Content README.md)"' \
+        "Write-Output \"\$(bash -c 'c\\at README.md')\""; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook misses an escaped space in a store path, an ANSI-C string in a reader's or a file's name, or a PowerShell command's substitution that reads a credential file, or blocks an ordinary read (B52)" "the guard hook blocks a credential read through an escaped space in a store path, an ANSI-C string in a name, and a PowerShell command's substitution, and passes an ANSI-C string that names no credential and the substitutions that read none (B52)"
+
+  # A command substitution in a git command's words (B32): what it prints can be a flag, and the text it runs is a command
+  # the guard can't see. The repro (git push $(echo --force) and its backtick form) is blocked as the plain flag is, in Bash
+  # and PowerShell, and so is a substitution as the command name, or one that runs a non-reading command. A double-quoted
+  # value that starts with fixed text, a commit's or tag's -m value and a read (git, date, cat, echo, printf) pass, as the
+  # procedures use them. The text of a substitution is judged as a command of its own.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'git push $(echo --force)' \
+        'git push `echo --force`' \
+        'git push "$(echo --force)"' \
+        'git log $(echo --output=/tmp/x)' \
+        'git log "$(echo --output=/tmp/x)"' \
+        'git log "--output=$(echo /tmp/x)"' \
+        'git log "--since=$(rm -rf x)"' \
+        'git log -1 "$(date +%F)"' \
+        'git log "x$(git push --force)"' \
+        'git push $(git push --force)' \
+        'git status && echo $(git push --force)' \
+        'echo "$(git push --force)"' \
+        'git log > >(git push --force)' \
+        '$(echo git) push --force' \
+        'git log $(echo git) push' \
+        'git commit -m x "$(cat x)"' \
+        'git commit -m "$(echo $(rm -rf x))"' \
+        $'git commit -c -m "$(cat <<\'EOF\'\n--file=/tmp/x\nEOF\n)"' \
+        $'git commit -m -m "$(cat <<\'EOF\'\n--file=/tmp/x\nEOF\n)"' \
+        $'git commit -m "$(cat <<EOF\n$(git push --force)\nEOF\n)"' \
+        $'git commit -m "$(cat x; git push --force)"' \
+        $'git log \\\n$(echo --output=/tmp/x)' \
+        'git push "--force"$(echo x)'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'git push $(echo --force)' \
+        'git push `echo --force`' \
+        'git push "$(echo --force)"' \
+        'git push (echo --force)' \
+        'git push @(echo --force)' \
+        '$(echo git) push --force' \
+        'git log -- $(echo --output=/tmp/x)' \
+        'git log "$(git push --force)"'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        $'git commit -m "$(cat <<\'EOF\'\nfix the --output handling, and -F /tmp/x\nEOF\n)"' \
+        $'git commit -a -m "$(cat <<\'EOF\'\nmsg one\n\nBody with `ticks` and $(vars) text\nEOF\n)" -- docs/index.md' \
+        $'git commit -m "$(cat <<\'EOF\'\nmsg `git push --force` in a quoted heredoc\nEOF\n)" -- x' \
+        $'git commit -m "$(cat <<EOF\nplain body\nEOF\n)"' \
+        'git commit -m "$(git log -1 --format=%s)"' \
+        'git commit -m "$(echo --file=/tmp/x)"' \
+        'git tag -a "v$(cat VERSION)" -m "release"' \
+        'git checkout -q -b "ddd/bundle-$(date +%F)" origin/main' \
+        'git ls-remote --heads origin "ddd/bundle-$(date +%F)*"' \
+        "git log --since=\"\$(date -d '7 days ago' +%F)\" --oneline" \
+        'git log --format=%h -n 1 -- "docs/$(echo index).md"' \
+        'test -z "$(git status --porcelain)"' \
+        'echo "$r $(git -C work/$r describe --tags)"' \
+        'for f in $(git diff --name-only); do echo "$f"; done' \
+        'K=$(git rev-parse HEAD); echo $K' \
+        'cd "$(git rev-parse --show-toplevel)" && git status' \
+        'git status; echo $(date)' \
+        'git log -1 --format=%h \$(echo --output)' \
+        'echo `date`'; do
+      guard 0 "$cmd"
+    done
+    guard 0 'Write-Output "$(git status)"' PowerShell
+    guard 0 $'git commit -m "$(cat <<\'EOF\'\nmsg\nEOF\n)" && git push origin main' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook reads a command substitution in a git command's words, or as its name, as harmless, or blocks a plain read (B32)" "the guard hook blocks a command substitution that can print a git flag or run a command the guard can't read, in git's words or as a command name, and passes the quoted values, messages and reads the procedures use (B32)"
+
+  # A Bash comment holds no substitution and opens no quoted string (B43): a backtick, $( or quote in it is text, so the
+  # command after the comment is read as Bash reads it. A substitution after a comment, a tab, ; or & is still read, and so is
+  # one after a # inside a word (a#b) or after an escaped blank, since neither starts a comment. A ) in a comment doesn't close a
+  # substitution, so its text runs to the next line and is blocked. A blank before a # inside ${...} is part of the expansion,
+  # not a comment. An unquoted heredoc body's substitutions are read whole, as the shell expands them, so a comment in one is
+  # read too; a quoted body is text.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        $'git push # x\n`echo --force`' \
+        $'git push # x\ngit push `echo --force`' \
+        $'git status # note\ngit push $(echo --force)' \
+        $'# it\'s\ngit push `echo --force`' \
+        $'git status a#b `echo --force`' \
+        $'git status a\\ #`echo --force`' \
+        $'git status ${x:- #a} $(echo --force)' \
+        $'git push origin ":${y:- #}$(echo main)"' \
+        $'git push `# x`' \
+        $'git push `echo --force` # x' \
+        $'git push $(echo --force) # `' \
+        $'git status $(echo a # `)' \
+        $'git log "--format=$(echo a # )\nprintf x)"' \
+        $'git commit -q -F - <<EOF\n# note `\nmsg\nEOF' \
+        $'git log <<EOF\n# $(git push --force)\nEOF' \
+        $'git status <<EOF\n# `git push --force`\nEOF' \
+        $'# note `\\\ngit push `echo --force`'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        $'# note `\ngit status' \
+        $'# note `echo --force`\ngit status' \
+        $'# note $(echo --force)\ngit status' \
+        $'git status\t# note `\ngit log -1' \
+        $'git status;# note `\ngit log -1' \
+        $'# it\'s\ngit status' \
+        $'git status # $(echo --force)' \
+        $'git status # `echo --force`' \
+        $'git status ${x:-y} # $(echo --force)' \
+        $'# note `\\\ngit status' \
+        $'git commit -q -F - <<\'EOF\'\n# note `echo --force`\nmsg\nEOF'; do
+      guard 0 "$cmd"
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook reads a backtick, \$( or quote in a Bash comment as a substitution or a string, or misses a substitution after one (B43)" "the guard hook reads a Bash comment as text, so a backtick, \$( or quote in it starts no substitution or string, and a substitution after a comment, an escaped blank or a # in a word is still read (B43)"
+
+  # The word decoder (B51) reads a comment on its own line: a quote in it pairs with nothing after the line break, so the
+  # quoted flag, refspec or credential command after it is seen, in Bash, in a heredoc body a shell runs and in PowerShell
+  # (whose # starts a comment the same way). A quote in a comment that never closes is text, so the flags it names pass,
+  # and a quoted command in a comment passes as it did; a # inside a quoted string, an escaped #, ${#x} or $# starts no
+  # comment, so a flag after one is blocked.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        $'# it\'s\ngit push origin \':main\'' \
+        $'# it\'s\ngit push "--force" \'x\'' \
+        $'# say "hi\ngit push "--force" "x"' \
+        $'# it\'s\ngit commit -q "-n" -m \'x\'' \
+        $'# it\'s\ngit push origin "+main" \'x\'' \
+        $'# say "hi\ngit push origin \':main\'' \
+        $'# say "hi\ngit commit -q "-n" -m "x"' \
+        $'git status\n# it\'s\ngit push "--force" \'x\'' \
+        $'echo \'a\'  # it\'s\ngit push "--force" \'x\'' \
+        $'# it\'s\n# don\'t\ngit push origin \':main\' \'x\'' \
+        $'bash <<\'EOF\'\n# it\'s\ngit push origin \':main\'\nEOF' \
+        $'bash <<\'EOF\'\n# it\'s\ngit push "--force" \'x\'\nEOF' \
+        $'# it\'s\ngit credential fill \'x\'' \
+        $'# note\\\ngit push --force' \
+        $'echo a\\ #b ; git push --force' \
+        $'echo "#" ; git push --force' \
+        $'git status ${x:- #} ; git push --force' \
+        $'echo "$(echo "a #") # b" ; git push --force'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        $'# it\'s\ngit status' \
+        $'# it\'s --force\ngit status' \
+        $'# it\'s "--force" -n :main\ngit status' \
+        $'# it\'s \':main\'\ngit log -1' \
+        $'# it\'s "git push --force"\ngit status' \
+        $'# say "--force" and "-n" and ":main"\ngit status' \
+        $'git status # it\'s --force\ngit log -1' \
+        $'git status\n# it\'s\ngit log --oneline -3' \
+        $'# it\'s -n\ngit push origin main' \
+        $'git commit -q -F - <<\'EOF\'\n# it\'s git push origin \':main\'\nEOF' \
+        $'bash <<\'EOF\'\n# it\'s --force\necho done\nEOF' \
+        $'git commit -m "fix #12 it\'s" -m "x"' \
+        $'git status "#" \'it\'' \
+        $'echo ;#x'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        $'# it\'s\ngit push "--force" \'x\'' \
+        $'# it\'s\ngit commit -q "-n" -m \'x\'' \
+        $'echo "a""b # " ; git push --force' \
+        'git push `#x --force'; do
+      guard 2 "$cmd" PowerShell
+    done
+    guard 0 $'# it\'s --force\ngit status' PowerShell
+    guard 0 $'# it\'s\ngit log -1' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook reads a quote in a comment as pairing with a quote after its line break, or blocks a comment that names a flag or quotes a command (B51)" "the guard hook reads a quote in a Bash or PowerShell comment as pairing with nothing after its line break, so a quoted flag, refspec or credential command after it is blocked, and a comment that names a flag or quotes a command passes (B51)"
+
+  # A destructive git rule (B33) reads the words as the shell hands them over: a quoted flag, refspec or path is seen, a flag
+  # ends at ; & | ) or a line break as it does at a space, and a heredoc body a shell runs is read too. The rules are a force
+  # push, a +refspec, reset --hard, clean -f, checkout or switch -f, checkout or restore of ".", stash drop or clear, and
+  # branch -D. A quoted message that names one passes, and so does a quoted word that isn't a flag.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+      $'git push --force\necho done' \
+      'git push --force;echo done' \
+      'git push --force&&echo done' \
+      'git push --force|cat' \
+      '(git push --force)' \
+      'git push "--force"' \
+      "git push '--force'" \
+      'git push "--force-with-lease=origin/main"' \
+      'git push --fo"rce"' \
+      'git push -f;echo done' \
+      'git push origin "+main"' \
+      "git push origin '+main'" \
+      'git pu"sh" --force' \
+      'git status && git push --force' \
+      $'git status\ngit push "--force"' \
+      'git checkout "."' \
+      'git checkout -- "."' \
+      'git restore "."' \
+      'git checkout .;echo done' \
+      'git checkout -f;echo done' \
+      'git checkout "-f" main' \
+      'git checkout -qf main' \
+      'git switch "--discard-changes" main' \
+      'git reset "--hard"' \
+      'git reset --hard;echo done' \
+      'git clean "-f"' \
+      'git stash "drop"' \
+      'git stash drop;echo done' \
+      'git branch "-D" x' \
+      'git branch -D x;echo done' \
+      'git branch -vD x' \
+      'git commit -n;echo done' \
+      'git commit -m "-x;y" -F /tmp/msg.txt' \
+      'git diff "/etc/passwd"' \
+      'bash "tools/../x.sh"' \
+      $'bash <<\'EOF\'\ngit push --force\nEOF' \
+      $'bash <<\'EOF\'\ngit push "--force"\nEOF' \
+      $'bash <<\'EOF\'\ngit push origin "+main"\nEOF' \
+      $'bash <<\'EOF\'\ngit checkout "."\nEOF' \
+      $'bash <<\'EOF\'\ngit commit -n -m x\nEOF' \
+      $'sh <<EOF\ngit reset --hard\nEOF'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+      'git push origin main' \
+      'git push origin "HEAD:refs/heads/main"' \
+      'git push "origin" main' \
+      'git push origin main;git status' \
+      'git push -u origin "ddd/bundle-$(date +%F)"' \
+      'git commit -m "stop git push --force;"' \
+      'git commit -m "reset --hard" -m "checkout ."' \
+      'git commit -m "stash drop"' \
+      'git commit -m "-x" -F -' \
+      'git checkout -b "feature/x"' \
+      'git checkout "main"' \
+      'git branch -d x' \
+      'git branch -vv' \
+      'git log --grep "push --force"' \
+      'git log --oneline "--grep=push"' \
+      'git stash show "drop"' \
+      'git tag -a v1 -m "push --force note"' \
+      'echo "git push --force"' \
+      'git status && echo "reset --hard"' \
+      $'git status\ngit log --oneline -3' \
+      $'git commit -q -F - <<\'EOF\'\nStop "git push --force" in the hook, and "git reset --hard".\nEOF' \
+      $'git commit -q -F - <<\'EOF\'\nfix the --output and --no-index handling, not -F /tmp/x\nEOF'; do
+      guard 0 "$cmd"
+    done
+    for cmd in 'git push "--force"' 'git push origin "+main"' 'git checkout "."' 'git push --force;echo done' 'git reset "--hard"'; do
+      guard 2 "$cmd" PowerShell
+    done
+    guard 0 'Write-Output "git push --force"' PowerShell
+    guard 0 'git push origin "HEAD:main"' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read a destructive git rule's flag, refspec or path as the shell does, or blocks a message that names one (B33)" "the guard hook blocks a force push, a +refspec, reset, clean, checkout, stash drop and branch -D that a quote, a line break, ; & | ) or a heredoc body hides, and passes the quoted messages (B33)"
+
+  # A script a shell or an interpreter runs is a command of its own (B34): a quoted string given to bash -c, sh -c or
+  # zsh -c (with options before -c), eval, powershell -Command, pwsh -c or cmd /c is read by the same rules, to four levels
+  # of nesting, whatever the name is quoted or prefixed with. A comment, a heredoc body or a message in quotes that names
+  # one is text, and a read or a benign script passes. A command whose quoting the guard can't close, and PowerShell's
+  # -EncodedCommand, whose text is hidden, are blocked.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        "bash -c 'git push --force'" \
+        'sh -c "git commit --no-verify -m x"' \
+        "eval 'git log --output=x'" \
+        'sh -c "git push $(echo --force)"' \
+        "sh -c 'git commit -n -m x'" \
+        "zsh -c 'git branch -D x'" \
+        "bash -lc 'git reset --hard'" \
+        "bash -o pipefail -c 'git push --force'" \
+        'eval "git push" --force' \
+        "bash -c \"git push '--force'\"" \
+        "timeout 240 bash -c 'git push --force'" \
+        "bash -c 'bash -c \"git push --force\"'" \
+        'sh -c "git commit -m \"x\" -n"' \
+        'powershell -NoProfile -Command "git push --force"' \
+        'cmd /c "git push --force"' \
+        '"bash" -c "git push --force"' \
+        "ba''sh -c 'git push --force'" \
+        "nice -n 5 bash -c 'git push --force'" \
+        "sudo sh -c 'git push --force'" \
+        "eval 'bash -c \"git push --force\"'" \
+        "bash -c \"\$(echo git push --force)\"" \
+        "bash -c 'git checkout .'" \
+        'bash -c "git push origin +main"' \
+        "/bin/bash -c 'git push --force'" \
+        "bash -c \$'git push --force'" \
+        "bash -c 'git commit -F /tmp/msg.txt'" \
+        "bash -c 'bash tools/stacks/../x.sh'" \
+        "bash -c 'sleep 300'" \
+        'sh -c "git status' \
+        'powershell -EncodedCommand ZwBpAHQAIABwAHUAcwBoAA==' \
+        $'# don\'t\nbash -c \'git push --force\'' \
+        $'cat <<\'EOF\'\nit\'s\nEOF\nbash -c \'git push --force\'' \
+        $'bash -c \'echo hi\' ; sh -c "git status\nbash -c \'git push --force\'"'; do
+      guard 2 "$cmd"
+    done
+    # Four wrappers nested (bash -c inside sh -c inside zsh -c inside bash -c) reach the git inside; a fifth is blocked.
+    wrap_esc() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
+    nest="bash -c 'git push --force'"
+    for _ in 1 2 3; do nest="sh -c \"$(wrap_esc "$nest")\""; done
+    guard 2 "$nest"
+    nest="bash -c 'echo hi'"
+    for _ in 1 2 3; do nest="sh -c \"$(wrap_esc "$nest")\""; done
+    guard 0 "$nest"
+    nest="sh -c \"$(wrap_esc "$nest")\""
+    guard 2 "$nest"
+    for cmd in \
+        "bash -c 'git status'" \
+        'sh -c "echo hi"' \
+        "bash -c 'git log --oneline -3'" \
+        "sh -c \"git commit -m 'fix the --output handling'\"" \
+        'echo "bash -c '"'"'git push --force'"'"'"' \
+        'git commit -m "fix: sh -c '"'"'git push --force'"'"' now blocked"' \
+        $'git commit -q -F - <<\'EOF\'\nthe sh -c \'git push --force\' guard\nEOF' \
+        "timeout 240 bash -c 'until test -f x; do sleep 5; done'" \
+        '(timeout 4m bash -c "while true; do sleep 1; done")' \
+        'bash -c "echo $(date)"' \
+        'powershell -NoProfile -Command "Write-Output '"'"'hi'"'"'"' \
+        "bash -c 'cat README.md'" \
+        'eval "echo hi"' \
+        'git log --grep "bash -c git push --force"' \
+        "bash -c 'echo hi' git status" \
+        'echo sh -c' \
+        'git commit -m "run cmd /c later"' \
+        $'bash -c "git commit -F - <<\'EOF\'\nmsg\nEOF"' \
+        $'git commit -m "$(cat <<\'EOF\'\nmsg with sh -c \'git push --force\'\nEOF\n)"' \
+        'bash tools/check.sh'; do
+      guard 0 "$cmd"
+    done
+    # PowerShell (B34): the same wrappers in the PowerShell tool's payload, and a backtick that joins a flag.
+    for cmd in \
+        "pwsh -c 'git reset --hard'" \
+        'powershell -Command "git push --force"' \
+        'bash -c "git push --force"' \
+        'cmd /c "git push --force"' \
+        'powershell -EncodedCommand ZwBpAHQAIABwAHUAcwBoAA==' \
+        'powershell -c "git push --fo`rce"'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        "pwsh -c 'git status'" \
+        'powershell -NoProfile -Command "Write-Output '"'"'hi'"'"'"' \
+        'cmd /c "echo hi"' \
+        'powershell -File tools/x.ps1 "git push --force"' \
+        'pwsh -c "Get-ChildItem | Select-Object Name"'; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read a script a shell or an interpreter runs as a command of its own, or blocks a message that names one (B34)" "the guard hook reads a script given to bash -c, sh -c, zsh -c, eval, powershell -Command, pwsh -c or cmd /c as a command, to four levels, and passes the messages, heredocs and reads that name one (B34)"
+
+  # A wait loop in a script a shell or an interpreter runs (B42): the hang check reads each such script as it reads the command,
+  # so an until, while true or while : loop with sleep is blocked under eval, bash -c, sh -c, powershell -Command and cmd /c.
+  # A timeout of 280 seconds or less above the wrapper bounds the whole script, as it bounds a loop the command runs itself,
+  # and a loop with no sleep, or in a message that names one, passes.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        "eval 'until false; do sleep 1; done'" \
+        "eval 'while true; do sleep 1; done'" \
+        "eval 'while :; do sleep 1; done'" \
+        "sh -c 'until false; do sleep 1; done'" \
+        "eval \"until false; do sleep 1; done\"" \
+        "eval 'bash -c \"until false; do sleep 1; done\"'" \
+        "eval 'eval \"while true; do sleep 1; done\"'" \
+        "sh -c \"eval 'while : ; do sleep 1; done'\"" \
+        "timeout 9999 eval 'until false; do sleep 1; done'" \
+        "timeout 0 eval 'until false; do sleep 1; done'" \
+        "timeout 5m eval 'until false; do sleep 1; done'" \
+        'cmd /c "until false; do sleep 1; done"' \
+        'cmd /c "while true; do sleep 1; done"' \
+        'powershell -Command "while ($true) { Start-Sleep 1 }"' \
+        'powershell -NoProfile -Command "while ($true) { sleep 1 }"'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'while ($true) { Start-Sleep 1 }' \
+        'While ($true) { Start-Sleep -Seconds 5 }' \
+        'WHILE ($true) { start-sleep 2 }'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        "timeout 60 eval 'until false; do sleep 1; done'" \
+        "timeout 4m eval 'until false; do sleep 1; done'" \
+        "timeout 240s eval 'until false; do sleep 1; done'" \
+        'timeout 60 cmd /c "until false; do sleep 1; done"' \
+        "timeout 60 bash -c \"eval 'until false; do sleep 1; done'\"" \
+        "sh -c \"timeout 60 eval 'until false; do sleep 1; done'\"" \
+        "eval 'timeout 60 bash -c \"until false; do sleep 1; done\"'" \
+        "eval 'until false; do echo hi; done'" \
+        "eval 'sleep 1'" \
+        "eval 'git commit -m \"until false; do sleep 1; done\"'" \
+        'cmd /c "echo until"' \
+        'powershell -Command "Write-Output (Get-Date)"'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        'while ($true) { Get-Date }' \
+        'timeout 60 powershell -Command "while ($true) { Start-Sleep 1 }"'; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't block a wait loop in a script a shell or an interpreter runs, or blocks one a timeout bounds (B42)" "the guard hook blocks an until or while loop with sleep in a script given to eval, bash -c, sh -c, powershell -Command or cmd /c, and passes one under a timeout of 280 seconds or less (B42)"
+
+  # The hang check's other forms (B49): a C-style for (( loop with sleep and no time limit; a PowerShell do { } while or until with a
+  # sleep in its body; Start-Sleep and its alias sleep with -Seconds, -s or -Milliseconds over 280 seconds; cmd's timeout /t N over 280
+  # seconds, or -1, which waits for a key press for ever (cmd's timeout is a wait, not a time limit); and a Bash substitution, which
+  # runs before a timeout above it starts, so the timeout doesn't bound it. A substitution in single quotes, or escaped, is the
+  # script's own, so a timeout above a script bounds it. A message that names one of these passes (the quoted text is blanked).
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'for ((;;)); do sleep 1; done' \
+        'for (( ; ; )); do sleep 1; done' \
+        'for ((i = 0; i < 3; i++)); do sleep 1; done' \
+        'timeout 60 echo "$(until false; do sleep 1; done)"' \
+        'timeout 60 echo $(until false; do sleep 1; done)' \
+        'timeout 60 bash -c "echo $(until false; do sleep 1; done)"' \
+        'timeout 60 echo "$(bash -c "until false; do sleep 1; done")"' \
+        'echo "$(sleep 600)"' \
+        'echo "$(cmd /c "timeout /t 600")"' \
+        'powershell -Command "Start-Sleep -Seconds 600"' \
+        'powershell -Command "Start-Sleep -Milliseconds 300001"' \
+        'cmd /c "timeout /t 300"' \
+        'cmd /c "timeout /t -1"' \
+        'timeout 60 cmd /c "timeout /t 600"' \
+        'timeout 60 echo $(cat <<'"'"'EOF'"'"'
+x
+EOF
+) ; while true; do sleep 1; done'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'do { Start-Sleep 1 } while ($true)' \
+        'do { Start-Sleep 1 } until ($false)' \
+        'DO { START-SLEEP -S 600 } WHILE ($true)' \
+        'Start-Sleep -Seconds 600' \
+        'Start-Sleep -s 600' \
+        'Start-Sleep -Milliseconds 280001' \
+        'sleep -Seconds 300' \
+        'timeout 60 Write-Output $(while ($true) { Start-Sleep 1 })' \
+        'powershell -Command "do { Start-Sleep 1 } while ($true)"'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        "timeout 60 bash -c 'echo \$(until false; do sleep 1; done)'" \
+        'timeout 240 bash -c "echo \$(until test -f x; do sleep 5; done)"' \
+        "timeout 240 bash -c 'for ((i = 0; i < 3; i++)); do sleep 1; done'" \
+        'echo "$(date +%s)"' \
+        'echo $(sleep 280)' \
+        'bash -c "echo $(date)"' \
+        'timeout 60 cmd /c "timeout /t 60"' \
+        'cmd /c "timeout /t 280"' \
+        "echo '\$(until false; do sleep 1; done)'" \
+        'git commit -m "wait: Start-Sleep 600 and for ((;;)) and do { x } while (y)"' \
+        'git log --format="%h $(date +%F)" -3' \
+        'echo "$(git log --oneline -3)"' \
+        'for i in 1 2 3; do echo $i; done' \
+        'for ((i = 0; i < 3; i++)); do echo $i; done'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        'timeout 60 powershell -Command "do { Start-Sleep 1 } while ($true)"' \
+        'timeout 240 powershell -Command "Start-Sleep -Seconds 240"' \
+        'Start-Sleep -Seconds 280' \
+        'Start-Sleep -Milliseconds 280000' \
+        'Start-Sleep 5' \
+        'do { Get-Date } while ($false)' \
+        "Write-Output 'do { Start-Sleep 1 } while (\$true)'"; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't block a for (( loop, a do ... while, Start-Sleep or timeout /t over 280 seconds, or a substitution before a timeout, or blocks a message or a bounded script that names one (B49)" "the guard hook blocks a for (( loop with sleep, a do ... while with sleep, Start-Sleep and timeout /t over 280 seconds, and a substitution that runs before a timeout, and passes a bounded script and a message that names them (B49)"
+
+  # The hang check reads the command without the bodies no shell runs (B50): a commit's, tag's or gh message, and a cat or tee body
+  # nothing runs (the classification's reading, B40 and B48). So a message can name a loop, a pause or a timed wait, as plain text,
+  # in a C-style or a PowerShell loop, with a pause or a wait over five minutes. A body a shell, an interpreter or a runner executes
+  # is still read, and so is a Python heredoc and a command after a message. An unquoted message's substitution is run, so it
+  # is read; a quoted one is text, and so are its backticks.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        $'git commit -q -F - -- a <<\'EOF\'\nPowerShell\'s While loop with Start-Sleep is now seen.\nEOF' \
+        $'gh pr edit 5 --body-file - <<\'EOF\'\nPowerShell\'s While loop with Start-Sleep is now seen.\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nfix: for ((i = 0; i < 3; i++)); do sleep 600; done\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nwait: Start-Sleep -Seconds 600 before retry\nEOF' \
+        $'gh pr create --body-file - <<\'EOF\'\nUse cmd\'s timeout /t 600 to wait\nEOF' \
+        $'gh pr create --body-file - <<\'EOF\'\ndo { Start-Sleep 600 } while ($true)\nEOF' \
+        $'gh pr create --body-file - <<\'EOF\'\nuse `sleep 600` and `timeout /t 600` as examples\nEOF' \
+        $'gh pr create --body-file - <<\'EOF\'\n$(until false; do sleep 1; done)\nEOF' \
+        $'git commit -q -F - <<EOF\nwhile you wait, Start-Sleep 600 $(date +%F)\nEOF' \
+        $'git tag -a v1 -F - <<\'EOF\'\nwhile true; do sleep 600; done\nEOF' \
+        $'gh issue comment 5 -F - <<\'EOF\'\nfor ((;;)); do sleep 1; done\nEOF' \
+        $'gh release create v1 --notes-file - <<\'EOF\'\ndo { Start-Sleep 600 } until ($false)\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nfix: sleep 600\nEOF\ngit status' \
+        $'cat > notes.md <<\'EOF\'\nuntil false; do sleep 600; done\nEOF' \
+        $'cat > notes.md <<EOF\nuntil false; do sleep 600; done\nEOF' \
+        $'tee notes.md <<\'EOF\'\nStart-Sleep -Seconds 600\nEOF'; do
+      guard 0 "$cmd"
+    done
+    guard 0 'git commit -q -m "wait: Start-Sleep -Seconds 600"' PowerShell
+    for cmd in \
+        $'python3 - <<\'EOF\'\nEOF' \
+        $'bash <<\'EOF\'\nuntil false; do sleep 600; done\nEOF' \
+        $'cat > x.sh <<\'EOF\'\nwhile true; do sleep 1; done\nEOF\nbash x.sh' \
+        $'cat > x.sh <<\'EOF\'\nStart-Sleep -Seconds 600\nEOF\nsh x.sh' \
+        $'cat > x.sh <<\'EOF\'\nuntil false; do sleep 1; done\nEOF\n. ./x.sh' \
+        $'echo start; cat > x.sh <<\'EOF\'\nuntil false; do sleep 1; done\nEOF\nbash x.sh' \
+        $'git commit -q -F - <<\'EOF\'\nmsg\nEOF\nwhile true; do sleep 1; done' \
+        $'gh pr create --body-file - <<\'EOF\'\nmsg\nEOF\nsleep 600' \
+        $'git commit -q -F - <<EOF\n$(until false; do sleep 1; done)\nEOF' \
+        $'gh pr create --body-file - <<EOF\n$(sleep 600)\nEOF' \
+        $'git commit -q -F - <<EOF\n`until false; do sleep 1; done`\nEOF' \
+        $'cat > notes.md <<\'EOF\'\nmsg\nEOF\nbash -c "until false; do sleep 600; done"'; do
+      guard 2 "$cmd"
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook blocks a message or an unrun cat body that names a loop, a pause or a timed wait, or passes a body a shell, an interpreter or a runner executes (B50)" "the guard hook passes a commit's, tag's or gh message, and a cat or tee body nothing runs, that names a loop, a pause or a timed wait, and blocks a body a shell, an interpreter or a runner executes (B50)"
+
+  # A variable in a git command's words (B37): the guard can't read what it holds. A variable that the command assigns once,
+  # to a plain value, is read as that value, so FLAG=--force; git push $FLAG is the force push it is. Any other unquoted
+  # variable in the words of a git subcommand the rules read is blocked, and so is a quoted one that a flag or a path could
+  # be, a fixed text that starts a flag (--$X), a variable as the subcommand, and a variable as a command's name followed by
+  # -c or -Command. The everyday forms pass: a quoted variable as the value of -m, -e, -b or -C, after --, after fixed text
+  # that doesn't start a flag, as a push's branch after its remote, and in a subcommand the rules don't read (git status).
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'FLAG=--force; git push $FLAG' \
+        'FLAG=-f; git push ${FLAG} origin' \
+        'export ST=-f && git push $ST origin' \
+        'FLAG=--force; git push "$FLAG"' \
+        'FLAG=ok; FLAG=--force; git push $FLAG' \
+        'FLAG=ok; read FLAG; git push $FLAG' \
+        'NV=--no-verify; git commit $NV -m x' \
+        'git commit $NV -m x' \
+        "git commit \"\$NV\" -m x" \
+        'git push $FLAG' \
+        'git push "$FLAG"' \
+        'git push origin $BR' \
+        'git push --$X' \
+        'git push "--$X"' \
+        'git push -$F origin' \
+        'git log $X' \
+        'git log --output="$X"' \
+        'git diff "$f"' \
+        'git -C $d log' \
+        'git $CMD --force' \
+        'git commit -nm"$x" -- a' \
+        'git commit -m$msg' \
+        'git checkout -b $name' \
+        'git reset --hard $REF' \
+        'git branch -D "$b"' \
+        'git grep "$p"' \
+        $'bash <<\'EOF\'\ngit push $FLAG\nEOF' \
+        "\$X -c 'git push --force'" \
+        '"$SHELL" -c "git push --force"' \
+        'sudo "$X" -c "git push --force"' \
+        'env FOO=1 $X -c x' \
+        'timeout 240 "$X" -c x' \
+        'echo ok && $X -c x' \
+        '"$EDITOR" -c x'; do
+      guard 2 "$cmd"
+    done
+    for cmd in 'git commit $NV -m x' 'git push "$FLAG"' 'git push -u origin $BR' '$X -c "git push --force"' \
+        '& $X -c "git push --force"'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        'for r in A B C; do git -C work/$r status --short; done' \
+        'git -C "work/$r" log --oneline -1' \
+        'git -C "$repo" fetch' \
+        'git -C $d status' \
+        'git status $X' \
+        'git add $FILE' \
+        'git log --since="$since"' \
+        'git commit -m "$msg" -- a' \
+        'git commit -m"$msg" -- a' \
+        'git commit -am "$msg"' \
+        'git commit -C "$c"' \
+        'git push -u origin "$branch"' \
+        'git push origin "$a" "$b"' \
+        'git checkout -b "ddd/bundle-$day"' \
+        'git checkout -b "ddd/bundle-$day" origin/main' \
+        'git switch -c "$b"' \
+        'git grep -e "$p"' \
+        'git tag -a "v$VER" -m "release"' \
+        'git log --format="%h $X"' \
+        'git log -- $X' \
+        'git commit -m "$msg" -- $X' \
+        'git log > "$out"' \
+        'git log >"$out" --oneline' \
+        'FLAG=ok; git push $FLAG' \
+        'FLAG=--force; echo $FLAG' \
+        'MSG=--force; git commit -m "$MSG"' \
+        'a=1; git push $a' \
+        'echo $X -c x' \
+        'echo -n $X -c x' \
+        'echo "$X -c y"' \
+        '"$EDITOR" notes.txt' \
+        'git commit -m "& $X -c y" -- a' \
+        $'git commit -q -F - <<\'EOF\'\nfix the $X handling\nEOF'; do
+      guard 0 "$cmd"
+    done
+    guard 0 'git push -u origin "$branch"' PowerShell
+    guard 0 'git commit -m "$msg" -- a' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook reads a variable in a git command's words as a value it can't see, or blocks a plain form (B37)" "the guard hook reads a variable a git command assigns once as its value, blocks an unquoted or flag-capable variable in a git command's words, a variable as a subcommand or as a shell's name followed by -c, and passes the everyday forms (B37)"
+
+  # A variable as a command's name, and a variable a shell's script or a script path holds (B45): the name a command assigns is
+  # the name it runs (G=git; $G push --force is git), and an unresolved name that the command sets another way, or that a git
+  # subcommand or a destructive flag follows, is blocked. A variable a shell's script (bash -c, eval, -Command) holds, or that a
+  # script path under tools/ holds, is blocked too. The everyday forms pass: "$PY" -I script.py, a loop that runs "$PY" "$f", a
+  # variable as an argument, and a single-quoted script's own variable (its shell reads it, and it can't name a command here).
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'G=git; $G push --force' \
+        '$G push --force' \
+        '"$G" push --force' \
+        'G=git; ${G} push --force' \
+        'G=git; "$G" push --force' \
+        '$G --force' \
+        'if true; then $G push --force; fi' \
+        'for f in x; do $G push --force; done' \
+        '{ $G push --force; }' \
+        'xargs $G push --force' \
+        'find . -exec $G push --force \;' \
+        'if true; then "$X" -c x; fi' \
+        'CMD="git push --force"; $CMD' \
+        'read CMD <<< "git push --force"; $CMD' \
+        'FOO=$(echo git); $FOO push --force' \
+        'X=../../evil.sh; bash tools/stacks/$X' \
+        'bash tools/stacks/$X.sh' \
+        'bash "tools/$X"' \
+        'bash -c "$CMD"' \
+        'eval "$CMD"' \
+        'eval $CMD' \
+        "bash -c '\$CMD'" \
+        'CMD="git push --force" bash -c '"'"'$CMD'"'"'' \
+        'sh -c "echo $HOME"' \
+        $'G=git; bash <<\'EOF\'\n$G push --force\nEOF' \
+        $'bash <<\'EOF\'\n$G push --force\nEOF' \
+        $'CMD="git push --force" bash <<\'EOF\'\n$CMD\nEOF'; do
+      guard 2 "$cmd"
+    done
+    for cmd in "\$G = 'git'; & \$G push --force" '& $G push --force'; do
+      guard 2 "$cmd" PowerShell
+    done
+    guard 2 'powershell -Command "$P"' PowerShell
+    for cmd in \
+        'G=git; $G status' \
+        'G=ls; $G push --force' \
+        'echo $G push --force' \
+        '"$PY" -I script.py' \
+        'PY=python3; "$PY" -I script.py' \
+        'FOO="a b" "$PY" -I x.py' \
+        'for f in tools/*.py; do "$PY" "$f"; done' \
+        'for f in a b; do echo "$f"; done' \
+        'if true; then "$PY" -I x.py; fi' \
+        'find . -name x -exec "$PY" -I y {} \;' \
+        'xargs -I{} echo {}' \
+        '"$PY" tools/usage.py status' \
+        'bash "$script"' \
+        'bash tools/check.sh "$X"' \
+        'cd "$dir" && git status' \
+        'bash -c "echo \$HOME"' \
+        "bash -c 'echo \$HOME'" \
+        $'git commit -q -F - <<\'EOF\'\n$G push --force\nEOF'; do
+      guard 0 "$cmd"
+    done
+    guard 0 "powershell -Command 'Get-ChildItem | % { \$_.Name }'" PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read a variable as a command's name, or a script or script path that a variable holds, or blocks an everyday form (B45)" "the guard hook reads a variable as a command's name as the value it assigns, blocks an unresolved one that the command sets another way or a git subcommand follows, blocks a shell's script, eval or -Command that a variable holds and a tools/ script path with a variable, and passes the everyday forms (B45)"
+
+  # An assignment is not a command, so it isn't read as a variable command name (B55): a PowerShell $x = 1, $x += 1 or $env:X = 'y',
+  # and a PowerShell constant or automatic value that no call operator runs ($true, $null, $args), pass in a PowerShell payload and in
+  # a PowerShell script a shell runs. A Bash NAME+=value is an assignment prefix, as NAME=value is. A call operator still runs
+  # what its name holds, and a git subcommand after any name is still read: & $x, & $args[0], $args push --force and $G push
+  # --force block, and so does out+=x $G push --force.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        '$x = 1' \
+        '$files = Get-ChildItem docs' \
+        '$x=1' \
+        '$x += 1' \
+        '$x ??= 1' \
+        "\$env:X = 'y'" \
+        '$x[0] = 1' \
+        '$null = Get-Date' \
+        '$true' \
+        '$false' \
+        '$null' \
+        'while ($true) { Get-Date }' \
+        '$args' \
+        '$_.Name' \
+        '$input | Out-Null'; do
+      guard 0 "$cmd" PowerShell
+    done
+    for cmd in \
+        "\$x = 1; & \$x" \
+        "\$x = 'git'; & \$x push --force" \
+        '$args push --force' \
+        '& $args[0] push --force' \
+        '$input | ForEach-Object { & $_ push --force }' \
+        '& $env:COMSPEC push --force'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        "powershell -Command 'while (\$true) { Get-Date }'" \
+        "powershell -Command '\$x = 1'" \
+        'c="${x:0:1}"; out+="$c"; echo hi' \
+        'out+=x; echo hi'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        'out+=x $G push --force' \
+        'out+=x; $G push --force' \
+        'c+=y; "$c" push --force' \
+        "powershell -Command '\$args push --force'" \
+        "powershell -Command '\$G = \"git\"; & \$G status'"; do
+      guard 2 "$cmd"
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook reads an assignment or a constant as a variable command name, or passes a call operator or a NAME+=value prefix that runs a git command (B55)" "the guard hook passes a PowerShell assignment, a constant and an automatic value that runs nothing, and a Bash NAME+=value assignment, and blocks a call operator or a prefixed variable that runs git (B55)"
+
+  # PowerShell's Invoke-Expression and iex (B60) run their one string argument as a script, as eval does. A literal argument is read as
+  # a script of its own, and a variable the command assigns once to a plain literal before the call is read as its value. A pipeline into
+  # the call, no argument, an argument that isn't one string (a concatenation, a second argument, a double-quoted $( the caller expands),
+  # and a variable that can't be resolved (one set another way, in a branch, or after the call) are blocked. The benign forms pass.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        "iex 'git push --force'" \
+        "Invoke-Expression 'git push --force'" \
+        "Invoke-Expression -Command 'git push --force'" \
+        "iex -Command:'git push --force'" \
+        "IEX \"git push --force\"" \
+        "iex 'git push --force' -Verbose" \
+        "iex -Verbose 'git push --force'" \
+        "iex '-Verbose git push --force'" \
+        "Microsoft.PowerShell.Utility\\Invoke-Expression 'git push --force'" \
+        "& iex 'git push --force'" \
+        "ForEach-Object { iex 'git push --force' }" \
+        "ForEach-Object {iex 'git push --force'}" \
+        "\$x = 'git push --force'; iex \$x" \
+        "\$x='git push --force'; iex \$x" \
+        "\$x = 'git push --force'; Invoke-Expression \$x" \
+        "\$x = 'git push --force'; iex \"\$x\"" \
+        "\$x = \"git push --force\"; iex \$x" \
+        "\$x = 'git push --force'; iex \${x}" \
+        "\$x = 'git push --force'; iex \$x -Verbose" \
+        "\$x = 'git push --force'; iex \$x | Out-Null" \
+        "\$x = 'git'; iex \"\$x push --force\"" \
+        "iex \$x" \
+        "iex \"\$x\"" \
+        "iex" \
+        "iex \$x; \$x = 'git push --force'" \
+        "\$x = 'git push --force' | Out-Null; iex \$x" \
+        "\$x = 'ls'; iex \"\$x\" \"--force\"" \
+        "\$x = 'ls'; iex \"\$x\"-f ''" \
+        "\$x = 'ls'; iex \$x \$y" \
+        "\$x = 'ls'; Set-Variable x 'git push --force'; iex \$x" \
+        "\$x = 'ls'; . ./evil.ps1; iex \$x" \
+        "\$x = 'ls'; Import-Module ./m.psm1; iex \$x" \
+        "if (\$true) { \$x = 'ls' }; iex \$x" \
+        "\$x = 'git push --force'; iex \$x[0]" \
+        "\$x = 'ls'; \$x[0] = 'git push --force'; iex \$x" \
+        "\$x = 'ls'; \$x += 'git push --force'; iex \$x" \
+        "\$y = '\$x = ''git push --force'''; iex \$y; iex \$x" \
+        "\$x = 'ls'; \$y = '\$x = ''git push --force'''; iex \$y; iex \$x" \
+        "\$x = 'git push --force'; \$y = \$x; iex \$y" \
+        "iex \"\$(Get-Content x.txt)\"" \
+        "iex @args" \
+        "\$x = 'Get-Date'; iex @x" \
+        "iex ('git push' + ' --force')" \
+        "iex 'git pu' + 'sh --force'" \
+        "iex \"git push\" + \" --force\"" \
+        "'git push --force' | iex" \
+        "Get-Content x.ps1 | iex"; do
+      guard 2 "$cmd" PowerShell
+    done
+    guard 2 "powershell -Command \"iex 'git push --force'\"" PowerShell
+    for cmd in \
+        "\$x = 'Get-Date'; iex \$x" \
+        "\$x = 'Get-Date'; iex \"\$x\"" \
+        "\$x = 'git status'; iex \$x" \
+        "\$x = 'Get-Date'; \$y = 'git status'; iex \$x; iex \$y" \
+        "\$x = 'git push --force'" \
+        "\$x = 'git push --force'; iex 'Get-Date'" \
+        "iex 'Get-Date'" \
+        "iex 'Get-Date' -Verbose" \
+        "Invoke-Expression -Command 'Get-Date' -Verbose" \
+        "iex 'Write-Output \$x'" \
+        "iex '\$x = 1'" \
+        "iex \$true" \
+        "iex 'Get-Date' | Out-Null" \
+        "ForEach-Object { iex 'Get-Date' }" \
+        "Get-Help Invoke-Expression" \
+        "Get-Command iex" \
+        "Write-Output 'iex git push --force'"; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read an Invoke-Expression or iex script as a command, or passes one it can't read (B60)" "the guard hook reads the string argument of Invoke-Expression and iex as a script, resolves a variable the command assigns once to a plain literal, blocks a pipeline into it, an argument that isn't one string and an unresolved variable, and passes the benign forms (B60)"
+
+  # A git command name in another case (B46): PowerShell finds a command case-insensitively, and Windows finds GIT too, so GIT and
+  # Git are git in every git rule. Only the name is matched so: git's subcommands and flags stay case-sensitive, as git reads them.
+  # The git rules, the credential prints, a substitution in the words and a shell body that runs GIT block as their lowercase
+  # forms do, and the everyday forms and a quoted or heredoc message that names git in another case pass.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'GIT push --force origin main' \
+        'Git commit --no-verify -m x' \
+        'GIT reset --hard HEAD~1' \
+        'GIT log --output=/tmp/probe.txt' \
+        'Git diff --no-index a b' \
+        'GIT commit -F /tmp/msg.txt' \
+        'GIT grep -Oecho foo' \
+        'GIT push origin :main' \
+        'GIT branch -D x' \
+        'GIT credential fill' \
+        'Git credential get' \
+        'GIT -c core.pager=calc log' \
+        'Git push "$(echo --force)" origin main' \
+        $'bash <<\'EOF\'\nGIT push --force\nEOF'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in 'GIT push --force origin main' 'Git commit --no-verify -m x'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'GIT status' \
+        'Git log --oneline -5' \
+        'GIT diff HEAD' \
+        'GIT grep -n foo' \
+        'GIT tag -a v1 -m "see --force and -F"' \
+        'echo "Git push --force is blocked"' \
+        'echo "Git credential fill is blocked"' \
+        $'Git commit -q -F - <<\'EOF\'\nfix the --output and --no-index handling, not -F /tmp/x\nEOF'; do
+      guard 0 "$cmd" PowerShell
+    done
+    guard 0 'GIT status'
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook passes a git command name in another case, or blocks a message that names git in another case (B46)" "the guard hook blocks a git command name in any case (GIT, Git) as it blocks git, and passes the everyday forms and the messages that name git in another case (B46)"
+
+  # A shell's name in a bash script path under tools/ (B47): a quoted name is the same shell as the bare one, and so is one in another
+  # case (PowerShell and Windows find a command case-insensitively). So "bash", 'sh' and BASH lead a path that leaves tools/ as bash
+  # and sh do, and a quoted or split path, and a wrapper's script that names the shell in any case, are read too. The everyday forms
+  # pass, and so does a message or an echo that names a shell with its path.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        '"bash" tools/../x.sh' \
+        "'sh' tools/stacks/../../x.sh" \
+        'BASH tools/stacks/../../x.sh' \
+        'Bash tools/../x.sh' \
+        '"bash" "tools/../x.sh"' \
+        'sh -x "tools/stacks/../x.sh"' \
+        'BASH -x tools/stacks/../x.sh' \
+        '"/bin/bash" tools/../x.sh' \
+        'bash tools/".."/x.sh' \
+        "bash 'tools/../x.sh'" \
+        'env "bash" tools/../x.sh' \
+        '"bash" ./tools/../x.sh' \
+        '"BASH" -c "BASH tools/../x.sh"' \
+        "sh -c 'BASH tools/../x.sh'" \
+        '"bash" tools/stacks/$X.sh' \
+        $'echo x\n"bash" tools/../x.sh'; do
+      guard 2 "$cmd"
+    done
+    for cmd in '"bash" tools/../x.sh' 'BASH tools/stacks/../../x.sh'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        'bash tools/check.sh' \
+        '"bash" tools/check.sh' \
+        'BASH tools/check.sh' \
+        "'sh' tools/stacks/godot.sh --since HEAD~3..HEAD" \
+        'echo "bash" tools/../x.sh' \
+        'echo "BASH tools/../x.sh"' \
+        'git commit -m "bash tools/../x.sh"' \
+        'cat "sh" tools/../x.sh' \
+        'git status'; do
+      guard 0 "$cmd"
+    done
+    guard 0 '"bash" tools/check.sh' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook passes a bash script path that leaves tools/ when its shell's name is quoted or in another case (B47)" "the guard hook blocks a script path under tools/ that leaves it, when bash or sh is quoted or in any case, and passes the everyday forms and the messages that name a shell (B47)"
+
+  # Git's configuration keys and program flags (B38). A -c key, or --config-env, that names a program git runs (an alias that
+  # starts with !, the pager, the editor, the ssh command, a diff or credential helper, an include) is blocked, and so is a key a
+  # variable holds; the keys that run nothing pass (core.quotepath, color.*, advice.*, log.*, user.name, pager.<cmd>=false). The
+  # flags that name a program for a remote (--upload-pack, --receive-pack, --exec, and clone's -u), abbreviations included, are
+  # blocked on fetch, pull, push, clone, ls-remote and archive, and a plain fetch, push -u and clone -b pass. A variable that names
+  # a program git runs (GIT_CONFIG_*, GIT_SSH_COMMAND, GIT_PAGER, GIT_EDITOR, EDITOR) set on a git command is blocked too.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        'git -c alias.x="!echo hi" x' \
+        "git -c 'alias.x=!echo hi' x" \
+        'git -c "alias.x=!echo hi" x' \
+        'git -c core.pager="sh -c x" log' \
+        'git -c core.sshCommand=x fetch' \
+        'git -c diff.external=x diff' \
+        'git -c "$k=v" log' \
+        'git -c Alias.X=y x' \
+        'git -c core.quotepath=false -c alias.x=y x' \
+        'git -c color.ui=always -c core.pager=x log' \
+        'git -c sequence.editor=x rebase -i HEAD~2' \
+        "git -c credential.helper='!x' fetch origin" \
+        'git -c protocol.ext.allow=always fetch origin' \
+        'git -c include.path=/tmp/x log' \
+        'git -c "core.$(echo pager)=x" log' \
+        'git -c pager.log=less log' \
+        'git --config-env=core.pager=PAGER_VAR log' \
+        'git --git-dir .git -c alias.x=y x' \
+        "git -c \$'alias.x=!echo hi' x" \
+        "git -c 'alias.x=y' x" \
+        'git -c "alias.x" x' \
+        'git -c "a""lias.x=!echo" x' \
+        'git -c "core.pager"=sh x' \
+        'k=core.pager; git -c "$k=sh" log' \
+        $'git \\\n-c core.pager=x log' \
+        'git clone -c core.sshCommand=x https://example.com/r.git d' \
+        'git clone --config=alias.x=y https://example.com/r.git d' \
+        'git clone --config alias.x=y https://example.com/r.git d' \
+        'git clone -c alias.x=y https://example.com/r.git d' \
+        'git clone -u "sh -c x" https://example.com/r.git d' \
+        'git clone --upload-pack="sh -c x" https://example.com/r.git d' \
+        'git clone -qu "sh -c x" https://example.com/r.git d' \
+        'git fetch --upload-pack x origin' \
+        'git fetch --upl=x origin' \
+        'git fetch --upload-pack="$(echo x)" origin' \
+        'git fetch "--$(echo upload-pack)=x" origin' \
+        'git pull --upload-pack=x' \
+        'git push --receive-pack=x origin main' \
+        'git push --receive-pack x origin main' \
+        'git push --exec=x origin main' \
+        'git push origin main --receive=x' \
+        'git ls-remote --upload-pack=x origin' \
+        'git archive --remote=origin --exec=x HEAD' \
+        'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0=x git log' \
+        'GIT_SSH_COMMAND=x git fetch' \
+        'GIT_PAGER=x git log' \
+        'GIT_EXTERNAL_DIFF=x git log -p' \
+        'env GIT_EDITOR=x git commit' \
+        'export GIT_PAGER=x; git log' \
+        'EDITOR=x git commit -a'; do
+      guard 2 "$cmd"
+    done
+    for cmd in 'git -c core.pager=x log' 'git -c "$k=v" log' 'git fetch --upload-pack=x' 'git -c alias.x=!echo x' \
+        '$env:GIT_PAGER="x"; git log'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        'git -c core.quotePath=false status --porcelain --untracked-files=all' \
+        'git -c core.quotepath=off log --oneline -3' \
+        'git -c color.ui=never log --oneline' \
+        'git -c user.name=selftest -c user.email=selftest@localhost commit -m x' \
+        "git -c 'user.name=A B' commit -m x" \
+        'git -c advice.detachedHead=false checkout HEAD~1' \
+        'git -c log.showSignature=false log -1' \
+        'git -c pager.log=false log --oneline' \
+        'git -c "color.ui=always" diff --stat' \
+        'k=color.ui; git -c "$k=always" log --oneline' \
+        'git -C work/App-Director fetch' \
+        'git -c core.quotepath=false -C work/App-Director status' \
+        'git clone -b main https://example.com/r.git d' \
+        'git clone -q --depth 1 https://example.com/r.git d' \
+        'git clone -c core.quotepath=false https://example.com/r.git d' \
+        'git fetch origin' \
+        'git fetch --unshallow origin' \
+        'git push -u origin "$branch"' \
+        'git push origin main' \
+        'git push --recurse-submodules=check origin main' \
+        'git ls-remote origin' \
+        'git archive --format=tar HEAD' \
+        'git pull --rebase origin main' \
+        'git log -c' \
+        'git commit -c HEAD' \
+        'git commit -m "--upload-pack=x fix"' \
+        'git commit -m "alias.x=!echo hi"' \
+        'git tag -a v1 -m "-c alias.x=y"' \
+        'git commit -m "set EDITOR=vim and GIT_PAGER=x"' \
+        'GIT_AUTHOR_NAME=x git commit -m y' \
+        'FOO=1 git status' \
+        'EDITORCONFIG=x git status' \
+        $'git commit -q -F - <<\'EOF\'\nGIT_PAGER=x and EDITOR=vim in a message\nEOF' \
+        $'git \\\n-c core.quotepath=false status'; do
+      guard 0 "$cmd"
+    done
+    guard 0 'git -c user.email=a@b.c commit -m x' PowerShell
+    guard 0 'git -c color.ui=always status' PowerShell
+    guard 0 'git push -u origin main' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook passes a git -c key or a program flag that runs a command, or a variable that names one, or blocks a plain form (B38)" "the guard hook blocks a git -c key that names a program (an alias, the pager, the ssh command, a diff or credential helper), a key a variable holds, a program flag for a remote (--upload-pack, --receive-pack, --exec, clone's -u), and a GIT_CONFIG_*, GIT_PAGER or EDITOR variable on a git command; the keys that run nothing and the plain forms pass (B38)"
+
+  # A quoted git name, a heredoc body a shell runs, the long forms and a credential subcommand in quotes (B39). The git name is
+  # read as the shell reads it, quotes removed, so "git", 'git' and g"it" are git. A heredoc body a shell runs (any body but a
+  # commit's or tag's message) is read by the file-writing flag rules, and a backtick ends a flag in it. git branch with --delete
+  # and --force (-d -f, -df, --del --forc), git push --mirror, --delete and -d (abbreviations too) and a :ref refspec are blocked,
+  # as their plain forms are, and the credential-print rules read the decoded words. A message that names them, and a read that
+  # names none, pass: a commit's or tag's message is text no shell runs.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        '"git" push --force' \
+        "'git' push --force" \
+        'g"it" push --force' \
+        '"git" log --output=/tmp/x' \
+        $'bash <<\'EOF\'\ngit log --output=/tmp/x\nEOF' \
+        $'sh <<EOF\ngit diff --no-index a b\nEOF' \
+        $'bash <<\'EOF\'\ngit commit -F /tmp/msg.txt\nEOF' \
+        $'bash <<\'EOF\'\ngit grep -Oecho foo\nEOF' \
+        $'cat <<\'EOF\' | bash\ngit log --output=/tmp/x\nEOF' \
+        $'bash <<\'EOF\'\ngit branch --delete --force x\nEOF' \
+        $'bash <<\'EOF\'\ngit push --mirror\nEOF' \
+        $'bash <<\'EOF\'\ngit credential "fill"\nEOF' \
+        $'bash <<\'EOF\'\ngit push `echo --force`\nEOF' \
+        $'bash <<\'EOF\'\ngit push --force`echo x`\nEOF' \
+        $'ssh host <<\'EOF\'\ngit push `echo --force`\nEOF' \
+        $'git status && bash <<\'EOF\'\ngit push `echo --force`\nEOF' \
+        $'"bash" <<\'EOF\'\ngit push --mirror\nEOF' \
+        $'git commit -m "$(source /dev/stdin <<\'EOF\'\ngit push `echo --force`\nEOF\n)"' \
+        'sh -c "git push --mirror"' \
+        'git branch --delete --force x' \
+        'git branch --delete -f x' \
+        'git branch -d -f x' \
+        'git branch -df x' \
+        'git branch -fd x' \
+        'git branch --del --forc x' \
+        'git push --mirror' \
+        'git push --mirror origin' \
+        'git push --mi origin' \
+        'git push --delete origin x' \
+        'git push --de origin x' \
+        'git push -d origin x' \
+        'git push -fd origin x' \
+        'git push origin :x' \
+        'git push origin ":x"' \
+        'git push origin :refs/heads/x' \
+        'git credential "fill"' \
+        "git credential 'get'" \
+        'git credential fi"ll"' \
+        'gh "auth" "token"' \
+        'g"h" auth token'; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'git branch -d x' \
+        'git branch -vv' \
+        'git branch -m old new' \
+        'git branch --list "*f*"' \
+        'git push origin main:main' \
+        'git push origin HEAD:refs/heads/x' \
+        'git push --dry-run origin main' \
+        'git push --set-upstream origin x' \
+        'echo "git push --mirror"' \
+        'echo "git credential fill"' \
+        'git log --grep "push --mirror"' \
+        'git status && echo "git credential fill"' \
+        $'git commit -q -F - <<\'EOF\'\nfix: git push --mirror and git branch -d x\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nfix: git log --output=x in the docs\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nmsg with `git push --force` in it\nEOF' \
+        $'git tag -a v1 -F - <<\'EOF\'\nfix: git push --delete origin x\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nfix the --mirror and --delete flags, not -d\nEOF' \
+        $'bash <<\'EOF\'\necho hi\nEOF' \
+        $'bash <<\'EOF\'\ngit status\nEOF' \
+        $'bash <<\'EOF\'\ngit branch -d x\nEOF' \
+        $'git status && bash <<\'EOF\'\necho x\nEOF'; do
+      guard 0 "$cmd"
+    done
+    for cmd in '"git" push --force' 'git branch --delete --force x' 'git push --mirror' 'git push origin :x' \
+        'git credential "fill"' 'gh "auth" "token"'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in 'git branch -d x' 'git push origin main'; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read a quoted git name, a heredoc body a shell runs, a long-form branch or push flag, a push refspec that deletes, or a quoted credential subcommand as the shell does, or blocks a message that names a plain form (B39)" "the guard hook blocks a quoted git name, a heredoc body a shell runs with a file-writing flag, a backtick flag or a destructive command, git branch --delete --force, git push --mirror, --delete or a :ref refspec, and a quoted credential subcommand, and passes the messages and reads that name them (B39)"
+
+  # A heredoc body no shell runs is text (B40): a commit's or tag's message, and a cat or tee body that the command doesn't run (no
+  # shell, interpreter, ssh, chmod, make, a ./ path, a dot-source or the .git folder). The destructive rules and the file-writing flag
+  # rules skip such a body, so a message or a written file that names a destructive git command passes, and its substitutions are
+  # still read. A body written to a file and run in the same command (cat > x.sh, then bash x.sh, ./x.sh or . x.sh) is a script a
+  # shell runs, and is read as before. The guard reads command text, so a file written by an earlier command isn't judged.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        $'git commit -q -F - <<\'EOF\'\nfix: git push --force; done\nEOF' \
+        $'git tag -a v1 -F - <<\'EOF\'\nfix: git push --delete origin x\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nmsg with `git push --force` in it\nEOF' \
+        $'git commit -m "$(cat <<\'EOF\'\nfix: git reset --hard\nEOF\n)"' \
+        $'git commit -q -F - <<\'EOF\'\nfix: git log --output=x in the docs\nEOF\nbash x.sh' \
+        $'cat > notes.md <<\'EOF\'\nsee git log --output=x\nEOF' \
+        $'cat > notes.md <<\'EOF\'\na backticked `git push --force` here\nEOF' \
+        $'tee notes.md <<\'EOF\'\ngit push --mirror\nEOF' \
+        $'cat <<\'EOF\' > notes.md\ngit reset --hard\nEOF' \
+        $'cat >> notes.md <<\'EOF\'\ngit branch -D x\nEOF' \
+        $'cat > notes.md <<\'EOF\'\ngit push --force\nEOF\ngit add notes.md && git status' \
+        $'cat > ./notes.md <<\'EOF\'\ngit grep -Oecho foo\nEOF' \
+        $'cat > notes.md <<\'EOF\'\nbash -c \'git push --force\'\nEOF' \
+        $'cat > notes.md <<EOF\nplain text, no git here\nEOF' \
+        $'cat > notes.md <<\'EOF\'\ngit push --force\nEOF\necho "run bash later"' \
+        $'cat > notes.md <<\'EOF\'\ngit push --force\nEOF\ngit commit -q -F - <<\'EOF2\'\nfix: git push --force\nEOF2'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        $'cat > x.sh <<EOF\ngit push --force\nEOF\nbash x.sh' \
+        $'cat > x.sh <<\'EOF\'\ngit push --force\nEOF\nbash x.sh' \
+        $'cat > x.sh <<\'EOF\'\ngit push --force\nEOF\nchmod +x x.sh && ./x.sh' \
+        $'cat > x.sh <<\'EOF\'\ngit reset --hard\nEOF && sh x.sh' \
+        $'cat > x.sh <<\'EOF\'\ngit log --output=/tmp/x\nEOF\nbash x.sh' \
+        $'cat > x.sh <<\'EOF\'\ngit push --force\nEOF\nsource x.sh' \
+        $'tee x.sh <<\'EOF\'\ngit push --force\nEOF\n. ./x.sh' \
+        $'cat > x.sh <<\'EOF\'\ngit push --force\nEOF\n"bash" x.sh' \
+        $'cat > x.sh <<\'EOF\'\ngit push --force\nEOF\npython3 x.sh' \
+        $'cat > x.sh <<\'EOF\'\ngit push --force\nEOF\nenv bash x.sh' \
+        $'cat > Makefile <<\'EOF\'\npush:\n\tgit push --force\nEOF\nmake push' \
+        $'cat > .git/hooks/pre-commit <<\'EOF\'\ngit push --force\nEOF\ngit commit -q -m x' \
+        $'cat > notes.md <<EOF\n$(git push --force)\nEOF' \
+        $'cat > notes.md <<EOF\n`git push --force`\nEOF' \
+        $'git commit -q -F - <<EOF\nfix `git push --force`\nEOF' \
+        $'cat <<\'EOF\' | bash\ngit push --force\nEOF' \
+        $'bash <<\'EOF\'\ngit push --force\nEOF'; do
+      guard 2 "$cmd"
+    done
+    guard 2 $'cat > x.ps1 <<\'EOF\'\ngit push --force\nEOF\n& ./x.ps1' PowerShell
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook reads a commit's or tag's message, or a cat or tee body that nothing in the command runs, as a script (B40), or passes a body a shell runs" "the guard hook passes a commit's or tag's message and a cat or tee body that the command doesn't run, and blocks a body written to a file and run in the same command (B40)"
+
+  # A gh message with a quoted delimiter (B48): gh pr create and edit, issue create, edit and comment, and release create and edit
+  # take the body from stdin (--body-file -, -F -, --notes-file -) or from a $(cat <<'EOF') given to --body, -b, --notes or -n. That
+  # body is text no shell runs, as a commit's message is (B40), so the destructive rules skip it, and the variable rules (B37)
+  # skip it and a cat body nothing runs. A body a shell runs, an unquoted body with a substitution, a git command that goes on past
+  # the body, or a body piped to a shell is still read.
+  git_fail=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        $'gh pr edit 5 --body-file - <<\'EOF\'\nfix: git push --force; done\nEOF' \
+        $'gh pr create --body "$(cat <<\'EOF\'\nfix: git push --force\nEOF\n)"' \
+        $'gh pr create --title t --body-file - <<\'EOF\'\nDo not run git push --force\nEOF' \
+        $'gh issue comment 5 -F - <<\'EOF\'\ngit reset --hard\nEOF' \
+        $'gh issue create -b "$(cat <<\'EOF\'\ngit branch -D x\nEOF\n)"' \
+        $'gh release create v1 --notes-file - <<\'EOF\'\ngit push --mirror\nEOF' \
+        $'gh release edit v1 -n "$(cat <<\'EOF\'\ngit push --delete origin x\nEOF\n)"' \
+        $'gh pr create --body-file=- <<\'EOF\'\ngit push --force\nEOF' \
+        $'GH pr create -F- <<\'EOF\'\ngit push --force\nEOF' \
+        $'gh pr create --body="$(cat <<\'EOF\'\ngit push --force\nEOF\n)"' \
+        $'gh pr edit 5 --body-file - <<\'EOF\'\ngit push --force\nEOF' \
+        $'gh pr create --body-file - <<\'EOF\'\nbash -c \'git push --force\'\nEOF' \
+        $'gh pr create --body-file - <<\'EOF\'\necho cmd /c "git push --force"\nEOF' \
+        $'gh pr edit 5 --body-file - <<\'EOF\'\nfix: git push $X handling\nEOF' \
+        $'git commit -q -F - <<\'EOF\'\nfix: git push $X handling\nEOF' \
+        $'git tag -a v1 -F - <<\'EOF\'\nfix: git push $X handling\nEOF' \
+        $'cat > notes.md <<\'EOF\'\nfix: git push $X handling\nEOF'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        $'gh pr edit 5 --body-file - <<\'EOF\' && git push --force\nmsg\nEOF' \
+        $'gh pr create --body-file - <<\'EOF\'\nmsg\nEOF\ngit push --force' \
+        $'gh pr create --body-file - <<\'EOF\' | bash\ngit push --force\nEOF' \
+        $'gh pr create --body-file - <<EOF\nfix: git push --force\nEOF' \
+        $'gh pr create --body "$(cat <<EOF\n$(git push --force)\nEOF\n)"' \
+        $'gh pr create --body "$(cat <<\'EOF\'\nmsg\nEOF\n)" --title "$(git push --force)"' \
+        $'bash <<\'EOF\'\ngit push $X\nEOF' \
+        $'cat > x.sh <<\'EOF\'\ngit push $X\nEOF\nbash x.sh'; do
+      guard 2 "$cmd"
+    done
+    # A shell or PowerShell name right after a word that only prints its words (echo, printf, Write-Output, Write-Host, write) is
+    # text (B48). Anywhere else it may run a script, so a launcher's argument stays read: ssh, find -exec, docker exec, Start-Process.
+    for cmd in \
+        "echo PowerShell 'bash tools/../x.sh'" \
+        "echo pwsh 'bash tools/../x.sh'" \
+        "echo bash -c 'git push --force'" \
+        'echo sh -c "git push --force"' \
+        $'printf sh -c \'git push --force\'' \
+        $'echo eval \'git push --force\'' \
+        'echo PowerShell -Command "git push --force"'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        'ssh host pwsh -c "git push --force"' \
+        'find . -exec pwsh -c "git push --force" \;' \
+        'docker exec ctr pwsh -c "git push --force"' \
+        'ssh host sh -c "git push --force"' \
+        'find . -exec sh -c "git push --force" \;' \
+        $'docker exec ctr bash -c \'git push --force\''; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        'Write-Output PowerShell -Command "git push --force"' \
+        "Write-Output powershell 'bash tools/../x.sh'" \
+        "echo pwsh 'bash tools/../x.sh'" \
+        "Write-Host Pwsh.exe 'bash tools/../x.sh'"; do
+      guard 0 "$cmd" PowerShell
+    done
+    for cmd in \
+        "Start-Process powershell -ArgumentList 'git push --force'" \
+        'ssh host pwsh -c "git push --force"' \
+        'timeout 60 powershell -c "git push --force"'; do
+      guard 2 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook reads a gh message's body, or a variable in a message or a cat body nothing runs, as a command, passes a body a shell runs, or reads a word after echo, printf, Write-Output, Write-Host or write, or a launcher's argument, wrongly (B48)" "the guard hook passes a gh pr, issue or release message with a quoted delimiter, and a variable in a message or in a cat body nothing runs, and blocks a git command after a message, an unquoted message, a message piped to a shell, and a variable in a body a shell runs; a shell or PowerShell name after echo, printf, Write-Output, Write-Host or write is text, and one that a launcher passes a script to is read (B48)"
+
+  # The fixes the ports to SaaSAllTheThings and Godot-Director brought back (Director-Driven-Development T285). A path-qualified or
+  # .exe git is git, in any case (/usr/bin/git, git.exe, GIT.EXE), where a path that only ends in git is an argument. A Python heredoc
+  # is blocked whatever its body, also behind a path (a body of blank lines, one line), and a script file given a heredoc passes. In PowerShell a
+  # backslash at a line's end is a path separator, not a continuation, so the line after a comment that ends in one is a command of
+  # its own. A wait loop ends at the done that closes it, counting the do and done of the loops nested in it and skipping a done in
+  # its condition, and a pause may have a fraction (sleep 600.5). The credential-print rules read a command without its messages.
+  git_fail=""
+  nlc=$'\n'
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        '/usr/bin/git push --force origin main' \
+        'git.exe push --force origin main' \
+        'GIT.EXE push --force' \
+        '/usr/bin/git branch -D y' \
+        'cd x && /usr/bin/git commit -m x --no-verify' \
+        '/usr/bin/git -c core.pager=x log' \
+        '/usr/bin/git push "$(echo --force)"' \
+        'FLAG=--force; /usr/bin/git push $FLAG' \
+        'sudo /usr/bin/git push --force' \
+        '/usr/bin/git credential fill' \
+        'echo hi && git.exe reset --hard' \
+        "cd x && /usr/bin/python3 - <<'EOF'${nlc}EOF" \
+        "/usr/bin/python3 - <<'EOF'${nlc}EOF" \
+        "python3 - <<'EOF'${nlc}${nlc}EOF" \
+        "python - <<-'EOF'${nlc}${nlc}EOF" \
+        "/usr/bin/python3 - <<'EOF'${nlc}${nlc}${nlc}EOF" \
+        "/usr/bin/python3 - <<'EOF'${nlc}print(1)${nlc}EOF" \
+        "# c\\${nlc}gh auth token" \
+        'until [ -f done ]; do sleep 5; done' \
+        'until [ -f done ]; do sleep 5; done; echo done' \
+        'while true; do for f in a b; do :; done; sleep 5; done' \
+        'until [ -f done ]; do for f in a; do :; done; sleep 5; done' \
+        'until false; do while read l; do :; done < f; sleep 5; done' \
+        "while true; do${nlc}  for f in a b; do :; done${nlc}  sleep 5${nlc}done" \
+        'sleep 600.5' \
+        'sleep 280.5' \
+        'sleep 5.5m' \
+        'echo hi && sleep 300.0' \
+        'gh auth token' \
+        'gh auth status -t' \
+        'git credential fill' \
+        "git commit -q -F - <<'EOF'${nlc}msg${nlc}EOF${nlc}gh auth token" \
+        "git commit -q -m x && gh auth token" \
+        "bash <<'EOF'${nlc}gh auth token${nlc}EOF"; do
+      guard 2 "$cmd"
+    done
+    for cmd in \
+        '/usr/bin/git status' \
+        'git.exe log -1' \
+        '/usr/bin/git commit -m "docs: a note"' \
+        '/usr/bin/git push origin main' \
+        'ls /usr/bin/git' \
+        'cp $SRC/git $DST' \
+        'cd /c/git && ls' \
+        "python3 tool.py <<'EOF'${nlc}${nlc}EOF" \
+        "python tool.py <<-'EOF'${nlc}${nlc}EOF" \
+        "/usr/bin/python3 tool.py <<'EOF'${nlc}${nlc}${nlc}EOF" \
+        "/usr/bin/python3 tool.py <<'EOF'${nlc}print(1)${nlc}EOF" \
+        'timeout 240 bash -c "until [ -f done ]; do sleep 5; done"' \
+        'timeout 120 bash -c "while true; do for f in a b; do :; done; sleep 5; done"' \
+        'for f in a b; do echo "$f"; done; sleep 5' \
+        'until [ -f done ]; do echo wait; done' \
+        'while true; do for f in a b; do :; done; done' \
+        'while read -r l; do echo "$l"; done < f' \
+        'sleep 280.0' \
+        'sleep 4.5m' \
+        'sleep 0.5' \
+        'sleep 280' \
+        "git commit -q -F - <<'EOF'${nlc}docs: the hook blocks gh auth token${nlc}EOF" \
+        "git commit -q -F - <<'EOF'${nlc}docs: git credential fill prints a credential${nlc}EOF" \
+        "gh pr edit 5 --body-file - <<'EOF'${nlc}It blocks gh auth token and git credential fill.${nlc}EOF" \
+        'git commit -m "mention gh auth token in the notes"' \
+        'gh auth login'; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        "# c\\${nlc}gh auth token" \
+        "# c\\${nlc}git push --force" \
+        "git status # c\\${nlc}gh auth token" \
+        'Start-Sleep -Seconds 600.5' \
+        'Start-Sleep 280.5' \
+        'Start-Sleep -Milliseconds 280000.5' \
+        '/usr/bin/git push --force origin main' \
+        'gh auth token'; do
+      guard 2 "$cmd" PowerShell
+    done
+    for cmd in \
+        "# c\\${nlc}Get-Date" \
+        "dir C:\\x\\${nlc}git status" \
+        "git push \\${nlc}--force" \
+        'Start-Sleep -Seconds 0.5' \
+        'Start-Sleep -Milliseconds 280000.0' \
+        'Start-Sleep -Milliseconds 280000' \
+        '/usr/bin/git status' \
+        "git commit -q -F - <<'EOF'${nlc}docs: the hook blocks gh auth token${nlc}EOF"; do
+      guard 0 "$cmd" PowerShell
+    done
+    # In Bash the same backslash continues the line, so the lines are one command.
+    guard 2 "git push \\${nlc}--force"
+  fi
+  guard_run
+  # The view flags (vdep, vcov, vpx, vhang) and the rest of what the hook reads before it sets it start empty, so a variable of the same
+  # name in the hook's environment is no flag: vhang=1 would skip every git rule and vcov=1 would bound every wait loop.
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for env_cmd in 'git push --force origin main' 'until [ -f x ]; do sleep 5; done' 'git status'; do
+      json_str "$env_cmd"
+      printf '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"%s","description":"run"}}' "$JSON_STR" > "$guard_dir/env.json"
+      expect_rc=2; [ "$env_cmd" = 'git status' ] && expect_rc=0
+      for env_flag in vps vdep vcov vpx vhang cn_all hsubb; do
+        env "$env_flag=1" bash .claude/hooks/guard-commands.sh < "$guard_dir/env.json" >/dev/null 2>&1; env_rc=$?
+        [ "$env_rc" -eq "$expect_rc" ] || git_fail="$git_fail"$'\n'"  $env_flag=1 in the hook's environment changed the exit code to $env_rc, expected $expect_rc: $env_cmd"
+      done
+    done
+  fi
+  guard_report "$git_fail" "the guard hook misses a path-qualified or .exe git, a PowerShell backslash, a nested or condition-named done in a wait loop, a pause with a fraction, a flag set by the environment or a credential-print command, or blocks a message that names one (T285)" "the guard hook reads a path-qualified or .exe git as git, a PowerShell backslash as a path separator, a wait loop to the done that closes it, a pause with a fraction, no flag from the environment, and a credential-print command but not a message that names one"
+
+  # Python that reads its script from a heredoc or a here-string is blocked whatever the body (Director-Driven-Development T309, B64):
+  # on Windows it can wait for console input and never return, so the check no longer looks for an empty body. Every form blocks and
+  # names Python: python, python3, python3.13, pythonw and py, with or without .exe, bare, behind a path or quoted; with or without the
+  # - and with interpreter options; each heredoc form and a here-string; behind a wrapper or in a chain, a time limit too; piped in
+  # (cat <<'E' | python -, and in PowerShell a here-string); split by a continuation; inside a heredoc body or a script a shell runs; and
+  # B64's form (a node -e string after the header closes on the second line, so the body looks empty). A script file given a heredoc
+  # of data, python -c and -m, python3 --version, and a message that names the form (a commit's or tag's body, a gh message, an echo or
+  # grep of the text, a cat body nothing runs) pass.
+  git_fail=""
+  nlc=$'\n'; py_msg='python reading its script from a heredoc'; py_body=$'\nprint(1)\nE'
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        "python - <<'E'$py_body" \
+        "python <<'E'$py_body" \
+        "python3 - <<'E'$py_body" \
+        "python3 <<'E'$py_body" \
+        "python3.13 - <<'E'$py_body" \
+        "pythonw - <<'E'$py_body" \
+        "py - <<'E'$py_body" \
+        "py <<'E'$py_body" \
+        "python.exe - <<'E'$py_body" \
+        "python3.exe - <<'E'$py_body" \
+        "py.exe - <<'E'$py_body" \
+        "PYTHON.EXE - <<'E'$py_body" \
+        "/usr/bin/python3 - <<'E'$py_body" \
+        "/usr/bin/env python3 - <<'E'$py_body" \
+        "C:\\Python313\\python.exe - <<'E'$py_body" \
+        "\"C:/Program Files/Python313/python.exe\" - <<'E'$py_body" \
+        "'C:\\Program Files\\Python313\\python.exe' - <<'E'$py_body" \
+        "\"python3\" - <<'E'$py_body" \
+        "python3 -u - <<E$py_body" \
+        "python3 -X utf8 - <<E$py_body" \
+        "python3 -I -B - <<E$py_body" \
+        "python3 -W error - <<E$py_body" \
+        "py -3 - <<E$py_body" \
+        "py -3.12 -u - <<E$py_body" \
+        "python3 -u <<E$py_body" \
+        "python - <<E$py_body" \
+        "python - <<\"E\"$py_body" \
+        "python - <<\\E$py_body" \
+        "python - <<-E$py_body" \
+        "python - <<-'E'$py_body" \
+        "python -<<E$py_body" \
+        "python - <<<'print(1)'" \
+        "python <<<\"print(1)\"" \
+        "python3 - <<<\"print(1)\"" \
+        "timeout 60 python - <<E$py_body" \
+        "timeout -k 5 60 python3 - <<E$py_body" \
+        "env X=1 python - <<E$py_body" \
+        "PYTHONUNBUFFERED=1 python3 -u - <<E$py_body" \
+        "winpty python - <<E$py_body" \
+        "cd x && python - <<E$py_body" \
+        "python3 - <<E 2>/dev/null || true$py_body" \
+        "python3 - 2>/dev/null <<'E'$py_body" \
+        "python3 - <<'E' 2>/dev/null || echo \"no python\"$py_body" \
+        "python3 - <<'E' 2>/dev/null || node -e \"${nlc}x()\"${nlc}E" \
+        "python3 - <<'E' 2>/dev/null || node -e 'x()'${nlc}print(1)${nlc}E" \
+        "python3 - <<'E'${nlc}${nlc}E" \
+        "cat <<'E' | python -$py_body" \
+        "cat <<E | python3$py_body" \
+        "cat <<'E' | python3 -u -$py_body" \
+        "cat <<'E' | /usr/bin/python3 -$py_body" \
+        "cat <<'E' | timeout 60 python -$py_body" \
+        "cat <<'E' | \"C:/Program Files/Python313/python.exe\" -$py_body" \
+        "cat <<'E' | tr a b | python -$py_body" \
+        "python3 \\${nlc}- <<'E'$py_body" \
+        "python3 \\${nlc}  -u \\${nlc}  - <<'E'$py_body" \
+        "bash <<'X'${nlc}python3 - <<'E'${nlc}print(1)${nlc}E${nlc}X" \
+        "bash <<X${nlc}python3 - <<E${nlc}print(1)${nlc}E${nlc}X" \
+        "cat <<'X' | bash${nlc}python3 - <<'E'${nlc}print(1)${nlc}E${nlc}X" \
+        "bash -c \"python3 - <<'E'${nlc}print(1)${nlc}E\"" \
+        "bash -c 'python3 <<<\"print(1)\"'" \
+        "sh -c \"timeout 60 python3 - <<E${nlc}print(1)${nlc}E\"" \
+        "eval \"python3 - <<'E'${nlc}print(1)${nlc}E\"" \
+        "echo \$(python3 - <<'E'${nlc}print(1)${nlc}E${nlc})" \
+        "git commit -q -F - <<'E'${nlc}msg${nlc}E${nlc}python3 - <<'F'${nlc}print(1)${nlc}F" \
+        "cat > x.py <<'E'${nlc}print(1)${nlc}E${nlc}python3 - <<'F'${nlc}print(2)${nlc}F" \
+        "python3 - <<'E'${nlc}print(\"it's\")${nlc}E"; do
+      guard 2 "$cmd" Bash "$py_msg"
+    done
+    # The PowerShell tool reads the same text, and a here-string piped into the interpreter is its form of the pipe.
+    for cmd in \
+        "python - <<'E'$py_body" \
+        "python3 <<<\"print(1)\"" \
+        "timeout 60 python - <<E$py_body" \
+        "py -3 - <<E$py_body" \
+        "cat <<'E' | python -$py_body" \
+        "bash <<'X'${nlc}python3 - <<'E'${nlc}print(1)${nlc}E${nlc}X" \
+        "@'${nlc}print(1)${nlc}'@ | python -" \
+        "@\"${nlc}print(1)${nlc}\"@ | python" \
+        "@'${nlc}print(1)${nlc}'@ | python3 -u -" \
+        "@'${nlc}print(1)${nlc}'@ | python.exe -" \
+        "@'${nlc}print(1)${nlc}'@ | py -3 -" \
+        "@'${nlc}print(1)${nlc}'@ | & python -" \
+        "@'${nlc}print(1)${nlc}'@ | & \"C:\\Program Files\\Python313\\python.exe\" -" \
+        "@'${nlc}print(1)${nlc}'@ | C:\\Python313\\python.exe -" \
+        "@'${nlc}print(\"it's\")${nlc}'@ | python -" \
+        "@'${nlc}print(1)${nlc}'@ | python -${nlc}Get-Date" \
+        "@'${nlc}print(1)${nlc}'@ | python3.13 -"; do
+      guard 2 "$cmd" PowerShell "$py_msg"
+    done
+    guard 2 "@'${nlc}print(1)${nlc}'@ | python -" Bash "$py_msg"
+    for cmd in \
+        "python tool.py <<'E'${nlc}data${nlc}E" \
+        "python3 tool.py --flag <<E${nlc}data${nlc}E" \
+        "python3 tool.py <<<\"data\"" \
+        "python3 -u tool.py <<'E'${nlc}data${nlc}E" \
+        "py -3 tool.py <<'E'${nlc}data${nlc}E" \
+        "\"C:/Program Files/Python313/python.exe\" tool.py <<'E'${nlc}data${nlc}E" \
+        "timeout 60 python3 tool.py <<'E'${nlc}data${nlc}E" \
+        "python tool.py 2>/dev/null <<'E'${nlc}data${nlc}E" \
+        "python -c \"print(1)\"" \
+        "python -c \"print(1)\" <<'E'${nlc}data${nlc}E" \
+        "python3 -c \"print(1)\" <<<'data'" \
+        "python -m mod" \
+        "python -m mod <<'E'${nlc}data${nlc}E" \
+        "python3 -m json.tool <<<'{}'" \
+        "python3 --version" \
+        "python3 --version 2>/dev/null || echo \"no python\"" \
+        "python3 tool.py" \
+        "echo hi | python3 -c \"import sys\"" \
+        "cat <<'E' | python tool.py${nlc}data${nlc}E" \
+        "cat <<'E' | python3 -c \"import sys; print(sys.stdin.read())\"${nlc}data${nlc}E" \
+        "pytest -q <<E${nlc}E" \
+        "git commit -q -F - <<'E'${nlc}fix: the guard blocks python3 - <<'X' with a body${nlc}E" \
+        "git commit -q -F - <<E${nlc}docs: python <<E2 can hang${nlc}E" \
+        "git commit -q -m \"docs: python3 - <<'E' can hang\"" \
+        "git commit -q -m \"\$(cat <<'EOF'${nlc}fix: python3 - <<'X' can hang${nlc}EOF${nlc})\"" \
+        "git tag -a v1 -F - <<'E'${nlc}python3 - <<'X'${nlc}print(1)${nlc}X${nlc}E" \
+        "gh pr create --body-file - <<'E'${nlc}python3 - <<'X'${nlc}print(1)${nlc}X${nlc}E" \
+        "gh pr edit 5 --body-file - <<'E'${nlc}It blocks python <<<\"x\" and cat <<'X' | python -.${nlc}E" \
+        "echo \"python3 - <<'E'\"" \
+        "echo 'python3 - <<\"E\"'" \
+        "grep -n \"python3 - <<\" notes.md" \
+        "grep -rn 'python - <<' ." \
+        "cat > notes.md <<'E'${nlc}python3 - <<'X'${nlc}print(1)${nlc}X${nlc}E" \
+        "cat > notes.md <<'E'${nlc}run python <<<\"x\" or cat <<'X' | python -${nlc}E" \
+        "tee notes.md <<E${nlc}python3 - <<X${nlc}X${nlc}E"; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        "@'${nlc}data${nlc}'@ | python tool.py" \
+        "@'${nlc}data${nlc}'@ | python -c \"import sys; print(sys.stdin.read())\"" \
+        "@'${nlc}data${nlc}'@ | python -m json.tool" \
+        "@'${nlc}data${nlc}'@ | Set-Content x.txt" \
+        "@'${nlc}python3 - <<'E'${nlc}'@ | Set-Content notes.md" \
+        "Get-Content x.py | python -" \
+        "python3 --version" \
+        "git commit -m \"python - <<E\"" \
+        "git commit -q -F - <<'E'${nlc}python3 - <<'X'${nlc}E"; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook passes Python that reads its script from a heredoc or a here-string, or blocks a script file given a heredoc of data, python -c or -m, or a message that names the form (T309, B64)" "the guard hook blocks Python reading its script from a heredoc or a here-string, whatever the body, behind a path, a wrapper or a time limit, piped in or inside a script a shell runs, and passes a script file given a heredoc of data, python -c and -m, and a message that names the form (T309, B64)"
+
+  # The guard reads a long file body in time: the hook's timeout in settings.json is 10 seconds, and a hook that times out doesn't
+  # block, so a command padded with a long body could pass unguarded. 900 lines of GDScript ($Node.method("x") calls, about 29 KB),
+  # written from a Bash heredoc and from a PowerShell here-string, each under 5 seconds. Bash's time keyword reads the clock, so the
+  # measurement starts no process of its own, and the best of three runs counts, since a busy machine can slow a run but not all three.
+  slow_fail=""; slow_times=""
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    slow_body=""; for ((si = 0; si < 900; si++)); do slow_body+=$'$AnimationPlayer.play("walk_1")\n'; done
+    for slow_tool in Bash PowerShell; do
+      if [ "$slow_tool" = Bash ]; then slow_cmd=$'cat > x.gd <<\'EOF\'\n'"$slow_body"$'EOF'
+      else slow_cmd=$'@\'\n'"$slow_body"$'\'@ | Set-Content x.gd'; fi
+      json_str "$slow_cmd"
+      printf '{"session_id":"s","tool_name":"%s","tool_input":{"command":"%s","description":"run"}}' "$slow_tool" "$JSON_STR" > "$guard_dir/slow.json"
+      slow_best=999; slow_rc=0
+      for slow_try in 1 2 3; do
+        TIMEFORMAT='%R'
+        { time bash .claude/hooks/guard-commands.sh < "$guard_dir/slow.json" >/dev/null 2>&1; slow_rc=$?; } 2> "$guard_dir/slow.time"
+        slow_s=$(<"$guard_dir/slow.time")
+        [ "${slow_s%%[.,]*}" -lt "${slow_best%%[.,]*}" ] 2>/dev/null && slow_best="$slow_s"
+        [ "${slow_s%%[.,]*}" -lt 5 ] 2>/dev/null && break
+      done
+      slow_times="$slow_times ($slow_tool ${slow_best}s)"
+      [ "$slow_rc" = 0 ] || slow_fail="$slow_fail"$'\n'"  ($slow_tool) the guard exited $slow_rc on a 29 KB file body, expected 0"
+      [ "${slow_best%%[.,]*}" -lt 5 ] 2>/dev/null || slow_fail="$slow_fail"$'\n'"  ($slow_tool) the guard took ${slow_best}s on a 29 KB file body, over 5 seconds"
+    done
+    rm -f "$guard_dir/slow.json" "$guard_dir/slow.time" "$guard_dir/env.json"
+  fi
+  guard_report "$slow_fail" "the guard is too slow on a long file body" "the guard reads a 29 KB GDScript heredoc and here-string, each in under 5 seconds:$slow_times"
+
+  # A command name written as a path (Director-Driven-Development T292): a quoted name with a space in its path, or an unquoted backslash
+  # path that starts with a drive, ., .., ~ or two backslashes, is read as its last part (git.exe is git) in the Bash and the PowerShell
+  # tool, after a prefix, a separator or a call operator. A path that is an argument, a message or a body nothing runs is text, and an
+  # escaped name (c\at) is still the shell's name.
+  git_fail=""
+  for cmd in \
+      '"C:\Program Files\Git\bin\git.exe" push --force' \
+      "& 'C:\\Program Files\\Git\\bin\\git.exe' push --force" \
+      'C:\Git\bin\git.exe push --force' \
+      '"C:\Program Files\Git\cmd\git.exe" push --force' \
+      'FOO=1 "C:\Program Files\Git\bin\git.exe" push --force' \
+      'env "C:\Program Files\Git\bin\git.exe" push --force' \
+      'cd x && "C:\Program Files\Git\bin\git.exe" push --force' \
+      'true; C:\Git\bin\git.exe push --force' \
+      'echo $("C:\Program Files\Git\bin\git.exe" push --force)' \
+      '"/usr/bin/git" push --force' \
+      '..\bin\git.exe push --force' \
+      '~\bin\git.exe push --force' \
+      '\\server\share\git.exe push --force' \
+      '"C:\Program Files\Git\bin\git.exe" reset --hard' \
+      '"C:\Program Files\Git\bin\git.exe" commit -m x --no-verify'; do
+    guard 2 "$cmd"
+    guard 2 "$cmd" PowerShell
+  done
+  guard 2 "bash <<'EOF'${nlc}\"C:\\Program Files\\Git\\bin\\git.exe\" push --force${nlc}EOF"
+  for cmd in \
+      "& 'C:\\Program Files\\Git\\bin\\git.exe' status" \
+      '"C:\Program Files\Git\bin\git.exe" log -1' \
+      '"C:\Program Files\Git\bin\git.exe" push origin main' \
+      'git commit -q -m "docs: C:\Program Files\Git\bin\git.exe push --force is blocked"' \
+      'echo "C:\Program Files\Git"' \
+      'echo "C:\Program Files\Git\bin\git.exe push --force"' \
+      'git log "C:\Program Files\Git\bin\git.exe"' \
+      'git log --format="C:\Git\bin\git.exe push --force"' \
+      'cp "C:\x y\git.exe" backup' \
+      'c\at README.md'; do
+    guard 0 "$cmd"
+    guard 0 "$cmd" PowerShell
+  done
+  guard 0 "cat > notes.md <<'EOF'${nlc}\"C:\\Program Files\\Git\\bin\\git.exe\" push --force${nlc}EOF${nlc}git add notes.md"
+  guard 0 "git commit -q -F - <<'EOF'${nlc}docs: \"C:\\Program Files\\Git\\bin\\git.exe\" push --force is blocked${nlc}EOF"
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read a command name written as a path, quoted with a space or as a backslash path, so git passes behind it, or it blocks a path that is an argument, a message or a body nothing runs (Director-Driven-Development T292)" "the guard hook blocks git behind a quoted path with a space, a backslash path, a prefix, a separator, a call operator and a substitution, in the Bash and the PowerShell tool, and a heredoc body a shell runs, and passes the paths that are arguments and messages and an escaped name (T292)"
+
+  # The PowerShell tool (B24) has its own name. The guard runs for it only when the hook's matcher names it,
+  # and a Bash(...) deny or ask rule stops the same command in PowerShell only through its PowerShell(...)
+  # twin, in the same list. The allow list names no PowerShell command, so nothing PowerShell runs is allowed
+  # without a prompt. Read(...) rules are the Read tool's; PowerShell's own file reads are not covered here.
+  ps_fail=""
+  guard_matcher=$(awk -F'"' '/"matcher"/ { m = $4 } /guard-commands\.sh/ { print m; exit }' .claude/settings.json)
+  for tool in Bash Monitor PowerShell; do
+    case "|$guard_matcher|" in
+      *"|$tool|"*) ;;
+      *) ps_fail="$ps_fail"$'\n'"  the guard hook's matcher \"$guard_matcher\" doesn't name $tool" ;;
+    esac
+  done
+  for list in deny ask; do
+    arr=$(sed -n "/\"$list\": *\[/,/\]/p" .claude/settings.json)
+    while IFS= read -r rule; do
+      [ -n "$rule" ] || continue
+      twin="PowerShell(${rule#Bash(}"
+      printf '%s\n' "$arr" | grep -qF "\"$twin\"" \
+        || ps_fail="$ps_fail"$'\n'"  settings.json's $list rules have $rule but no $twin"
+    done <<< "$(printf '%s\n' "$arr" | grep -oE '"Bash\([^"]*\)"' | tr -d '"')"
+  done
+  printf '%s\n' "$perm_allow" | grep -q 'PowerShell(' \
+    && ps_fail="$ps_fail"$'\n'"  settings.json's allow list names a PowerShell command, so PowerShell would run it without a prompt"
+  guard_report "$ps_fail" "the PowerShell tool isn't wired to the guard and the deny rules (B24)" "the guard hook's matcher names PowerShell, every Bash deny rule has a PowerShell twin, and the allow list names no PowerShell command"
+fi
+
+  ) > "$seg/3-guard" 2>&1 &
+  guard_pid=$!
+  (
+    trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-security"' EXIT
+    passed=0; failed=0
+# --- security assessment --------------------------------------------------------------------------
+echo "security assessment"
+# The tool step (tools/security.sh) on the seeded fixture and its clean twin (tests/security/README.md).
+# Each copy gets the manifests under their real names, the check and the seed .gitleaks.toml. The
+# credential is assembled here at run time, so neither this file nor the fixture holds one.
+sec_copy() { # sec_copy <vulnerable|clean> -> $work/security/<name>
+  local dir="$work/security/$1"
+  rm -rf "$dir"; mkdir -p "$work/security"; cp -R "$src/tests/security/$1" "$dir"
+  mv "$dir/package.fixture.json" "$dir/package.json"; mv "$dir/package-lock.fixture.json" "$dir/package-lock.json"
+  mkdir -p "$dir/tools"; cp "$src/framework/tools/check.sh" "$src/framework/tools/security.sh" "$dir/tools/"
+  cp "$src/project/.gitleaks.toml" "$dir/.gitleaks.toml"
+  printf '[project]\nstack = none\n[gitleaks]\nmin-version = 8.18.0\n' > "$dir/tools/check.cfg"
+  (cd "$dir" && git init -q && git config core.autocrlf false && git add -A && git_q commit -qm "fixture")
+}
+sec_copy vulnerable; sec_copy clean
+_sv="$work/security/vulnerable"; _sc="$work/security/clean"
+_tk1="ghp_R8xK2mQ9vL4tW7nB3pZ6"; _tk2="cY1hJ5dF0sG8aE2u"
+sed "s/__SEEDED_SECRET__/${_tk1}${_tk2}/" "$_sv/src/payments.js" > "$work/payments.js" && cp "$work/payments.js" "$_sv/src/payments.js"
+grep -q "${_tk1}${_tk2}" "$_sv/src/payments.js" && ok "the seeded copy holds a generated credential" || bad "the seeded copy holds a generated credential"
+
+# Stand-ins: an npm whose audit reports lodash (or can't reach the registry), and a semgrep with one finding.
+_sec_bin="$work/security-bin"; mkdir -p "$_sec_bin/vuln" "$_sec_bin/offline" "$_sec_bin/semgrep"
+cat > "$_sec_bin/vuln/npm" << 'FAKE'
+#!/usr/bin/env bash
+[ "$1" = "audit" ] || exit 0
+printf '# npm audit report\n\nlodash  <=4.17.20\nSeverity: high\nPrototype Pollution in lodash\nnode_modules/lodash\n\n3 vulnerabilities (1 moderate, 2 high)\n'
+exit 1
+FAKE
+cat > "$_sec_bin/offline/npm" << 'FAKE'
+#!/usr/bin/env bash
+printf 'npm error code ENOTFOUND\nnpm error audit endpoint returned an error\n'
+exit 1
+FAKE
+cat > "$_sec_bin/semgrep/semgrep" << 'FAKE'
+#!/usr/bin/env bash
+printf 'src/server.js:20:24:error(javascript.lang.security.audit.sqli.node-sqli):Untrusted input in a SQL string MATCHED_SOURCE_TEXT\n'
+exit 1
+FAKE
+chmod +x "$_sec_bin"/*/*
+out="$(cd "$_sc" && PATH="$_sec_bin/vuln:$_sec_bin/semgrep:$_stop_path" bash tools/security.sh 2>&1)"; status=$?
+expect_status "the tool step exits 1 when a tool reports findings" 1 "$status" "$out"
+expect_output "a dependency audit's findings are labelled A03, with npm 7's summary" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A03:2025 Software Supply Chain Failures\): 3 vulnerabilities \(1 moderate, 2 high\)" "$out"
+expect_output "and name the package" "  package: lodash <=4.17.20" "$out"
+expect_output "Semgrep's findings keep file, line, column and rule" "^  src/server\.js:20:24:javascript\.lang\.security\.audit\.sqli\.node-sqli$" "$out"
+expect_output "Semgrep's findings are reported as findings" "^security: semgrep \(p/owasp-top-ten\): FINDINGS" "$out"
+expect_no_output "Semgrep's message and matched source aren't printed" "MATCHED_SOURCE_TEXT|Untrusted input" "$out"
+expect_no_output "or stored" "MATCHED_SOURCE_TEXT|Untrusted input" "$(cat "$_sc/.app-director/state/security/semgrep.txt" 2>/dev/null)"
+expect_output "the summary says a tool passing never marks a category met" "A tool passing never marks an OWASP category met" "$out"
+_no_sg_path=""
+_oldifs="$IFS"; IFS=':'
+for _d in $_stop_path; do [ -x "$_d/semgrep" ] || _no_sg_path="${_no_sg_path:+$_no_sg_path:}$_d"; done
+IFS="$_oldifs"
+out="$(cd "$_sc" && PATH="$_sec_bin/offline:$_no_sg_path" bash tools/security.sh 2>&1)"; status=$?
+expect_status "an audit that can't reach the registry isn't a finding" 0 "$status" "$out"
+expect_output "it is noted with its reason" "^security: dependencies \(npm audit --omit=dev\): couldn't run: npm error code ENOTFOUND" "$out"
+expect_output "a tool that isn't installed is skipped with a note" "^security: semgrep \(p/owasp-top-ten\): skipped: semgrep isn't installed" "$out"
+# A non-zero exit is never clean, even with the nothing-found line: a failed run is couldn't run.
+mkdir -p "$_sec_bin/failed"; cat > "$_sec_bin/failed/npm" << 'FAKE'
+#!/usr/bin/env bash
+printf 'npm error network request failed\nfound 0 vulnerabilities\n'
+exit 1
+FAKE
+chmod +x "$_sec_bin/failed/npm"
+out="$(cd "$_sc" && PATH="$_sec_bin/failed:$_no_sg_path" bash tools/security.sh 2>&1)"; status=$?
+expect_output "a failed audit with the nothing-found line is couldn't run, with its reason" "^security: dependencies \(npm audit --omit=dev\): couldn't run: npm error network request failed" "$out"
+expect_no_output "and isn't reported clean" "dependencies \(npm audit --omit=dev\): clean" "$out"
+
+# pip-audit only reads requirements that are all pinned with ==; otherwise it would install them.
+_sp="$work/security/python"; mkdir -p "$_sp/tools"; cp "$src/framework/tools/security.sh" "$_sp/tools/"
+printf 'requests==2.32.3\nflask>=3.0\n' > "$_sp/requirements.txt"
+out="$(cd "$_sp" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"
+expect_output "pip-audit is skipped, with the reason, for a requirement that isn't pinned" "^security: dependencies \(pip-audit\): skipped: requirements\.txt has a requirement that isn't pinned with == \(flask>=3\.0\)" "$out"
+rm -f "$_sp/requirements.txt"; printf '[project]\nname = "x"\n' > "$_sp/pyproject.toml"
+out="$(cd "$_sp" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"
+expect_output "and for a pyproject.toml without pinned requirements" "^security: dependencies \(pip-audit\): skipped: only pyproject\.toml" "$out"
+
+# The real tools: gitleaks when it can scan, npm when it's installed and the registry answers. Semgrep
+# is left out (the stand-in covers it): its rules could flag the clean twin's plain HTTP server.
+out_v="$(cd "$_sv" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"; status_v=$?
+out_c="$(cd "$_sc" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"; status_c=$?
+if [ "$_gl_ok" -eq 1 ]; then
+  expect_output "gitleaks finds the seeded credential under its OWASP item" "secrets FAIL \(OWASP Authentication Failures" "$out_v"
+  expect_output "and names its file" "  found in: src/payments\.js" "$out_v"
+  expect_no_output "the clean twin has no credential finding" "secrets FAIL|found in:" "$out_c"
+  expect_status "the seeded copy fails the tool step" 1 "$status_v" "$out_v"
+else
+  echo "  skip  the seeded credential (gitleaks not found, below $_gl_min_req, or 8.19.0)"
+fi
+if ! command -v npm >/dev/null 2>&1; then
+  echo "  skip  npm audit on the fixture (npm isn't installed)"
+elif printf '%s' "$out_v" | grep -q "^security: dependencies (npm audit --omit=dev): couldn't run"; then
+  echo "  skip  npm audit on the fixture (the registry didn't answer)"
+else
+  expect_output "npm audit finds the vulnerable lodash, labelled A03" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A03:2025" "$out_v"
+  expect_output "and names lodash" "  package: lodash " "$out_v"
+  expect_output "the clean twin's audit is clean" "^security: dependencies \(npm audit --omit=dev\): clean" "$out_c"
+fi
+expect_status "the clean twin passes the tool step" 0 "$status_c" "$out_c"
+expect_no_output "the clean twin has no finding" "FINDINGS" "$out_c"
+
+# --due: always due with no report yet; then it counts built items (subjects ending in (T<n>) or
+# (B<n>), also with a squash merge's " (#<pr>)") since the newest report's commit.
+(cd "$_sv" && for i in 1 2 3; do git_q commit -q --allow-empty -m "feat: item (T$i)"; done && git_q commit -q --allow-empty -m "docs: note (R1)")
+out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
+expect_output "--due: due when there is no report yet" "^security: due: no assessment yet \(no report in product/security/\), \[security\] every = 10" "$out"
+printf '[security]\nevery = 3\n' >> "$_sv/tools/check.cfg"
+mkdir -p "$_sv/product/security"
+printf '# Security assessment 2026-01-01\n\n- Commit: `%s`\n' "$(cd "$_sv" && git rev-parse --short HEAD~2)" > "$_sv/product/security/2026-01-01.md"
+out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
+expect_output "--due counts from the newest report's commit, research items left out" "^security: not due: built items since product/security/2026-01-01\.md \(commit [0-9a-f]+\): 1, \[security\] every = 3" "$out"
+(cd "$_sv" && git_q commit -q --allow-empty -m "feat: squashed item (T4) (#12)" && git_q commit -q --allow-empty -m "fix: squashed bug (B2) (#13)")
+out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
+expect_output "--due counts squash-merge subjects and is due at [security] every = 3" "^security: due: built items since product/security/2026-01-01\.md \(commit [0-9a-f]+\): 3, \[security\] every = 3" "$out"
+(cd "$_sv" && git_q commit -q --allow-empty -m "fix: B5 is mentioned (B5) but not at the end")
+out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
+expect_output "--due ignores an item ID that doesn't end the subject" ": 3, \[security\] every = 3" "$out"
+
+# --- user stories ---------------------------------------------------------------------------------
+echo "user stories"
+# tools/stories.sh --due counts built items as tools/security.sh --due does, from the commit on the
+# stories file's Last validated line (by its date when that commit isn't in the history), and is due
+# when the stories were never validated. The seed stands in for an app's file.
+_st="$work/stories"; new_repo "$_st"; mkdir -p "$_st/tools" "$_st/product"
+cp "$src/framework/tools/stories.sh" "$_st/tools/"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"; status=$?
+expect_status "stories --due exits 0 without a stories file" 0 "$status" "$out"
+expect_output "stories --due: not due without a stories file" "^stories: not due: no stories yet \(no product/user-stories\.md\), \[stories\] every = 10$" "$out"
+printf '# User stories: x\n\n**Next ID:** US-1 · **Last validated:** never\n\n## Roles\n' > "$_st/product/user-stories.md"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due: not due while the file has no stories" "^stories: not due: no stories yet in product/user-stories\.md" "$out"
+cp "$stories_seed" "$_st/product/user-stories.md"
+_st_total="$(grep -c '^| US-' "$stories_seed")"; _st_unc="$(grep -c '| unconfirmed |$' "$stories_seed")"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due: due when never validated, counting the stories and the unconfirmed ones" \
+  "^stories: due: never validated \(Last validated: never\), $_st_total stories, $_st_unc unconfirmed, \[stories\] every = 10$" "$out"
+(cd "$_st" && for i in 1 2 3; do git_q commit -q --allow-empty -m "feat: item (T$i)"; done && git_q commit -q --allow-empty -m "docs: note (R1)")
+printf '[stories]\nevery = 3\n' > "$_st/tools/check.cfg"
+_st_validated() { # <the Last validated value>
+  sed "s/\*\*Last validated:\*\* never/**Last validated:** $1/" "$stories_seed" > "$_st/product/user-stories.md"
+}
+_st_validated "2026-01-01 at \`$(cd "$_st" && git rev-parse --short HEAD~2)\`"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due counts from the Last validated commit, research items left out" \
+  "^stories: not due: built items since the last validation \(2026-01-01, commit [0-9a-f]+\): 1, \[stories\] every = 3; $_st_total stories, $_st_unc unconfirmed$" "$out"
+(cd "$_st" && git_q commit -q --allow-empty -m "feat: squashed item (T4) (#12)" && git_q commit -q --allow-empty -m "fix: squashed bug (B2) (#13)")
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due counts squash-merge subjects and is due at [stories] every = 3" "^stories: due: built items since the last validation \(2026-01-01, commit [0-9a-f]+\): 3, \[stories\] every = 3" "$out"
+(cd "$_st" && git_q commit -q --allow-empty -m "fix: B5 is mentioned (B5) but not at the end")
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due ignores an item ID that doesn't end the subject" ": 3, \[stories\] every = 3" "$out"
+_st_validated "2000-01-01 at \`0000000\`"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due counts by the date when the commit isn't in this history" \
+  "^stories: due: built items since the last validation \(2000-01-01, by its date: its commit isn't in this history\): 5, \[stories\] every = 3" "$out"
+_st_validated "2000-01-01"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due counts by the date when the line names no commit" \
+  "^stories: due: built items since the last validation \(2000-01-01, by its date: the line names no commit\): 5, \[stories\] every = 3" "$out"
+grep -v '^\*\*Next ID:\*\*' "$stories_seed" > "$_st/product/user-stories.md"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due is due, and says why, when the file has no Last validated line" \
+  "^stories: due: never validated \(product/user-stories\.md has no Last validated line\), $_st_total stories" "$out"
+printf '[stories]\nevery = often\n' > "$_st/tools/check.cfg"
+out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
+expect_output "stories --due notes a setting that isn't a whole number and uses 10" "^stories: note: \[stories\] every = often isn't a whole number of 1 or more; using 10" "$out"
+out="$(cd "$_st" && bash tools/stories.sh 2>&1)"; status=$?
+expect_status "stories.sh without --due exits 3" 3 "$status" "$out"
+# Outside a git repository (git isn't allowed to look above $work for one) it can't count, and says so.
+_st_nogit="$work/stories-nogit"; mkdir -p "$_st_nogit/tools" "$_st_nogit/product"
+cp "$src/framework/tools/stories.sh" "$_st_nogit/tools/"; cp "$stories_seed" "$_st_nogit/product/"
+out="$(cd "$_st_nogit" && GIT_CEILING_DIRECTORIES="$work" bash tools/stories.sh --due 2>&1)"; status=$?
+expect_status "stories --due exits 3 outside a git repository" 3 "$status" "$out"
+expect_output "and says it couldn't count" "^stories: couldn't count: not a git repository$" "$out"
+  ) > "$seg/6-security" 2>&1 &
+  security_pid=$!
+  exec > "$seg/4-protected" 2>&1
 # --- guard-protected hook -------------------------------------------------------------------------
 echo "guard-protected hook"
 # Claude Code sends the path as given: relative, absolute POSIX, or Windows (JSON-escaped). The
@@ -1473,6 +4442,176 @@ rm -f .app-director/state/building
 out="$(stop_hook)"; expect_status "blocks again once the builder is done" 2 $? "$out"
 cp "$work/stop-passing" src/ui/TodoList.ts
 out="$(stop_hook)"; expect_status "lets the fixed state through" 0 $? "$out"
+
+# --- Stop hook, per session -----------------------------------------------------------------------
+# Two sessions can share one working folder (a design session and a build session, no worktree). The Stop hook runs the
+# check only for a session that wrote or edited a source file itself: session-touched.sh keeps that record by the
+# session_id in the hook input (a file tool's PostToolUse; for Bash and PowerShell the git status before and after the
+# command). So a design session that edits only Markdown never waits for, or is blocked by, another session's
+# uncommitted code. A throwaway repository holds it, with a stand-in check that records that it ran and fails while
+# .app-director/state/fail exists, and scripted hook inputs.
+echo "stop hook, per session"
+sr="$work/session-stop"; new_repo "$sr"
+sr_hooks="$src/framework/.claude/hooks"
+mkdir -p "$sr/tools" "$sr/src"
+cat > "$sr/tools/check.sh" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in --fingerprint) cat src/*.cs 2>/dev/null | git hash-object --stdin; exit 0 ;; esac
+: > .app-director/state/check-ran
+if [ -f .app-director/state/fail ]; then echo "layering: src/Billing.cs imports the UI"; exit 1; fi
+exit 0
+EOF
+printf '/.app-director/state/\n' > "$sr/.gitignore"
+git -C "$sr" add -A >/dev/null 2>&1; git_q -C "$sr" commit -qm "a stand-in check" >/dev/null 2>&1
+sr_state="$sr/.app-director/state"
+sr_nl=$'\n'
+sr_put() { [ -d "${1%/*}" ] || mkdir -p "${1%/*}"; printf '%s\n' "$2" > "$1"; }   # sr_put <file> <content>
+_sr_wrote() { # _sr_wrote <session> <tool> <path> [path key] [event]: a file tool's PostToolUse input, through the recorder
+  printf '{"session_id":"%s","cwd":"%s","hook_event_name":"%s","tool_name":"%s","tool_input":{"%s":"%s","content":"x"},"tool_response":{"success":true}}' \
+    "$1" "$sr" "${5:-PostToolUse}" "$2" "${4:-file_path}" "$3" | CLAUDE_PROJECT_DIR="$sr" bash "$sr_hooks/session-touched.sh" after 2>&1
+}
+_sr_cmd() { # _sr_cmd <session> before|after <tool> [event]: a Bash or PowerShell command's PreToolUse or PostToolUse input
+  printf '{"session_id":"%s","cwd":"%s","hook_event_name":"%s","tool_name":"%s","tool_input":{"command":"make"}}' \
+    "$1" "$sr" "${4:-PostToolUse}" "$3" | CLAUDE_PROJECT_DIR="$sr" bash "$sr_hooks/session-touched.sh" "$2" 2>&1
+}
+_sr_stop() { # _sr_stop <hook input>: the Stop hook's output; the exit status is the hook's
+  printf '%s' "$1" | CLAUDE_PROJECT_DIR="$sr" bash "$sr_hooks/stop-check.sh" 2>&1
+}
+_sr_stop_as() { _sr_stop "{\"session_id\":\"$1\",\"transcript_path\":\"/x/y.jsonl\",\"hook_event_name\":\"Stop\",\"stop_hook_active\":false}"; }
+_sr_rec() { cat "$sr_state/sessions/$1.touched" 2>/dev/null; }
+_sr_ran() { [ -e "$sr_state/check-ran" ]; }
+
+# 1. A design session that edits only Markdown, while a build session has uncommitted source in the same folder.
+sr_put "$sr/src/Billing.cs" 'class Billing {}'
+_sr_wrote build Write "$sr/src/Billing.cs" >/dev/null
+_sr_wrote design Write "$sr/docs/notes.md" >/dev/null
+_sr_wrote design Edit "$sr/TASKS.md" >/dev/null
+_sr_wrote design MultiEdit "$sr/product/brief.md" >/dev/null
+out="$(_sr_rec build)"; expect_output "records the source file a session wrote, from the project root" '^src/Billing\.cs$' "$out"
+if [ ! -e "$sr_state/sessions/design.touched" ]; then ok "records nothing for a session that edited only Markdown"; else bad "records nothing for a session that edited only Markdown" "$(_sr_rec design)"; fi
+: > "$sr_state/fail"   # a check that would fail, as the other session's unfinished code makes it
+out="$(_sr_stop_as design)"; status=$?
+expect_status "the Stop hook exits 0 for a design session while another session has uncommitted source in the folder" 0 "$status" "$out"
+if _sr_ran; then bad "the check doesn't run for the session that edited only Markdown"; else ok "the check doesn't run for the session that edited only Markdown"; fi
+_sr_wrote kinds Write "$sr/adr/ADR-9-x.md" >/dev/null
+_sr_wrote kinds NotebookEdit "$sr/analysis/model.ipynb" notebook_path >/dev/null
+_sr_wrote kinds Write "$sr/.app-director/state/building" >/dev/null
+_sr_wrote kinds Write "/elsewhere/Outside.cs" >/dev/null
+_sr_wrote kinds Write "$sr/README.md" >/dev/null
+out="$(_sr_rec kinds)"
+[ "$out" = "analysis/model.ipynb" ] && ok "records a notebook as source, and skips Markdown (an ADR too), the state folder and a file outside the project" \
+  || bad "records a notebook as source, and skips Markdown (an ADR too), the state folder and a file outside the project" "$out"
+if command -v cygpath >/dev/null 2>&1; then
+  # Claude Code on Windows sends the path with JSON-escaped backslashes (two for each separator), and the project folder as C:\...
+  sr_bs2='\\'
+  sr_winroot="$(cygpath -w "$sr")"
+  sr_winjson="$(printf '%s' "$sr_winroot" | sed 's/\\/\\\\/g')"
+  printf '{"session_id":"winpath","cwd":"%s","hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' \
+    "$sr_winjson" "$sr_winjson$sr_bs2"src"$sr_bs2"Win.cs | CLAUDE_PROJECT_DIR="$sr_winroot" bash "$sr_hooks/session-touched.sh" after >/dev/null 2>&1
+  out="$(_sr_rec winpath)"
+  [ "$out" = "src/Win.cs" ] && ok "reads a Windows path with JSON-escaped backslashes against a project folder written as C:\\..." \
+    || bad "reads a Windows path with JSON-escaped backslashes against a project folder written as C:\\..." "$out"
+fi
+
+# 2. The build session that wrote source gets the check, is blocked once for a failure, and not twice for the same one.
+: > "$sr_state/fail"
+out="$(_sr_stop_as build)"; status=$?
+expect_status "the session that wrote source gets the check, and is blocked when it fails" 2 "$status" "$out"
+expect_output "and is given the check's output" 'layering' "$out"
+if _sr_ran; then ok "the check ran for it"; else bad "the check ran for it"; fi
+rm -f "$sr_state/check-ran"
+out="$(_sr_stop_as build)"; status=$?
+expect_status "the same failure isn't reported twice" 0 "$status" "$out"
+if _sr_ran; then bad "and the check isn't run again for it"; else ok "and the check isn't run again for it"; fi
+
+# 3. A Bash or PowerShell command is read from git's list of changed files before and after it.
+_sr_cmd shell before Bash >/dev/null
+sleep 1
+sr_put "$sr/src/Made.cs" 'class Made {}'
+sr_put "$sr/notes.md" '# notes'
+_sr_cmd shell after Bash >/dev/null
+out="$(_sr_rec shell)"
+[ "$out" = "src/Made.cs" ] && ok "a Bash command that creates a source file is recorded, and a Markdown file and a file already changed before it are not" \
+  || bad "a Bash command that creates a source file is recorded, and a Markdown file and a file already changed before it are not" "$out"
+_sr_cmd shell2 before PowerShell PreToolUse >/dev/null
+sleep 1
+printf '// edited by a command\n' >> "$sr/src/Billing.cs"
+_sr_cmd shell2 after PowerShell PostToolUseFailure >/dev/null
+out="$(_sr_rec shell2)"
+[ "$out" = "src/Billing.cs" ] && ok "a PowerShell command that modifies a file changed before it is recorded, one that fails too" \
+  || bad "a PowerShell command that modifies a file changed before it is recorded, one that fails too" "$out"
+_sr_cmd shell3 before Bash >/dev/null; _sr_cmd shell3 after Bash >/dev/null
+if [ ! -e "$sr_state/sessions/shell3.touched" ]; then ok "a command that changes nothing records nothing"; else bad "a command that changes nothing records nothing" "$(_sr_rec shell3)"; fi
+_sr_cmd shell4 after Bash >/dev/null
+if [ ! -e "$sr_state/sessions/shell4.touched" ]; then ok "a command with no snapshot before it records nothing"; else bad "a command with no snapshot before it records nothing" "$(_sr_rec shell4)"; fi
+
+# 4. A passing check removes the session's record, and not another session's.
+rm -f "$sr_state/fail" "$sr_state/check-ran"
+_sr_cmd build before Bash >/dev/null
+printf '// the fix\n' >> "$sr/src/Billing.cs"
+out="$(_sr_stop_as build)"; status=$?
+expect_status "a session whose code passes the check ends its turn" 0 "$status" "$out"
+if _sr_ran; then ok "the check ran for it"; else bad "the check ran for it"; fi
+if [ ! -e "$sr_state/sessions/build.touched" ] && [ ! -e "$sr_state/sessions/build.before" ]; then ok "a passing check removes the session's record"; else bad "a passing check removes the session's record" "$(ls "$sr_state/sessions")"; fi
+if [ -s "$sr_state/sessions/shell.touched" ]; then ok "and leaves another session's"; else bad "and leaves another session's"; fi
+
+# 5. A record older than a day is ignored, and deleted with any other session's that old.
+: > "$sr_state/fail"; rm -f "$sr_state/check-ran" "$sr_state/last-reported"
+_sr_wrote old Write "$sr/src/Billing.cs" >/dev/null
+_sr_wrote stale Write "$sr/src/Billing.cs" >/dev/null
+touch -t 202001010000 "$sr_state/sessions/old.touched" "$sr_state/sessions/stale.touched"
+out="$(_sr_stop_as old)"; status=$?
+expect_status "a record older than a day is ignored" 0 "$status" "$out"
+if _sr_ran; then bad "and the check doesn't run for it"; else ok "and the check doesn't run for it"; fi
+if [ ! -e "$sr_state/sessions/old.touched" ] && [ ! -e "$sr_state/sessions/stale.touched" ]; then ok "and it is deleted, as is another session's that old"; else bad "and it is deleted, as is another session's that old" "$(ls "$sr_state/sessions")"; fi
+
+# 6. No session_id, or one that can't be a file name, behaves as before: uncommitted source runs the check once.
+out="$(_sr_stop '{"hook_event_name":"Stop"}')"; status=$?
+expect_status "with no session_id the hook decides from git alone: uncommitted source runs the check, and a failure blocks" 2 "$status" "$out"
+if _sr_ran; then ok "and the check ran"; else bad "and the check ran"; fi
+out="$(_sr_stop '{"hook_event_name":"Stop"}')"; expect_status "and the same failure isn't reported twice" 0 $? "$out"
+printf '// another change\n' >> "$sr/src/Billing.cs"; rm -f "$sr_state/check-ran"
+out="$(_sr_stop_as '../../escape')"; status=$?
+expect_status "a session_id that isn't a plain name behaves the same" 2 "$status" "$out"
+printf '// and another\n' >> "$sr/src/Billing.cs"
+out="$(_sr_stop '{"session_id":"","hook_event_name":"Stop"}')"; expect_status "so does an empty one" 2 $? "$out"
+
+# 7. What stays as it was: the builder marker, APP_DIRECTOR_STOP_CHECK=0 and a project with no tools/check.sh.
+printf '// once more\n' >> "$sr/src/Billing.cs"; rm -f "$sr_state/check-ran"
+_sr_wrote marked Write "$sr/src/Billing.cs" >/dev/null
+: > "$sr_state/building"
+out="$(_sr_stop_as marked)"; status=$?
+expect_status "a session with a record leaves a builder's half-built files alone" 0 "$status" "$out"
+rm -f "$sr_state/building"
+out="$(APP_DIRECTOR_STOP_CHECK=0 _sr_stop_as marked)"; expect_status "APP_DIRECTOR_STOP_CHECK=0 turns the Stop hook off for it" 0 $? "$out"
+APP_DIRECTOR_STOP_CHECK=0 _sr_wrote off Write "$sr/src/Billing.cs" >/dev/null
+if [ ! -e "$sr_state/sessions/off.touched" ]; then ok "and the record with it"; else bad "and the record with it"; fi
+mv "$sr/tools/check.sh" "$sr/tools/check.sh.away"
+out="$(_sr_stop_as marked)"; expect_status "a project with no tools/check.sh ends the turn" 0 $? "$out"
+mv "$sr/tools/check.sh.away" "$sr/tools/check.sh"
+if _sr_ran; then bad "the check isn't run while the builder marker, the switch or a missing script excuses it"; else ok "the check isn't run while the builder marker, the switch or a missing script excuses it"; fi
+out="$(_sr_stop_as marked)"; expect_status "and the record still blocks once those are gone" 2 $? "$out"
+
+# 8. Work that is committed ends the record: the check passed in the commit, and what differs later is another's.
+rm -f "$sr_state/fail" "$sr_state/check-ran"
+git -C "$sr" add -A >/dev/null 2>&1; git_q -C "$sr" commit -qm "the build session's work" >/dev/null 2>&1
+out="$(_sr_stop_as marked)"; status=$?
+expect_status "a session whose source is all committed ends its turn" 0 "$status" "$out"
+if [ ! -e "$sr_state/sessions/marked.touched" ] && ! _sr_ran; then ok "and its record is removed without running the check"; else bad "and its record is removed without running the check" "$(ls "$sr_state/sessions")"; fi
+sr_put "$sr/docs/more.md" '# more'
+out="$(_sr_stop '{"hook_event_name":"Stop"}')"; expect_status "with no session_id, a Markdown-only change ends the turn, as before" 0 $? "$out"
+
+# The hooks are wired in settings.json: the snapshot before a command, the record after a file tool or a command
+# (a failing one too), and the hook runs under macOS's bash 3.2 and BSD tools, so it holds none of the forms they lack.
+wiring="$(awk '/^    "[A-Za-z]+": \[/ { ev = $1; gsub(/[":]/, "", ev) } /"matcher"/ { split($0, a, "\""); m = a[4] }
+  /session-touched\.sh/ { print ev ";" m ";" ($0 ~ / before"/ ? "before" : "after") }' "$src/framework/.claude/settings.json")"
+[ "$wiring" = "PreToolUse;Bash|PowerShell;before${sr_nl}PostToolUse;Edit|Write|MultiEdit|NotebookEdit;after${sr_nl}PostToolUse;Bash|PowerShell;after${sr_nl}PostToolUseFailure;Bash|PowerShell;after" ] \
+  && ok "settings.json runs the record hook before Bash and PowerShell, after them (a failing one too) and after Edit, Write, MultiEdit and NotebookEdit" \
+  || bad "settings.json runs the record hook before Bash and PowerShell, after them (a failing one too) and after Edit, Write, MultiEdit and NotebookEdit" "$wiring"
+bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|local|typeset) +-[a-zA-Z]*A|(^|[;&| ])(mapfile|readarray) +|(^|[;&| ])coproc +[A-Za-z]|[[:space:]]\|&[[:space:]]|\$\{[A-Za-z_0-9@*]+(\[[^]]*\])?: -[0-9]|stat +-c|date +-d|sed +-i|readlink +-f|-printf|-delete)' \
+  "$sr_hooks/session-touched.sh" "$sr_hooks/stop-check.sh" || true)
+if [ -z "$bash4" ]; then ok "the Stop hook and the record hook use no bash 4 form and no GNU-only tool flag"
+else bad "the Stop hook and the record hook use no bash 4 form and no GNU-only tool flag" "$bash4"; fi
 
 # --- pre-commit hook ------------------------------------------------------------------------------
 echo "pre-commit hook"
@@ -1677,535 +4816,9 @@ else
   echo "  skip  real gitleaks Markdown staged-secret tests (gitleaks not found or below $_gl_min_req)"
 fi
 
-# --- /ui-design -----------------------------------------------------------------------------------
-echo "ui-design"
-# Everything here runs in the installed example ($app). The reader and the capture checks need Node;
-# the capture of the fixture web app (tests/ui-web) also needs Playwright and Chromium, found in
-# tests/ui-web/node_modules (npm install there, then npx playwright install chromium) or in the
-# node_modules folder $ADIR_PLAYWRIGHT names. Without them those tests are skipped.
-cd "$app" || exit 1
-helpers="$work/ui-helpers"
-mkdir -p "$helpers"
-# compare <actual> <expected>: the same reading, apart from where it came from.
-cat > "$helpers/compare.mjs" <<'EOF'
-import { readFileSync } from "node:fs";
-const load = (path) => { const value = JSON.parse(readFileSync(path, "utf8")); delete value.source; delete value.sha1; return value; };
-const same = (a, b) => {
-  if (typeof a === "number" && typeof b === "number") return a === b;
-  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => same(item, b[index]));
-  if (a && b && typeof a === "object" && typeof b === "object") {
-    const keys = Object.keys(a).sort();
-    return same(keys, Object.keys(b).sort()) && keys.every((key) => same(a[key], b[key]));
-  }
-  return a === b;
-};
-const [actual, expected] = [load(process.argv[2]), load(process.argv[3])];
-console.log(same(actual, expected) ? "SAME" : "DIFFERENT\n" + JSON.stringify(actual) + "\n" + JSON.stringify(expected));
-EOF
-# validate <starter> <screen> <W> <H> <drawing.mjs>: valid Excalidraw (types.ts in excalidraw/excalidraw) that reads back empty.
-cat > "$helpers/validate.mjs" <<'EOF'
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
-const [path, screen, width, height, reader] = process.argv.slice(2);
-const { readDrawing } = await import(pathToFileURL(reader).href);
-const TYPES = ["rectangle", "text", "image", "frame", "line", "arrow", "freedraw", "ellipse", "diamond"];
-const problems = [];
-const doc = JSON.parse(readFileSync(path, "utf8"));
-if (doc.type !== "excalidraw" || doc.version !== 2) problems.push("type excalidraw, version 2");
-if (!Array.isArray(doc.elements) || typeof doc.appState !== "object" || typeof doc.files !== "object") { console.log("elements, appState and files are required"); process.exit(1); }
-for (const [key, file] of Object.entries(doc.files)) {
-  if (file.id !== key || file.mimeType !== "image/png" || !String(file.dataURL).startsWith("data:image/png;base64,") || typeof file.created !== "number") problems.push("file " + key);
-}
-const ids = new Map();
-const frames = [];
-let previous = "";
-for (const e of doc.elements) {
-  if (!e.id || ids.has(e.id)) problems.push(`id '${e.id}' is empty or repeated`);
-  ids.set(e.id, e);
-  if (e.type === "frame") frames.push(e.id);
-  if (!TYPES.includes(e.type)) problems.push(e.id + ": type");
-  for (const key of ["x", "y", "width", "height", "angle", "strokeWidth", "roughness", "opacity", "updated"]) if (typeof e[key] !== "number") problems.push(`${e.id}: ${key} must be a number`);
-  for (const key of ["seed", "version", "versionNonce"]) if (!Number.isInteger(e[key])) problems.push(`${e.id}: ${key} must be an integer`);
-  for (const key of ["strokeColor", "backgroundColor", "index"]) if (typeof e[key] !== "string") problems.push(`${e.id}: ${key} must be a string`);
-  if (!["hachure", "cross-hatch", "solid", "zigzag"].includes(e.fillStyle) || !["solid", "dashed", "dotted"].includes(e.strokeStyle)) problems.push(e.id + ": fillStyle or strokeStyle");
-  if (!Array.isArray(e.groupIds) || typeof e.isDeleted !== "boolean" || typeof e.locked !== "boolean") problems.push(e.id + ": groupIds, isDeleted or locked");
-  for (const key of ["frameId", "roundness", "boundElements", "link"]) if (!(key in e)) problems.push(`${e.id}: ${key} is missing (null is fine)`);
-  if (!(String(e.index) > previous)) problems.push(e.id + ": index must grow with the array order");
-  previous = String(e.index);
-  if (e.type === "text" && (typeof e.text !== "string" || typeof e.originalText !== "string" || typeof e.fontSize !== "number" || typeof e.fontFamily !== "number"
-      || typeof e.lineHeight !== "number" || typeof e.autoResize !== "boolean" || !["left", "center", "right"].includes(e.textAlign)
-      || !["top", "middle", "bottom"].includes(e.verticalAlign) || !("containerId" in e))) problems.push(e.id + ": text fields");
-  if (e.type === "image" && (!(e.fileId in doc.files) || e.status !== "saved" || !Array.isArray(e.scale) || e.scale.length !== 2 || !("crop" in e))) problems.push(e.id + ": fileId, status, scale or crop");
-  if (e.type === "frame" && typeof e.name !== "string") problems.push(e.id + ": name");
-}
-if (frames.length !== 1) problems.push("one frame is expected");
-else {
-  const frame = ids.get(frames[0]);
-  const background = ids.get("ddd-background") || {};
-  if (frame.name !== screen || frame.width !== Number(width) || frame.height !== Number(height)) problems.push("the frame is named after the screen and is the size of the capture");
-  if (background.type !== "image" || background.locked !== true || background.frameId !== frames[0] || background.width !== Number(width) || background.height !== Number(height)) problems.push("the screenshot is a locked image filling the frame");
-  for (const [id, e] of ids) {
-    if (e.type !== "frame" && e.frameId !== frames[0] && id !== "ddd-legend") problems.push(id + ": frameId");
-    if (id.startsWith("ddd-existing") && (e.locked !== false || e.opacity !== 25 || JSON.stringify(e.groupIds) !== '["ddd-existing"]')) problems.push(id + ": the existing group is unlocked (it can be dragged), at 25% opacity");
-  }
-  if (ids.has("ddd-legend") && ids.get("ddd-legend").frameId !== null) problems.push("the legend is outside the frame");
-}
-const read = readDrawing(readFileSync(path, "utf8"), path, "", screen, join(dirname(path), "captures"));
-if (read.error) problems.push("reading it back: " + read.error);
-else {
-  const back = read.drawing.frames[0];
-  if (back.boxes.length || back.unparsed.length || back.notes.length || back.removed.length) problems.push("saving the starter unchanged and reading it back must give no boxes, notes or unparsed entries");
-}
-console.log(problems.length === 0 ? "VALID" : problems.join("\n"));
-EOF
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "  skip  /ui-design reader and capture tests (Node isn't installed)"
-else
-  # Drawings. The fixture drawing (tests/ui-drawing/, shared with Godot Director) has a green box with
-  # bound text and click:, a blue box over an existing element, a red X over an element, an arrowed
-  # comment, a box inside a box, a note outside the frame and a freehand squiggle; its expected
-  # reading was worked out by hand. The scaled copy has the background image and everything over it
-  # moved and scaled to 50% (the frame stays). The *.godot.drawing.json files are what Godot
-  # Director's reader (tools/ui_drawing.gd) writes for them: the port must write the same text.
-  drawings="$work/drawings"
-  mkdir -p "$drawings/drawing_fixtures/read" "$drawings/drawing_fixtures/moved"
-  cp "$src"/tests/ui-drawing/* "$drawings/drawing_fixtures/"
-  for variant in fixture:read fixture-scaled:moved; do
-    name="${variant%%:*}"; folder="${variant#*:}"
-    cp "$src/tests/ui-drawing/fixture.elements.json" "$drawings/drawing_fixtures/$folder/hero_room@1000x500.elements.json"
-    out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" "drawing_fixtures/$name.excalidraw" "drawing_fixtures/$folder/hero_room.drawing.json" 2>&1)"
-    expect_status "the reader reads $name.excalidraw" 0 $? "$out"
-    out="$(node "$helpers/compare.mjs" "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/fixture.expected.json" 2>&1)"
-    case "$name" in
-      fixture) expect_output "the fixture drawing gives exactly the expected boxes, intents, parent, comment, removal, note and one unparsed entry, to 0.1%" "^SAME" "$out" ;;
-      *) expect_output "the same drawing with the background image moved and scaled 50% gives the same percentages" "^SAME" "$out" ;;
-    esac
-    cmp -s "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/$name.godot.drawing.json" \
-      && ok "and exactly the drawing.json Godot Director's reader writes for $name.excalidraw" \
-      || bad "the reader writes the drawing.json Godot Director's reader writes for $name.excalidraw" \
-        "$(diff "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/$name.godot.drawing.json" | head -n 10)"
-  done
-  out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" drawing_fixtures/fixture.excalidraw drawing_fixtures/read/hero_room.drawing.json 2>&1)"
-  case "$out" in *claimed*) bad "the fixture has no claimed element" "$out" ;; *) ok "the fixture has no claimed element" ;; esac
-  out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" drawing_fixtures/fixture-conflict.excalidraw drawing_fixtures/read/conflict.drawing.json 2>&1)"
-  expect_output "an element claimed by a moved grey box and a blue box is named in one note" "note: hero_room: element 4 \(GearList\) is claimed by a moved grey box and a blue box named after it" "$out"
-  mkdir -p "$drawings/drawing_fixtures/nomap"
-  out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" drawing_fixtures/fixture.excalidraw drawing_fixtures/nomap/hero_room.drawing.json 2>&1)"
-  expect_output "with no element map the moved grey boxes are skipped with one note per frame" "note: hero_room: no element map hero_room@1000x500.elements.json, so the moved grey boxes are ignored" "$out"
-  [ "$(printf '%s
-' "$out" | grep -c 'no element map')" = "1" ] && ok "and it is one note" || bad "and it is one note" "$out"
-  out="$(node tools/ui/drawing.mjs "$drawings/nowhere.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses a missing drawing" 1 $? "$out"
-  printf '{ not json' > "$drawings/broken.excalidraw"
-  out="$(node tools/ui/drawing.mjs "$drawings/broken.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses invalid JSON" 1 $? "$out"
-  expect_output "and says so" "isn't valid JSON" "$out"
-  printf '{"type":"excalidraw","version":2,"elements":[],"files":{}}' > "$drawings/empty.excalidraw"
-  out="$(node tools/ui/drawing.mjs "$drawings/empty.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses a drawing with no frame" 1 $? "$out"
-  expect_output "and says so" "has no frame" "$out"
-  out="$(node tools/ui/drawing.mjs starter "$drawings/drawing_fixtures/fixture" "$drawings/hero_room.starter.excalidraw" 2>&1)"
-  expect_status "the starter drawing is written from a capture's files" 0 $? "$out"
-  cmp -s "$drawings/hero_room.starter.excalidraw" "$src/tests/ui-drawing/starter.expected.excalidraw" \
-    && ok "the starter matches the hand-checked fixture that Godot Director's starter matches" \
-    || bad "the starter matches the hand-checked fixture" "$(diff "$drawings/hero_room.starter.excalidraw" "$src/tests/ui-drawing/starter.expected.excalidraw" | head -n 10)"
-  out="$(node "$helpers/validate.mjs" "$drawings/hero_room.starter.excalidraw" hero_room 1000 500 "$app/tools/ui/drawing.mjs" 2>&1)"
-  expect_output "the starter is valid Excalidraw, and saved unchanged it reads back with no boxes and no unparsed entries" "^VALID" "$out"
-
-  # What capture needs, and what it says without it. Nothing may be written when it can't run.
-  cp tools/ui_capture.cfg "$work/saved-ui-cfg"; cp tools/ui/screens.mjs "$work/saved-catalog"; cp tools/check.cfg "$work/saved-check-cfg"
-  rm -rf product/ui/captures
-  out="$(bash tools/ui_capture.sh --list 2>&1)"; expect_status "lists the catalog with Node alone" 0 $? "$out"
-  expect_output "a line per screen: id, title, states, route, drawing and spec" "home · Home · states: default · opens / · drawing: no · spec: no" "$out"
-  printf 'export default { screens: [\n  { id: "a", title: "A", route: "/" },\n  { id: "a", title: "Again", route: "/again" },\n  { id: "b", title: "B", route: "b", scene: "x" },\n] };\n' > tools/ui/screens.mjs
-  out="$(bash tools/ui_capture.sh --list 2>&1)"; expect_status "fails a catalog with broken entries" 1 $? "$out"
-  expect_output "and names each problem" "the id 'a' is used twice" "$out"
-  expect_output "and an unknown key and a route that isn't a path" "unknown key 'scene'.*route must be a path" "$out"
-  cp "$work/saved-catalog" tools/ui/screens.mjs
-  mkdir -p src/ui/screens
-  printf 'export const HomeScreen = () => `<h1 data-testid="home-title">Home</h1>`;\n' > src/ui/screens/HomeScreen.ts
-  out="$(bash tools/ui_capture.sh --missing 2>&1)"; expect_status "--missing never fails" 0 $? "$out"
-  expect_output "it lists a screen file the catalog doesn't name as a source" "missing: src/ui/screens/HomeScreen.ts" "$out"
-  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 for an app with no web UI to open" 3 $? "$out"
-  expect_output "and says capture isn't available for it yet" "capture isn't available for this .*app yet" "$out"
-  printf '# Home\n\n## Layout (at 1280x720)\n| # | Element | Name | Where (x, y, w, h %%) | Shows | Does | Size |\n|---|---|---|---|---|---|---|\n| 1 | Title | home-title | 2, 2, 20, 5 | - | - | fit |\n| 2 | Menu | home-menu | 2, 10, 20, 5 | - | - | fit |\n' > product/ui/home.md
-  out="$(bash tools/ui_capture.sh home --verify 2>&1)"; expect_status "verify without capture exits 3: unverified" 3 $? "$out"
-  expect_output "but checks the spec's names in the source" "\| Title \| home-title \| src/ui/screens/HomeScreen.ts \|" "$out"
-  expect_output "and names one that isn't there" "\| Menu \| home-menu \| not found \|" "$out"
-  sed 's#^base_url =.*#base_url = https://example.com#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
-  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "refuses a host that isn't this machine (exit 3)" 3 $? "$out"
-  expect_output "and says why" "refusing \[web\] base_url: example.com isn't this machine" "$out"
-  sed 's#^base_url =.*#base_url = http://127.0.0.1:9#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
-  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 without Playwright" 3 $? "$out"
-  expect_output "and gives the command that installs it" "cd tools/ui && npm install && npx playwright install chromium" "$out"
-  _no_node_path=""
-  for _dir in $(printf '%s' "$PATH" | tr ':' '\n'); do
-    [ -x "$_dir/node" ] || [ -x "$_dir/node.exe" ] || _no_node_path="${_no_node_path:+$_no_node_path:}$_dir"
-  done
-  out="$(PATH="$_no_node_path" bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 without Node" 3 $? "$out"
-  expect_output "and says it needs Node 20" "needs Node 20 or newer" "$out"
-  # The floor is Node 20, the lowest that Playwright 1.64.1 declares: a Node 19 is refused, not run.
-  mkdir -p "$work/node19" && printf '#!/bin/sh\ncase "$1" in -p) echo 19 ;; --version) echo v19.9.0 ;; esac\n' > "$work/node19/node" && chmod +x "$work/node19/node"
-  out="$(PATH="$work/node19:$PATH" bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 on Node 19, below the floor" 3 $? "$out"
-  expect_output "and says it needs Node 20 or newer, and which Node it found" "needs Node 20 or newer; this is v19.9.0" "$out"
-  [ ! -e product/ui/captures ] && ok "writes nothing when it can't run" || bad "writes nothing when it can't run" "$(ls product/ui/captures)"
-  out="$(PATH="$_no_node_path" bash tools/check.sh 2>&1)"; expect_status "the check passes without Node" 0 $? "$out"
-  fingerprint="$(bash tools/check.sh --fingerprint)"
-  mkdir -p product/ui/captures && printf '{}\n' > product/ui/captures/home@1280x720.elements.json && printf 'x' > product/ui/captures/home@1280x720.png
-  [ "$(bash tools/check.sh --fingerprint)" = "$fingerprint" ] && ok "captures don't change the check's fingerprint (they're gitignored)" \
-    || bad "captures don't change the check's fingerprint (they're gitignored)"
-  rm -rf product/ui/captures product/ui/home.md
-
-  # An upgrade from the release before /ui-design: an app without its files gets the stubs, the
-  # .gitignore lines and the manifest entries, and keeps its own AGENTS.md and check.cfg.
-  upgraded="$work/upgraded"
-  new_repo "$upgraded"
-  bash "$src/install.sh" "$upgraded" >/dev/null 2>&1
-  (cd "$upgraded" && rm -rf .app-director/procedures/ui-design.md .claude/skills/ui-design tools/ui_capture.sh tools/ui tools/ui_capture.cfg product/ui \
-    && grep -v -e '/product/ui/captures/' -e '/tools/ui/' .gitignore > .gitignore.new && mv .gitignore.new .gitignore \
-    && grep -v -e 'tools/ui' -e 'ui-design' .app-director/manifest > manifest.new && mv manifest.new .app-director/manifest \
-    && printf '# My app\nOur own AGENTS.md\n' > AGENTS.md && printf '[project]\nstack = none\n[ui]\ndirs = web/pages\n' > tools/check.cfg \
-    && mkdir -p web/pages && printf 'export default () => "<main>Orders</main>";\n' > web/pages/orders.tsx)
-  out="$(bash "$src/install.sh" "$upgraded" 2>&1)"; expect_status "upgrades an app from before /ui-design" 0 $? "$out"
-  if [ -f "$upgraded/tools/ui/screens.mjs" ] && [ -f "$upgraded/tools/ui_capture.cfg" ] && [ -f "$upgraded/product/ui/README.md" ] \
-      && [ -x "$upgraded/tools/ui_capture.sh" ] && grep -qx '/product/ui/captures/' "$upgraded/.gitignore" && grep -qx '/tools/ui/node_modules/' "$upgraded/.gitignore" \
-      && grep -q "$(printf '\t')tools/ui/capture.mjs$" "$upgraded/.app-director/manifest" && grep -q "$(printf '\t').app-director/procedures/ui-design.md$" "$upgraded/.app-director/manifest"; then
-    ok "it gets the catalog, the settings, the tools, the .gitignore lines and the manifest entries"
-  else
-    bad "the upgrade gets the catalog, the settings, the tools, the .gitignore lines and the manifest entries" "$out"
-  fi
-  grep -q "Our own AGENTS.md" "$upgraded/AGENTS.md" && grep -q "dirs = web/pages" "$upgraded/tools/check.cfg" \
-    && ok "and keeps its own AGENTS.md and check.cfg" || bad "the upgrade keeps the app's own AGENTS.md and check.cfg"
-  out="$(cd "$upgraded" && bash tools/ui_capture.sh --missing 2>&1)"; expect_status "align's screen check lists without failing" 0 $? "$out"
-  expect_output "the app's screens the catalog doesn't cover yet" "missing: web/pages/orders.tsx" "$out"
-
-  # Capture of the fixture web app (tests/ui-web), served on this machine by its start_command.
-  pw="${ADIR_PLAYWRIGHT:-$src/tests/ui-web/node_modules}"
-  chromium_ok=0
-  if [ -d "$pw/playwright" ] && [ -d "$pw/playwright-core" ]; then
-    mkdir -p tools/ui/node_modules && cp -R "$pw/playwright" "$pw/playwright-core" tools/ui/node_modules/
-    (cd tools/ui && node --input-type=module -e 'import { chromium } from "playwright"; import { existsSync } from "node:fs"; process.exit(existsSync(chromium.executablePath()) ? 0 : 1);') >/dev/null 2>&1 && chromium_ok=1
-  fi
-  if [ "$chromium_ok" -eq 0 ]; then
-    echo "  skip  capture of the fixture web app (no Playwright with Chromium in tests/ui-web/node_modules or \$ADIR_PLAYWRIGHT)"
-  else
-    rm -rf uifixture && cp -R "$src/tests/ui-web" uifixture && rm -rf uifixture/node_modules
-    port=$((40000 + $$ % 20000))
-    sed -e "s#^base_url =.*#base_url = http://127.0.0.1:$port#" -e "s#^start_command =.*#start_command = node uifixture/serve.mjs $port#" \
-      -e 's#^list = .*#list = 1280x720 800x600#' -e 's#^setup_timeout = .*#setup_timeout = 3#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
-    cat > tools/ui/screens.mjs <<'EOF'
-export default {
-  screens: [
-    { id: "clean", title: "Hero room", route: "/", source: "uifixture/site/index.html",
-      states: {
-        default: null,
-        busy: async (page, api, screen) => { await screen.open(); await page.evaluate(() => { document.querySelector("h2").textContent = "Ada (busy)"; }); },
-      } },
-    { id: "lint", title: "Lint fixture", route: "/lint" },
-    { id: "order", title: "Tab order", route: "/order" },
-    { id: "broken", title: "Throws", route: "/broken" },
-    { id: "gone", title: "Missing route", route: "/missing" },
-    { id: "stuck", title: "A state that never finishes", route: "/", states: { default: () => new Promise(() => undefined) } },
-    { id: "away", title: "Calls a hosted backend", route: "/away" },
-    { id: "apiaway", title: "Seeds through a redirect off this machine", route: "/", states: { default: async (page, api) => { await api.get("/redirect-away"); } } },
-    { id: "modal", title: "A modal dialog", route: "/modal" },
-    { id: "reload", title: "Reloads when focused", route: "/reload" },
-    { id: "bad", title: "A broken entry", route: "nope" },
-  ],
-};
-EOF
-    captures=product/ui/captures
-    out="$(bash tools/ui_capture.sh --all 2>&1)"; status=$?
-    expect_status "a screen that fails fails the run (exit 1), and the others are captured" 1 "$status" "$out"
-    missing=""
-    for base in clean clean.busy lint order away modal; do
-      for size in 1280x720 800x600; do
-        for ext in png elements.json map.png lint.txt; do [ -f "$captures/$base@$size.$ext" ] || missing="$missing $base@$size.$ext"; done
-      done
-    done
-    [ -z "$missing" ] && ok "writes a PNG, element map, map image and lint file per screen, state and size" || bad "capture outputs missing:$missing" "$out"
-    [ "$(od -An -tu1 -j16 -N8 "$captures/clean@800x600.png" | tr -s ' ' | sed 's/^ //;s/ $//')" = "0 0 3 32 0 0 2 88" ] \
-      && ok "a capture has the requested size (800x600)" || bad "a capture has the requested size (800x600)"
-    (cd "$captures" && ls -- *.starter.excalidraw 2>/dev/null | tr '\n' ' ') > "$work/starters"
-    [ "$(cat "$work/starters")" = "away.starter.excalidraw broken.starter.excalidraw clean.starter.excalidraw lint.starter.excalidraw modal.starter.excalidraw order.starter.excalidraw " ] \
-      && ok "writes a starter drawing for the default state at the default size" || bad "writes a starter drawing for the default state at the default size" "$(cat "$work/starters")"
-    grep -q '"schema": 1, "adapter": "playwright"' "$captures/clean@1280x720.elements.json" \
-      && grep -q '"id":"change","stable":true,"path":"\[data-testid=\\"change\\"\]","kind":"button","name":"Change",' "$captures/clean@1280x720.elements.json" \
-      && ok "the element map lists the data-testid elements with their role and name" || bad "the element map lists the data-testid elements with their role and name" "$(head -n 8 "$captures/clean@1280x720.elements.json")"
-    grep -q 'Ada (busy)' "$captures/clean.busy@1280x720.elements.json" && ! grep -q 'Ada (busy)' "$captures/clean@1280x720.elements.json" \
-      && ok "a state prepares the page after opening it" || bad "a state prepares the page after opening it"
-    [ -z "$(cat "$captures"/clean@*.lint.txt "$captures"/clean.busy@*.lint.txt)" ] && ok "the clean page is lint-clean at every size" \
-      || bad "the clean page is lint-clean at every size" "$(cat "$captures"/clean*.lint.txt)"
-    lint="$(cat "$captures/lint@1280x720.lint.txt")"
-    for rule in 'squeezed-text element [0-9]* \[data-testid="squeezed"\]' 'stretched-control element [0-9]* \[data-testid="stretched"\]' \
-        'off-screen element [0-9]* \[data-testid="far"\]' 'overlap element [0-9]* \[data-testid="link-one"\]: element [0-9]* \(Two\)' \
-        'unreachable element [0-9]* \[data-testid="skipped"\]' 'no-default-focus element [0-9]* \[data-testid="ok"\]' \
-        'hard-coded-position element [0-9]* \[data-testid="pinned"\].*\(warning\)'; do
-      expect_output "lint: ${rule%% *} on the element built to break it" "$rule" "$lint"
-    done
-    [ "$(printf '%s\n' "$lint" | grep -c .)" = "7" ] && ok "and nothing else on that page" || bad "the lint page has exactly seven findings" "$lint"
-    order="$(node -e 'const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(m.elements.map((e) => e.id + "=" + e.focus_order).join(" "));' "$captures/order@1280x720.elements.json")"
-    [ "$order" = "first=3 third=2 second=1 trap=4 after=null" ] && ok "Tab order follows tabindex, and stops at the focus trap" || bad "Tab order follows tabindex, and stops at the focus trap" "$order"
-    [ "$(cat "$captures/order@1280x720.lint.txt")" = 'unreachable element 5 [data-testid="after"]: Tab never reaches it from the default focus' ] \
-      && ok "the element after the trap is the one unreachable element" || bad "the element after the trap is the one unreachable element" "$(cat "$captures/order@1280x720.lint.txt")"
-    head -n 1 "$captures/broken@1280x720.lint.txt" | grep -q '^error: a page error: selftest page error' && [ -f "$captures/broken@1280x720.png" ] \
-      && ok "a page error fails its screen, which is still captured, with the error at the top of its lint file" || bad "a page error fails its screen, with the error at the top of its lint file" "$out"
-    grep -q '^error: /missing answered 404' "$captures/gone@1280x720.lint.txt" && [ ! -f "$captures/gone@1280x720.png" ] \
-      && ok "a route that answers 404 fails its screen and leaves only the error" || bad "a route that answers 404 fails its screen and leaves only the error" "$out"
-    expect_output "a state that doesn't finish fails only its screen" "FAIL: stuck@1280x720: the setup didn't finish within 3 seconds" "$out"
-    expect_output "a broken catalog entry is named" "FAIL: bad: its route must be a path" "$out"
-    away="$(cat "$captures/away@1280x720.lint.txt")"
-    expect_output "a request to a host that isn't this machine is blocked and noted" "^note: blocked requests to 192\.0\.2\.1: not this machine" "$away"
-    expect_output "so is a redirect off this machine, which capture doesn't follow" "^note: blocked requests to 203\.0\.113\.9:" "$away"
-    expect_output "and a WebSocket to another host" "^note: blocked requests to 198\.51\.100\.7:" "$away"
-    grep -q '"name":"local data"' "$captures/away@1280x720.elements.json" && ok "while the page's own requests to this machine go through" \
-      || bad "the page's own requests to this machine go through" "$(head -n 8 "$captures/away@1280x720.elements.json")"
-    expect_output "the api helper doesn't follow a redirect (it fails the state)" "FAIL: apiaway@1280x720: api: GET http://127\.0\.0\.1:$port/redirect-away answered 302" "$out"
-    [ -z "$(cat "$captures/modal@1280x720.lint.txt")" ] && ok "behind an open modal dialog, nothing counts as unreachable" \
-      || bad "behind an open modal dialog, nothing counts as unreachable" "$(cat "$captures/modal@1280x720.lint.txt")"
-    expect_output "a page that reloads while it is mapped fails only its screen" "FAIL: reload@1280x720: the page changed while it was mapped" "$out"
-    expect_output "capture starts the app with start_command" "starting the app: node uifixture/serve.mjs $port" "$out"
-    node -e 'require("http").get(process.argv[1], () => process.exit(1)).on("error", () => process.exit(0));' "http://127.0.0.1:$port/" \
-      && ok "and stops it afterwards" || bad "capture stops the app it started"
-    cp "$captures/clean@1280x720.elements.json" "$work/first-map"; cp "$captures/clean@1280x720.png" "$work/first-png"
-    out="$(bash tools/ui_capture.sh clean --state default --size 1280x720 2>&1)"; expect_status "captures one screen, state and size" 0 $? "$out"
-    cmp -s "$captures/clean@1280x720.elements.json" "$work/first-map" && ok "a second capture gives the same element map" || bad "a second capture gives the same element map" "$out"
-    cmp -s "$captures/clean@1280x720.png" "$work/first-png" && ok "and the same image" || bad "a second capture gives the same image"
-    out="$(node "$helpers/validate.mjs" "$captures/clean.starter.excalidraw" clean 1280 720 "$app/tools/ui/drawing.mjs" 2>&1)"
-    expect_output "a captured starter drawing is valid Excalidraw and reads back empty" "^VALID" "$out"
-
-    # verify: a spec written from the capture matches it; moving one element 10% reports exactly it.
-    node -e '
-      const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-      const rows = m.elements.filter((e) => ["back", "hero-sheet", "gear-list", "change"].includes(e.id))
-        .map((e, i) => `| ${i + 1} | ${e.id} | ${e.id} | ${e.rect_pct.join(", ")} | - | - | fit |`);
-      require("fs").writeFileSync(process.argv[2], "# Hero room\n\n## Layout (at 1280x720)\n| # | Element | Name | Where (x, y, w, h %) | Shows | Does | Size |\n|---|---|---|---|---|---|---|\n" + rows.join("\n") + "\n");
-    ' "$captures/clean@1280x720.elements.json" product/ui/clean.md
-    mkdir -p "$work/director-ui" && cp "$captures/clean.starter.excalidraw" "$work/director-ui/clean.excalidraw"
-    node tools/ui/drawing.mjs "$work/director-ui/clean.excalidraw" "$captures/clean.drawing.json" clean >/dev/null 2>&1
-    out="$(bash tools/ui_capture.sh clean --verify --size 1280x720 2>&1)"; expect_status "verify passes a screen built as its spec says" 0 $? "$out"
-    expect_output "with no deviations" "4 elements checked, 0 deviations" "$out"
-    expect_output "a broken entry elsewhere in the catalog doesn't stop it" "note: another entry in tools/ui/screens.mjs has a problem: bad:" "$out"
-    expect_output "it names the compare image" "compare image: product/ui/captures/clean.compare@1280x720.png" "$out"
-    [ "$(od -An -tu1 -j16 -N8 "$captures/clean.compare@1280x720.png" 2>/dev/null | tr -s ' ' | sed 's/^ //;s/ $//')" = "0 0 10 8 0 0 2 208" ] \
-      && ok "and writes it: the drawing's screenshot and the capture side by side (2568x720)" || bad "the compare image is the drawing's screenshot and the capture side by side (2568x720)" "$out"
-    sed 's#<section class="panel" data-testid="hero-sheet">#<section class="panel" data-testid="hero-sheet" style="margin-left:128px">#' "$src/tests/ui-web/site/index.html" > uifixture/site/index.html
-    out="$(bash tools/ui_capture.sh clean --verify --size 1280x720 2>&1)"; expect_status "verify fails a screen with an element moved 10%" 1 $? "$out"
-    if [ "$(printf '%s\n' "$out" | grep -c '^ui_verify: | .* | moved: ')" = "1" ]; then
-      expect_output "and reports exactly that element" "\| hero-sheet \| hero-sheet \| .* \| moved: left edge" "$out"
-    else
-      bad "verify reports exactly the moved element" "$out"
-    fi
-    cp "$src/tests/ui-web/site/index.html" uifixture/site/index.html
-
-    # A capture killed mid-run leaves the app it started running; the next capture stops it first,
-    # instead of taking it for an app the human started.
-    answers() { node -e 'require("http").get(process.argv[1], () => process.exit(0)).on("error", () => process.exit(1));' "http://127.0.0.1:$port/"; }
-    cp tools/ui_capture.cfg "$work/fixture-cfg"
-    sed 's#^setup_timeout = .*#setup_timeout = 120#' "$work/fixture-cfg" > tools/ui_capture.cfg
-    rm -f .app-director/state/ui_app.pid
-    bash tools/ui_capture.sh stuck > "$work/stuck.log" 2>&1 &
-    waited=0
-    until [ -f .app-director/state/ui_app.pid ] && answers; do
-      waited=$((waited + 1)); [ "$waited" -ge 60 ] && break; sleep 1
-    done
-    sleep 1
-    capture_pid="$(cut -d' ' -f2 .app-director/state/ui_app.pid 2>/dev/null)"
-    case "$(uname -s)" in
-      MINGW*|MSYS*|CYGWIN*) taskkill //PID "$capture_pid" //F >/dev/null 2>&1 ;;
-      *) kill -9 "$capture_pid" 2>/dev/null ;;
-    esac
-    wait 2>/dev/null
-    sleep 1
-    if answers; then ok "a capture killed mid-run leaves the app it started running"; else bad "a capture killed mid-run leaves the app it started running" "$(cat "$work/stuck.log")"; fi
-    cp "$work/fixture-cfg" tools/ui_capture.cfg
-    out="$(bash tools/ui_capture.sh clean --state default --size 1280x720 2>&1)"; expect_status "the next capture runs" 0 $? "$out"
-    expect_output "it stops the app the killed capture left running" "stopping the app an interrupted capture left running" "$out"
-    expect_output "and starts its own" "starting the app: node uifixture/serve.mjs $port" "$out"
-    if answers; then bad "and stops it afterwards: nothing is left running" "$out"; else ok "and stops it afterwards: nothing is left running"; fi
-    [ ! -f .app-director/state/ui_app.pid ] && ok "and clears its record of the app" || bad "capture clears its record of the app it started"
-
-    sed -e "s#^base_url =.*#base_url = http://127.0.0.1:$((port + 1))#" -e 's#^start_command =.*#start_command = node -e "process.exit(4)"#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
-    out="$(bash tools/ui_capture.sh clean 2>&1)"; expect_status "exits 3 when the start command ends before the app answers" 3 $? "$out"
-    expect_output "and says so, naming the app's output" "ended with exit 4 before the app answered at .* \(its output: \.app-director/state/ui_app\.log\)" "$out"
-  fi
-  cp "$work/saved-ui-cfg" tools/ui_capture.cfg; cp "$work/saved-catalog" tools/ui/screens.mjs; cp "$work/saved-check-cfg" tools/check.cfg
-  rm -rf product/ui/captures product/ui/clean.md uifixture tools/ui/node_modules src/ui/screens
-fi
-
-# --- security assessment --------------------------------------------------------------------------
-echo "security assessment"
-# The tool step (tools/security.sh) on the seeded fixture and its clean twin (tests/security/README.md).
-# Each copy gets the manifests under their real names, the check and the seed .gitleaks.toml. The
-# credential is assembled here at run time, so neither this file nor the fixture holds one.
-sec_copy() { # sec_copy <vulnerable|clean> -> $work/security/<name>
-  local dir="$work/security/$1"
-  rm -rf "$dir"; mkdir -p "$work/security"; cp -R "$src/tests/security/$1" "$dir"
-  mv "$dir/package.fixture.json" "$dir/package.json"; mv "$dir/package-lock.fixture.json" "$dir/package-lock.json"
-  mkdir -p "$dir/tools"; cp "$src/framework/tools/check.sh" "$src/framework/tools/security.sh" "$dir/tools/"
-  cp "$src/project/.gitleaks.toml" "$dir/.gitleaks.toml"
-  printf '[project]\nstack = none\n[gitleaks]\nmin-version = 8.18.0\n' > "$dir/tools/check.cfg"
-  (cd "$dir" && git init -q && git config core.autocrlf false && git add -A && git_q commit -qm "fixture")
-}
-sec_copy vulnerable; sec_copy clean
-_sv="$work/security/vulnerable"; _sc="$work/security/clean"
-_tk1="ghp_R8xK2mQ9vL4tW7nB3pZ6"; _tk2="cY1hJ5dF0sG8aE2u"
-sed "s/__SEEDED_SECRET__/${_tk1}${_tk2}/" "$_sv/src/payments.js" > "$work/payments.js" && cp "$work/payments.js" "$_sv/src/payments.js"
-grep -q "${_tk1}${_tk2}" "$_sv/src/payments.js" && ok "the seeded copy holds a generated credential" || bad "the seeded copy holds a generated credential"
-
-# Stand-ins: an npm whose audit reports lodash (or can't reach the registry), and a semgrep with one finding.
-_sec_bin="$work/security-bin"; mkdir -p "$_sec_bin/vuln" "$_sec_bin/offline" "$_sec_bin/semgrep"
-cat > "$_sec_bin/vuln/npm" << 'FAKE'
-#!/usr/bin/env bash
-[ "$1" = "audit" ] || exit 0
-printf '# npm audit report\n\nlodash  <=4.17.20\nSeverity: high\nPrototype Pollution in lodash\nnode_modules/lodash\n\n3 vulnerabilities (1 moderate, 2 high)\n'
-exit 1
-FAKE
-cat > "$_sec_bin/offline/npm" << 'FAKE'
-#!/usr/bin/env bash
-printf 'npm error code ENOTFOUND\nnpm error audit endpoint returned an error\n'
-exit 1
-FAKE
-cat > "$_sec_bin/semgrep/semgrep" << 'FAKE'
-#!/usr/bin/env bash
-printf 'src/server.js:20:24:error(javascript.lang.security.audit.sqli.node-sqli):Untrusted input in a SQL string MATCHED_SOURCE_TEXT\n'
-exit 1
-FAKE
-chmod +x "$_sec_bin"/*/*
-out="$(cd "$_sc" && PATH="$_sec_bin/vuln:$_sec_bin/semgrep:$_stop_path" bash tools/security.sh 2>&1)"; status=$?
-expect_status "the tool step exits 1 when a tool reports findings" 1 "$status" "$out"
-expect_output "a dependency audit's findings are labelled A03, with npm 7's summary" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A03:2025 Software Supply Chain Failures\): 3 vulnerabilities \(1 moderate, 2 high\)" "$out"
-expect_output "and name the package" "  package: lodash <=4.17.20" "$out"
-expect_output "Semgrep's findings keep file, line, column and rule" "^  src/server\.js:20:24:javascript\.lang\.security\.audit\.sqli\.node-sqli$" "$out"
-expect_output "Semgrep's findings are reported as findings" "^security: semgrep \(p/owasp-top-ten\): FINDINGS" "$out"
-expect_no_output "Semgrep's message and matched source aren't printed" "MATCHED_SOURCE_TEXT|Untrusted input" "$out"
-expect_no_output "or stored" "MATCHED_SOURCE_TEXT|Untrusted input" "$(cat "$_sc/.app-director/state/security/semgrep.txt" 2>/dev/null)"
-expect_output "the summary says a tool passing never marks a category met" "A tool passing never marks an OWASP category met" "$out"
-_no_sg_path=""
-_oldifs="$IFS"; IFS=':'
-for _d in $_stop_path; do [ -x "$_d/semgrep" ] || _no_sg_path="${_no_sg_path:+$_no_sg_path:}$_d"; done
-IFS="$_oldifs"
-out="$(cd "$_sc" && PATH="$_sec_bin/offline:$_no_sg_path" bash tools/security.sh 2>&1)"; status=$?
-expect_status "an audit that can't reach the registry isn't a finding" 0 "$status" "$out"
-expect_output "it is noted with its reason" "^security: dependencies \(npm audit --omit=dev\): couldn't run: npm error code ENOTFOUND" "$out"
-expect_output "a tool that isn't installed is skipped with a note" "^security: semgrep \(p/owasp-top-ten\): skipped: semgrep isn't installed" "$out"
-# A non-zero exit is never clean, even with the nothing-found line: a failed run is couldn't run.
-mkdir -p "$_sec_bin/failed"; cat > "$_sec_bin/failed/npm" << 'FAKE'
-#!/usr/bin/env bash
-printf 'npm error network request failed\nfound 0 vulnerabilities\n'
-exit 1
-FAKE
-chmod +x "$_sec_bin/failed/npm"
-out="$(cd "$_sc" && PATH="$_sec_bin/failed:$_no_sg_path" bash tools/security.sh 2>&1)"; status=$?
-expect_output "a failed audit with the nothing-found line is couldn't run, with its reason" "^security: dependencies \(npm audit --omit=dev\): couldn't run: npm error network request failed" "$out"
-expect_no_output "and isn't reported clean" "dependencies \(npm audit --omit=dev\): clean" "$out"
-
-# pip-audit only reads requirements that are all pinned with ==; otherwise it would install them.
-_sp="$work/security/python"; mkdir -p "$_sp/tools"; cp "$src/framework/tools/security.sh" "$_sp/tools/"
-printf 'requests==2.32.3\nflask>=3.0\n' > "$_sp/requirements.txt"
-out="$(cd "$_sp" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"
-expect_output "pip-audit is skipped, with the reason, for a requirement that isn't pinned" "^security: dependencies \(pip-audit\): skipped: requirements\.txt has a requirement that isn't pinned with == \(flask>=3\.0\)" "$out"
-rm -f "$_sp/requirements.txt"; printf '[project]\nname = "x"\n' > "$_sp/pyproject.toml"
-out="$(cd "$_sp" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"
-expect_output "and for a pyproject.toml without pinned requirements" "^security: dependencies \(pip-audit\): skipped: only pyproject\.toml" "$out"
-
-# The real tools: gitleaks when it can scan, npm when it's installed and the registry answers. Semgrep
-# is left out (the stand-in covers it): its rules could flag the clean twin's plain HTTP server.
-out_v="$(cd "$_sv" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"; status_v=$?
-out_c="$(cd "$_sc" && PATH="$_no_sg_path" bash tools/security.sh 2>&1)"; status_c=$?
-if [ "$_gl_ok" -eq 1 ]; then
-  expect_output "gitleaks finds the seeded credential under its OWASP item" "secrets FAIL \(OWASP Authentication Failures" "$out_v"
-  expect_output "and names its file" "  found in: src/payments\.js" "$out_v"
-  expect_no_output "the clean twin has no credential finding" "secrets FAIL|found in:" "$out_c"
-  expect_status "the seeded copy fails the tool step" 1 "$status_v" "$out_v"
-else
-  echo "  skip  the seeded credential (gitleaks not found, below $_gl_min_req, or 8.19.0)"
-fi
-if ! command -v npm >/dev/null 2>&1; then
-  echo "  skip  npm audit on the fixture (npm isn't installed)"
-elif printf '%s' "$out_v" | grep -q "^security: dependencies (npm audit --omit=dev): couldn't run"; then
-  echo "  skip  npm audit on the fixture (the registry didn't answer)"
-else
-  expect_output "npm audit finds the vulnerable lodash, labelled A03" "^security: dependencies \(npm audit --omit=dev\): FINDINGS \(OWASP A03:2025" "$out_v"
-  expect_output "and names lodash" "  package: lodash " "$out_v"
-  expect_output "the clean twin's audit is clean" "^security: dependencies \(npm audit --omit=dev\): clean" "$out_c"
-fi
-expect_status "the clean twin passes the tool step" 0 "$status_c" "$out_c"
-expect_no_output "the clean twin has no finding" "FINDINGS" "$out_c"
-
-# --due: always due with no report yet; then it counts built items (subjects ending in (T<n>) or
-# (B<n>), also with a squash merge's " (#<pr>)") since the newest report's commit.
-(cd "$_sv" && for i in 1 2 3; do git_q commit -q --allow-empty -m "feat: item (T$i)"; done && git_q commit -q --allow-empty -m "docs: note (R1)")
-out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
-expect_output "--due: due when there is no report yet" "^security: due: no assessment yet \(no report in product/security/\), \[security\] every = 10" "$out"
-printf '[security]\nevery = 3\n' >> "$_sv/tools/check.cfg"
-mkdir -p "$_sv/product/security"
-printf '# Security assessment 2026-01-01\n\n- Commit: `%s`\n' "$(cd "$_sv" && git rev-parse --short HEAD~2)" > "$_sv/product/security/2026-01-01.md"
-out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
-expect_output "--due counts from the newest report's commit, research items left out" "^security: not due: built items since product/security/2026-01-01\.md \(commit [0-9a-f]+\): 1, \[security\] every = 3" "$out"
-(cd "$_sv" && git_q commit -q --allow-empty -m "feat: squashed item (T4) (#12)" && git_q commit -q --allow-empty -m "fix: squashed bug (B2) (#13)")
-out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
-expect_output "--due counts squash-merge subjects and is due at [security] every = 3" "^security: due: built items since product/security/2026-01-01\.md \(commit [0-9a-f]+\): 3, \[security\] every = 3" "$out"
-(cd "$_sv" && git_q commit -q --allow-empty -m "fix: B5 is mentioned (B5) but not at the end")
-out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
-expect_output "--due ignores an item ID that doesn't end the subject" ": 3, \[security\] every = 3" "$out"
-
-# --- user stories ---------------------------------------------------------------------------------
-echo "user stories"
-# tools/stories.sh --due counts built items as tools/security.sh --due does, from the commit on the
-# stories file's Last validated line (by its date when that commit isn't in the history), and is due
-# when the stories were never validated. The seed stands in for an app's file.
-_st="$work/stories"; new_repo "$_st"; mkdir -p "$_st/tools" "$_st/product"
-cp "$src/framework/tools/stories.sh" "$_st/tools/"
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"; status=$?
-expect_status "stories --due exits 0 without a stories file" 0 "$status" "$out"
-expect_output "stories --due: not due without a stories file" "^stories: not due: no stories yet \(no product/user-stories\.md\), \[stories\] every = 10$" "$out"
-printf '# User stories: x\n\n**Next ID:** US-1 · **Last validated:** never\n\n## Roles\n' > "$_st/product/user-stories.md"
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due: not due while the file has no stories" "^stories: not due: no stories yet in product/user-stories\.md" "$out"
-cp "$stories_seed" "$_st/product/user-stories.md"
-_st_total="$(grep -c '^| US-' "$stories_seed")"; _st_unc="$(grep -c '| unconfirmed |$' "$stories_seed")"
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due: due when never validated, counting the stories and the unconfirmed ones" \
-  "^stories: due: never validated \(Last validated: never\), $_st_total stories, $_st_unc unconfirmed, \[stories\] every = 10$" "$out"
-(cd "$_st" && for i in 1 2 3; do git_q commit -q --allow-empty -m "feat: item (T$i)"; done && git_q commit -q --allow-empty -m "docs: note (R1)")
-printf '[stories]\nevery = 3\n' > "$_st/tools/check.cfg"
-_st_validated() { # <the Last validated value>
-  sed "s/\*\*Last validated:\*\* never/**Last validated:** $1/" "$stories_seed" > "$_st/product/user-stories.md"
-}
-_st_validated "2026-01-01 at \`$(cd "$_st" && git rev-parse --short HEAD~2)\`"
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due counts from the Last validated commit, research items left out" \
-  "^stories: not due: built items since the last validation \(2026-01-01, commit [0-9a-f]+\): 1, \[stories\] every = 3; $_st_total stories, $_st_unc unconfirmed$" "$out"
-(cd "$_st" && git_q commit -q --allow-empty -m "feat: squashed item (T4) (#12)" && git_q commit -q --allow-empty -m "fix: squashed bug (B2) (#13)")
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due counts squash-merge subjects and is due at [stories] every = 3" "^stories: due: built items since the last validation \(2026-01-01, commit [0-9a-f]+\): 3, \[stories\] every = 3" "$out"
-(cd "$_st" && git_q commit -q --allow-empty -m "fix: B5 is mentioned (B5) but not at the end")
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due ignores an item ID that doesn't end the subject" ": 3, \[stories\] every = 3" "$out"
-_st_validated "2000-01-01 at \`0000000\`"
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due counts by the date when the commit isn't in this history" \
-  "^stories: due: built items since the last validation \(2000-01-01, by its date: its commit isn't in this history\): 5, \[stories\] every = 3" "$out"
-_st_validated "2000-01-01"
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due counts by the date when the line names no commit" \
-  "^stories: due: built items since the last validation \(2000-01-01, by its date: the line names no commit\): 5, \[stories\] every = 3" "$out"
-grep -v '^\*\*Next ID:\*\*' "$stories_seed" > "$_st/product/user-stories.md"
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due is due, and says why, when the file has no Last validated line" \
-  "^stories: due: never validated \(product/user-stories\.md has no Last validated line\), $_st_total stories" "$out"
-printf '[stories]\nevery = often\n' > "$_st/tools/check.cfg"
-out="$(cd "$_st" && bash tools/stories.sh --due 2>&1)"
-expect_output "stories --due notes a setting that isn't a whole number and uses 10" "^stories: note: \[stories\] every = often isn't a whole number of 1 or more; using 10" "$out"
-out="$(cd "$_st" && bash tools/stories.sh 2>&1)"; status=$?
-expect_status "stories.sh without --due exits 3" 3 "$status" "$out"
-# Outside a git repository (git isn't allowed to look above $work for one) it can't count, and says so.
-_st_nogit="$work/stories-nogit"; mkdir -p "$_st_nogit/tools" "$_st_nogit/product"
-cp "$src/framework/tools/stories.sh" "$_st_nogit/tools/"; cp "$stories_seed" "$_st_nogit/product/"
-out="$(cd "$_st_nogit" && GIT_CEILING_DIRECTORIES="$work" bash tools/stories.sh --due 2>&1)"; status=$?
-expect_status "stories --due exits 3 outside a git repository" 3 "$status" "$out"
-expect_output "and says it couldn't count" "^stories: couldn't count: not a git repository$" "$out"
-
+  (
+    trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-prototype"' EXIT
+    passed=0; failed=0
 # --- prototypes -----------------------------------------------------------------------------------
 echo "prototype"
 # tools/prototype.sh on a throwaway repository with an origin: start stops while origin/main is ahead, creates the
@@ -2504,4 +5117,389 @@ expect_status "harvest works there" 0 $? "$out"
 out="$(cd "$_ps" && bash tools/prototype.sh remove try 2>&1)"; status=$?
 [ "$status" -eq 0 ] && [ ! -e "$_psw" ] && ok "remove works there" || bad "remove works in a folder whose name has a space (exit $status)" "$out"
 
+  ) > "$seg/7-prototype" 2>&1 &
+  prototype_pid=$!
+  exec > "$seg/5-ui-design" 2>&1
+# --- /ui-design -----------------------------------------------------------------------------------
+echo "ui-design"
+# Everything here runs in the installed example ($app). The reader and the capture checks need Node;
+# the capture of the fixture web app (tests/ui-web) also needs Playwright and Chromium, found in
+# tests/ui-web/node_modules (npm install there, then npx playwright install chromium) or in the
+# node_modules folder $ADIR_PLAYWRIGHT names. Without them those tests are skipped.
+cd "$app" || exit 1
+helpers="$work/ui-helpers"
+mkdir -p "$helpers"
+# compare <actual> <expected>: the same reading, apart from where it came from.
+cat > "$helpers/compare.mjs" <<'EOF'
+import { readFileSync } from "node:fs";
+const load = (path) => { const value = JSON.parse(readFileSync(path, "utf8")); delete value.source; delete value.sha1; return value; };
+const same = (a, b) => {
+  if (typeof a === "number" && typeof b === "number") return a === b;
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => same(item, b[index]));
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const keys = Object.keys(a).sort();
+    return same(keys, Object.keys(b).sort()) && keys.every((key) => same(a[key], b[key]));
+  }
+  return a === b;
+};
+const [actual, expected] = [load(process.argv[2]), load(process.argv[3])];
+console.log(same(actual, expected) ? "SAME" : "DIFFERENT\n" + JSON.stringify(actual) + "\n" + JSON.stringify(expected));
+EOF
+# validate <starter> <screen> <W> <H> <drawing.mjs>: valid Excalidraw (types.ts in excalidraw/excalidraw) that reads back empty.
+cat > "$helpers/validate.mjs" <<'EOF'
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+const [path, screen, width, height, reader] = process.argv.slice(2);
+const { readDrawing } = await import(pathToFileURL(reader).href);
+const TYPES = ["rectangle", "text", "image", "frame", "line", "arrow", "freedraw", "ellipse", "diamond"];
+const problems = [];
+const doc = JSON.parse(readFileSync(path, "utf8"));
+if (doc.type !== "excalidraw" || doc.version !== 2) problems.push("type excalidraw, version 2");
+if (!Array.isArray(doc.elements) || typeof doc.appState !== "object" || typeof doc.files !== "object") { console.log("elements, appState and files are required"); process.exit(1); }
+for (const [key, file] of Object.entries(doc.files)) {
+  if (file.id !== key || file.mimeType !== "image/png" || !String(file.dataURL).startsWith("data:image/png;base64,") || typeof file.created !== "number") problems.push("file " + key);
+}
+const ids = new Map();
+const frames = [];
+let previous = "";
+for (const e of doc.elements) {
+  if (!e.id || ids.has(e.id)) problems.push(`id '${e.id}' is empty or repeated`);
+  ids.set(e.id, e);
+  if (e.type === "frame") frames.push(e.id);
+  if (!TYPES.includes(e.type)) problems.push(e.id + ": type");
+  for (const key of ["x", "y", "width", "height", "angle", "strokeWidth", "roughness", "opacity", "updated"]) if (typeof e[key] !== "number") problems.push(`${e.id}: ${key} must be a number`);
+  for (const key of ["seed", "version", "versionNonce"]) if (!Number.isInteger(e[key])) problems.push(`${e.id}: ${key} must be an integer`);
+  for (const key of ["strokeColor", "backgroundColor", "index"]) if (typeof e[key] !== "string") problems.push(`${e.id}: ${key} must be a string`);
+  if (!["hachure", "cross-hatch", "solid", "zigzag"].includes(e.fillStyle) || !["solid", "dashed", "dotted"].includes(e.strokeStyle)) problems.push(e.id + ": fillStyle or strokeStyle");
+  if (!Array.isArray(e.groupIds) || typeof e.isDeleted !== "boolean" || typeof e.locked !== "boolean") problems.push(e.id + ": groupIds, isDeleted or locked");
+  for (const key of ["frameId", "roundness", "boundElements", "link"]) if (!(key in e)) problems.push(`${e.id}: ${key} is missing (null is fine)`);
+  if (!(String(e.index) > previous)) problems.push(e.id + ": index must grow with the array order");
+  previous = String(e.index);
+  if (e.type === "text" && (typeof e.text !== "string" || typeof e.originalText !== "string" || typeof e.fontSize !== "number" || typeof e.fontFamily !== "number"
+      || typeof e.lineHeight !== "number" || typeof e.autoResize !== "boolean" || !["left", "center", "right"].includes(e.textAlign)
+      || !["top", "middle", "bottom"].includes(e.verticalAlign) || !("containerId" in e))) problems.push(e.id + ": text fields");
+  if (e.type === "image" && (!(e.fileId in doc.files) || e.status !== "saved" || !Array.isArray(e.scale) || e.scale.length !== 2 || !("crop" in e))) problems.push(e.id + ": fileId, status, scale or crop");
+  if (e.type === "frame" && typeof e.name !== "string") problems.push(e.id + ": name");
+}
+if (frames.length !== 1) problems.push("one frame is expected");
+else {
+  const frame = ids.get(frames[0]);
+  const background = ids.get("ddd-background") || {};
+  if (frame.name !== screen || frame.width !== Number(width) || frame.height !== Number(height)) problems.push("the frame is named after the screen and is the size of the capture");
+  if (background.type !== "image" || background.locked !== true || background.frameId !== frames[0] || background.width !== Number(width) || background.height !== Number(height)) problems.push("the screenshot is a locked image filling the frame");
+  for (const [id, e] of ids) {
+    if (e.type !== "frame" && e.frameId !== frames[0] && id !== "ddd-legend") problems.push(id + ": frameId");
+    if (id.startsWith("ddd-existing") && (e.locked !== false || e.opacity !== 25 || JSON.stringify(e.groupIds) !== '["ddd-existing"]')) problems.push(id + ": the existing group is unlocked (it can be dragged), at 25% opacity");
+  }
+  if (ids.has("ddd-legend") && ids.get("ddd-legend").frameId !== null) problems.push("the legend is outside the frame");
+}
+const read = readDrawing(readFileSync(path, "utf8"), path, "", screen, join(dirname(path), "captures"));
+if (read.error) problems.push("reading it back: " + read.error);
+else {
+  const back = read.drawing.frames[0];
+  if (back.boxes.length || back.unparsed.length || back.notes.length || back.removed.length) problems.push("saving the starter unchanged and reading it back must give no boxes, notes or unparsed entries");
+}
+console.log(problems.length === 0 ? "VALID" : problems.join("\n"));
+EOF
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "  skip  /ui-design reader and capture tests (Node isn't installed)"
+else
+  # Drawings. The fixture drawing (tests/ui-drawing/, shared with Godot Director) has a green box with
+  # bound text and click:, a blue box over an existing element, a red X over an element, an arrowed
+  # comment, a box inside a box, a note outside the frame and a freehand squiggle; its expected
+  # reading was worked out by hand. The scaled copy has the background image and everything over it
+  # moved and scaled to 50% (the frame stays). The *.godot.drawing.json files are what Godot
+  # Director's reader (tools/ui_drawing.gd) writes for them: the port must write the same text.
+  drawings="$work/drawings"
+  mkdir -p "$drawings/drawing_fixtures/read" "$drawings/drawing_fixtures/moved"
+  cp "$src"/tests/ui-drawing/* "$drawings/drawing_fixtures/"
+  for variant in fixture:read fixture-scaled:moved; do
+    name="${variant%%:*}"; folder="${variant#*:}"
+    cp "$src/tests/ui-drawing/fixture.elements.json" "$drawings/drawing_fixtures/$folder/hero_room@1000x500.elements.json"
+    out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" "drawing_fixtures/$name.excalidraw" "drawing_fixtures/$folder/hero_room.drawing.json" 2>&1)"
+    expect_status "the reader reads $name.excalidraw" 0 $? "$out"
+    out="$(node "$helpers/compare.mjs" "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/fixture.expected.json" 2>&1)"
+    case "$name" in
+      fixture) expect_output "the fixture drawing gives exactly the expected boxes, intents, parent, comment, removal, note and one unparsed entry, to 0.1%" "^SAME" "$out" ;;
+      *) expect_output "the same drawing with the background image moved and scaled 50% gives the same percentages" "^SAME" "$out" ;;
+    esac
+    cmp -s "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/$name.godot.drawing.json" \
+      && ok "and exactly the drawing.json Godot Director's reader writes for $name.excalidraw" \
+      || bad "the reader writes the drawing.json Godot Director's reader writes for $name.excalidraw" \
+        "$(diff "$drawings/drawing_fixtures/$folder/hero_room.drawing.json" "$src/tests/ui-drawing/$name.godot.drawing.json" | head -n 10)"
+  done
+  out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" drawing_fixtures/fixture.excalidraw drawing_fixtures/read/hero_room.drawing.json 2>&1)"
+  case "$out" in *claimed*) bad "the fixture has no claimed element" "$out" ;; *) ok "the fixture has no claimed element" ;; esac
+  out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" drawing_fixtures/fixture-conflict.excalidraw drawing_fixtures/read/conflict.drawing.json 2>&1)"
+  expect_output "an element claimed by a moved grey box and a blue box is named in one note" "note: hero_room: element 4 \(GearList\) is claimed by a moved grey box and a blue box named after it" "$out"
+  mkdir -p "$drawings/drawing_fixtures/nomap"
+  out="$(cd "$drawings" && node "$app/tools/ui/drawing.mjs" drawing_fixtures/fixture.excalidraw drawing_fixtures/nomap/hero_room.drawing.json 2>&1)"
+  expect_output "with no element map the moved grey boxes are skipped with one note per frame" "note: hero_room: no element map hero_room@1000x500.elements.json, so the moved grey boxes are ignored" "$out"
+  [ "$(printf '%s
+' "$out" | grep -c 'no element map')" = "1" ] && ok "and it is one note" || bad "and it is one note" "$out"
+  out="$(node tools/ui/drawing.mjs "$drawings/nowhere.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses a missing drawing" 1 $? "$out"
+  printf '{ not json' > "$drawings/broken.excalidraw"
+  out="$(node tools/ui/drawing.mjs "$drawings/broken.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses invalid JSON" 1 $? "$out"
+  expect_output "and says so" "isn't valid JSON" "$out"
+  printf '{"type":"excalidraw","version":2,"elements":[],"files":{}}' > "$drawings/empty.excalidraw"
+  out="$(node tools/ui/drawing.mjs "$drawings/empty.excalidraw" "$drawings/read.json" 2>&1)"; expect_status "the reader refuses a drawing with no frame" 1 $? "$out"
+  expect_output "and says so" "has no frame" "$out"
+  out="$(node tools/ui/drawing.mjs starter "$drawings/drawing_fixtures/fixture" "$drawings/hero_room.starter.excalidraw" 2>&1)"
+  expect_status "the starter drawing is written from a capture's files" 0 $? "$out"
+  cmp -s "$drawings/hero_room.starter.excalidraw" "$src/tests/ui-drawing/starter.expected.excalidraw" \
+    && ok "the starter matches the hand-checked fixture that Godot Director's starter matches" \
+    || bad "the starter matches the hand-checked fixture" "$(diff "$drawings/hero_room.starter.excalidraw" "$src/tests/ui-drawing/starter.expected.excalidraw" | head -n 10)"
+  out="$(node "$helpers/validate.mjs" "$drawings/hero_room.starter.excalidraw" hero_room 1000 500 "$app/tools/ui/drawing.mjs" 2>&1)"
+  expect_output "the starter is valid Excalidraw, and saved unchanged it reads back with no boxes and no unparsed entries" "^VALID" "$out"
+
+  # What capture needs, and what it says without it. Nothing may be written when it can't run.
+  cp tools/ui_capture.cfg "$work/saved-ui-cfg"; cp tools/ui/screens.mjs "$work/saved-catalog"; cp tools/check.cfg "$work/saved-check-cfg"
+  rm -rf product/ui/captures
+  out="$(bash tools/ui_capture.sh --list 2>&1)"; expect_status "lists the catalog with Node alone" 0 $? "$out"
+  expect_output "a line per screen: id, title, states, route, drawing and spec" "home · Home · states: default · opens / · drawing: no · spec: no" "$out"
+  printf 'export default { screens: [\n  { id: "a", title: "A", route: "/" },\n  { id: "a", title: "Again", route: "/again" },\n  { id: "b", title: "B", route: "b", scene: "x" },\n] };\n' > tools/ui/screens.mjs
+  out="$(bash tools/ui_capture.sh --list 2>&1)"; expect_status "fails a catalog with broken entries" 1 $? "$out"
+  expect_output "and names each problem" "the id 'a' is used twice" "$out"
+  expect_output "and an unknown key and a route that isn't a path" "unknown key 'scene'.*route must be a path" "$out"
+  cp "$work/saved-catalog" tools/ui/screens.mjs
+  mkdir -p src/ui/screens
+  printf 'export const HomeScreen = () => `<h1 data-testid="home-title">Home</h1>`;\n' > src/ui/screens/HomeScreen.ts
+  out="$(bash tools/ui_capture.sh --missing 2>&1)"; expect_status "--missing never fails" 0 $? "$out"
+  expect_output "it lists a screen file the catalog doesn't name as a source" "missing: src/ui/screens/HomeScreen.ts" "$out"
+  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 for an app with no web UI to open" 3 $? "$out"
+  expect_output "and says capture isn't available for it yet" "capture isn't available for this .*app yet" "$out"
+  printf '# Home\n\n## Layout (at 1280x720)\n| # | Element | Name | Where (x, y, w, h %%) | Shows | Does | Size |\n|---|---|---|---|---|---|---|\n| 1 | Title | home-title | 2, 2, 20, 5 | - | - | fit |\n| 2 | Menu | home-menu | 2, 10, 20, 5 | - | - | fit |\n' > product/ui/home.md
+  out="$(bash tools/ui_capture.sh home --verify 2>&1)"; expect_status "verify without capture exits 3: unverified" 3 $? "$out"
+  expect_output "but checks the spec's names in the source" "\| Title \| home-title \| src/ui/screens/HomeScreen.ts \|" "$out"
+  expect_output "and names one that isn't there" "\| Menu \| home-menu \| not found \|" "$out"
+  sed 's#^base_url =.*#base_url = https://example.com#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "refuses a host that isn't this machine (exit 3)" 3 $? "$out"
+  expect_output "and says why" "refusing \[web\] base_url: example.com isn't this machine" "$out"
+  sed 's#^base_url =.*#base_url = http://127.0.0.1:9#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+  out="$(bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 without Playwright" 3 $? "$out"
+  expect_output "and gives the command that installs it" "cd tools/ui && npm install && npx playwright install chromium" "$out"
+  _no_node_path=""
+  for _dir in $(printf '%s' "$PATH" | tr ':' '\n'); do
+    [ -x "$_dir/node" ] || [ -x "$_dir/node.exe" ] || _no_node_path="${_no_node_path:+$_no_node_path:}$_dir"
+  done
+  out="$(PATH="$_no_node_path" bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 without Node" 3 $? "$out"
+  expect_output "and says it needs Node 20" "needs Node 20 or newer" "$out"
+  # The floor is Node 20, the lowest that Playwright 1.64.1 declares: a Node 19 is refused, not run.
+  mkdir -p "$work/node19" && printf '#!/bin/sh\ncase "$1" in -p) echo 19 ;; --version) echo v19.9.0 ;; esac\n' > "$work/node19/node" && chmod +x "$work/node19/node"
+  out="$(PATH="$work/node19:$PATH" bash tools/ui_capture.sh --all 2>&1)"; expect_status "exits 3 on Node 19, below the floor" 3 $? "$out"
+  expect_output "and says it needs Node 20 or newer, and which Node it found" "needs Node 20 or newer; this is v19.9.0" "$out"
+  [ ! -e product/ui/captures ] && ok "writes nothing when it can't run" || bad "writes nothing when it can't run" "$(ls product/ui/captures)"
+  out="$(PATH="$_no_node_path" bash tools/check.sh 2>&1)"; expect_status "the check passes without Node" 0 $? "$out"
+  fingerprint="$(bash tools/check.sh --fingerprint)"
+  mkdir -p product/ui/captures && printf '{}\n' > product/ui/captures/home@1280x720.elements.json && printf 'x' > product/ui/captures/home@1280x720.png
+  [ "$(bash tools/check.sh --fingerprint)" = "$fingerprint" ] && ok "captures don't change the check's fingerprint (they're gitignored)" \
+    || bad "captures don't change the check's fingerprint (they're gitignored)"
+  rm -rf product/ui/captures product/ui/home.md
+
+  # An upgrade from the release before /ui-design: an app without its files gets the stubs, the
+  # .gitignore lines and the manifest entries, and keeps its own AGENTS.md and check.cfg.
+  upgraded="$work/upgraded"
+  new_repo "$upgraded"
+  bash "$src/install.sh" "$upgraded" >/dev/null 2>&1
+  (cd "$upgraded" && rm -rf .app-director/procedures/ui-design.md .claude/skills/ui-design tools/ui_capture.sh tools/ui tools/ui_capture.cfg product/ui \
+    && grep -v -e '/product/ui/captures/' -e '/tools/ui/' .gitignore > .gitignore.new && mv .gitignore.new .gitignore \
+    && grep -v -e 'tools/ui' -e 'ui-design' .app-director/manifest > manifest.new && mv manifest.new .app-director/manifest \
+    && printf '# My app\nOur own AGENTS.md\n' > AGENTS.md && printf '[project]\nstack = none\n[ui]\ndirs = web/pages\n' > tools/check.cfg \
+    && mkdir -p web/pages && printf 'export default () => "<main>Orders</main>";\n' > web/pages/orders.tsx)
+  out="$(bash "$src/install.sh" "$upgraded" 2>&1)"; expect_status "upgrades an app from before /ui-design" 0 $? "$out"
+  if [ -f "$upgraded/tools/ui/screens.mjs" ] && [ -f "$upgraded/tools/ui_capture.cfg" ] && [ -f "$upgraded/product/ui/README.md" ] \
+      && [ -x "$upgraded/tools/ui_capture.sh" ] && grep -qx '/product/ui/captures/' "$upgraded/.gitignore" && grep -qx '/tools/ui/node_modules/' "$upgraded/.gitignore" \
+      && grep -q "$(printf '\t')tools/ui/capture.mjs$" "$upgraded/.app-director/manifest" && grep -q "$(printf '\t').app-director/procedures/ui-design.md$" "$upgraded/.app-director/manifest"; then
+    ok "it gets the catalog, the settings, the tools, the .gitignore lines and the manifest entries"
+  else
+    bad "the upgrade gets the catalog, the settings, the tools, the .gitignore lines and the manifest entries" "$out"
+  fi
+  grep -q "Our own AGENTS.md" "$upgraded/AGENTS.md" && grep -q "dirs = web/pages" "$upgraded/tools/check.cfg" \
+    && ok "and keeps its own AGENTS.md and check.cfg" || bad "the upgrade keeps the app's own AGENTS.md and check.cfg"
+  out="$(cd "$upgraded" && bash tools/ui_capture.sh --missing 2>&1)"; expect_status "align's screen check lists without failing" 0 $? "$out"
+  expect_output "the app's screens the catalog doesn't cover yet" "missing: web/pages/orders.tsx" "$out"
+
+  # Capture of the fixture web app (tests/ui-web), served on this machine by its start_command.
+  pw="${ADIR_PLAYWRIGHT:-$src/tests/ui-web/node_modules}"
+  chromium_ok=0
+  if [ -d "$pw/playwright" ] && [ -d "$pw/playwright-core" ]; then
+    mkdir -p tools/ui/node_modules && cp -R "$pw/playwright" "$pw/playwright-core" tools/ui/node_modules/
+    (cd tools/ui && node --input-type=module -e 'import { chromium } from "playwright"; import { existsSync } from "node:fs"; process.exit(existsSync(chromium.executablePath()) ? 0 : 1);') >/dev/null 2>&1 && chromium_ok=1
+  fi
+  if [ "$chromium_ok" -eq 0 ]; then
+    echo "  skip  capture of the fixture web app (no Playwright with Chromium in tests/ui-web/node_modules or \$ADIR_PLAYWRIGHT)"
+  else
+    rm -rf uifixture && cp -R "$src/tests/ui-web" uifixture && rm -rf uifixture/node_modules
+    port=$((40000 + $$ % 20000))
+    # The runs that capture states that finish keep the shipped 60-second setup_timeout: a state here takes a fraction of a second,
+    # but on a busy machine (the other parts of this selftest run beside this one, and so may other work) it can take seconds, and
+    # a short limit made it fail (T304). Only the run of the one state that never finishes sets 3 seconds, so that it fails at once.
+    sed -e "s#^base_url =.*#base_url = http://127.0.0.1:$port#" -e "s#^start_command =.*#start_command = node uifixture/serve.mjs $port#" \
+      -e 's#^list = .*#list = 1280x720 800x600#' -e 's#^setup_timeout = .*#setup_timeout = 60#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+    cp tools/ui_capture.cfg "$work/fixture-cfg"
+    cat > tools/ui/screens.mjs <<'EOF'
+export default {
+  screens: [
+    { id: "clean", title: "Hero room", route: "/", source: "uifixture/site/index.html",
+      states: {
+        default: null,
+        busy: async (page, api, screen) => { await screen.open(); await page.evaluate(() => { document.querySelector("h2").textContent = "Ada (busy)"; }); },
+      } },
+    { id: "lint", title: "Lint fixture", route: "/lint" },
+    { id: "order", title: "Tab order", route: "/order" },
+    { id: "broken", title: "Throws", route: "/broken" },
+    { id: "gone", title: "Missing route", route: "/missing" },
+    { id: "stuck", title: "A state that never finishes", route: "/", states: { default: () => new Promise(() => undefined) } },
+    { id: "away", title: "Calls a hosted backend", route: "/away" },
+    { id: "apiaway", title: "Seeds through a redirect off this machine", route: "/", states: { default: async (page, api) => { await api.get("/redirect-away"); } } },
+    { id: "modal", title: "A modal dialog", route: "/modal" },
+    { id: "reload", title: "Reloads when focused", route: "/reload" },
+    { id: "bad", title: "A broken entry", route: "nope" },
+  ],
+};
+EOF
+    captures=product/ui/captures
+    # Every screen but the one that never finishes (it would wait out the whole limit, twice); then that one with the short limit and
+    # the screen after it, which shows the run goes on after a state is cut off.
+    sed 's#^skip =.*#skip = stuck#' "$work/fixture-cfg" > tools/ui_capture.cfg
+    out="$(bash tools/ui_capture.sh --all 2>&1)"; status=$?
+    sed -e 's#^setup_timeout = .*#setup_timeout = 3#' -e 's#^skip =.*#skip = clean lint order broken gone apiaway modal reload#' "$work/fixture-cfg" > tools/ui_capture.cfg
+    stuck_out="$(bash tools/ui_capture.sh --all --size 1280x720 2>&1)"
+    cp "$work/fixture-cfg" tools/ui_capture.cfg
+    expect_status "a screen that fails fails the run (exit 1), and the others are captured" 1 "$status" "$out"
+    missing=""
+    for base in clean clean.busy lint order away modal; do
+      for size in 1280x720 800x600; do
+        for ext in png elements.json map.png lint.txt; do [ -f "$captures/$base@$size.$ext" ] || missing="$missing $base@$size.$ext"; done
+      done
+    done
+    [ -z "$missing" ] && ok "writes a PNG, element map, map image and lint file per screen, state and size" || bad "capture outputs missing:$missing" "$out"
+    [ "$(od -An -tu1 -j16 -N8 "$captures/clean@800x600.png" | tr -s ' ' | sed 's/^ //;s/ $//')" = "0 0 3 32 0 0 2 88" ] \
+      && ok "a capture has the requested size (800x600)" || bad "a capture has the requested size (800x600)"
+    (cd "$captures" && ls -- *.starter.excalidraw 2>/dev/null | tr '\n' ' ') > "$work/starters"
+    [ "$(cat "$work/starters")" = "away.starter.excalidraw broken.starter.excalidraw clean.starter.excalidraw lint.starter.excalidraw modal.starter.excalidraw order.starter.excalidraw " ] \
+      && ok "writes a starter drawing for the default state at the default size" || bad "writes a starter drawing for the default state at the default size" "$(cat "$work/starters")"
+    grep -q '"schema": 1, "adapter": "playwright"' "$captures/clean@1280x720.elements.json" \
+      && grep -q '"id":"change","stable":true,"path":"\[data-testid=\\"change\\"\]","kind":"button","name":"Change",' "$captures/clean@1280x720.elements.json" \
+      && ok "the element map lists the data-testid elements with their role and name" || bad "the element map lists the data-testid elements with their role and name" "$(head -n 8 "$captures/clean@1280x720.elements.json")"
+    grep -q 'Ada (busy)' "$captures/clean.busy@1280x720.elements.json" && ! grep -q 'Ada (busy)' "$captures/clean@1280x720.elements.json" \
+      && ok "a state prepares the page after opening it" || bad "a state prepares the page after opening it"
+    [ -z "$(cat "$captures"/clean@*.lint.txt "$captures"/clean.busy@*.lint.txt)" ] && ok "the clean page is lint-clean at every size" \
+      || bad "the clean page is lint-clean at every size" "$(cat "$captures"/clean*.lint.txt)"
+    lint="$(cat "$captures/lint@1280x720.lint.txt")"
+    for rule in 'squeezed-text element [0-9]* \[data-testid="squeezed"\]' 'stretched-control element [0-9]* \[data-testid="stretched"\]' \
+        'off-screen element [0-9]* \[data-testid="far"\]' 'overlap element [0-9]* \[data-testid="link-one"\]: element [0-9]* \(Two\)' \
+        'unreachable element [0-9]* \[data-testid="skipped"\]' 'no-default-focus element [0-9]* \[data-testid="ok"\]' \
+        'hard-coded-position element [0-9]* \[data-testid="pinned"\].*\(warning\)'; do
+      expect_output "lint: ${rule%% *} on the element built to break it" "$rule" "$lint"
+    done
+    [ "$(printf '%s\n' "$lint" | grep -c .)" = "7" ] && ok "and nothing else on that page" || bad "the lint page has exactly seven findings" "$lint"
+    order="$(node -e 'const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(m.elements.map((e) => e.id + "=" + e.focus_order).join(" "));' "$captures/order@1280x720.elements.json")"
+    [ "$order" = "first=3 third=2 second=1 trap=4 after=null" ] && ok "Tab order follows tabindex, and stops at the focus trap" || bad "Tab order follows tabindex, and stops at the focus trap" "$order"
+    [ "$(cat "$captures/order@1280x720.lint.txt")" = 'unreachable element 5 [data-testid="after"]: Tab never reaches it from the default focus' ] \
+      && ok "the element after the trap is the one unreachable element" || bad "the element after the trap is the one unreachable element" "$(cat "$captures/order@1280x720.lint.txt")"
+    head -n 1 "$captures/broken@1280x720.lint.txt" | grep -q '^error: a page error: selftest page error' && [ -f "$captures/broken@1280x720.png" ] \
+      && ok "a page error fails its screen, which is still captured, with the error at the top of its lint file" || bad "a page error fails its screen, with the error at the top of its lint file" "$out"
+    grep -q '^error: /missing answered 404' "$captures/gone@1280x720.lint.txt" && [ ! -f "$captures/gone@1280x720.png" ] \
+      && ok "a route that answers 404 fails its screen and leaves only the error" || bad "a route that answers 404 fails its screen and leaves only the error" "$out"
+    if printf '%s' "$stuck_out" | grep -qE -- "FAIL: stuck@1280x720: the setup didn't finish within 3 seconds" && printf '%s' "$stuck_out" | grep -q -- "begin away@1280x720"; then
+      ok "a state that doesn't finish fails only its screen"
+    else
+      bad "a state that doesn't finish fails only its screen (no match for its failure, then the next screen's start)" "$stuck_out"
+    fi
+    expect_output "a broken catalog entry is named" "FAIL: bad: its route must be a path" "$out"
+    away="$(cat "$captures/away@1280x720.lint.txt")"
+    expect_output "a request to a host that isn't this machine is blocked and noted" "^note: blocked requests to 192\.0\.2\.1: not this machine" "$away"
+    expect_output "so is a redirect off this machine, which capture doesn't follow" "^note: blocked requests to 203\.0\.113\.9:" "$away"
+    expect_output "and a WebSocket to another host" "^note: blocked requests to 198\.51\.100\.7:" "$away"
+    grep -q '"name":"local data"' "$captures/away@1280x720.elements.json" && ok "while the page's own requests to this machine go through" \
+      || bad "the page's own requests to this machine go through" "$(head -n 8 "$captures/away@1280x720.elements.json")"
+    expect_output "the api helper doesn't follow a redirect (it fails the state)" "FAIL: apiaway@1280x720: api: GET http://127\.0\.0\.1:$port/redirect-away answered 302" "$out"
+    [ -z "$(cat "$captures/modal@1280x720.lint.txt")" ] && ok "behind an open modal dialog, nothing counts as unreachable" \
+      || bad "behind an open modal dialog, nothing counts as unreachable" "$(cat "$captures/modal@1280x720.lint.txt")"
+    expect_output "a page that reloads while it is mapped fails only its screen" "FAIL: reload@1280x720: the page changed while it was mapped" "$out"
+    expect_output "capture starts the app with start_command" "starting the app: node uifixture/serve.mjs $port" "$out"
+    node -e 'require("http").get(process.argv[1], () => process.exit(1)).on("error", () => process.exit(0));' "http://127.0.0.1:$port/" \
+      && ok "and stops it afterwards" || bad "capture stops the app it started"
+    cp "$captures/clean@1280x720.elements.json" "$work/first-map"; cp "$captures/clean@1280x720.png" "$work/first-png"
+    out="$(bash tools/ui_capture.sh clean --state default --size 1280x720 2>&1)"; expect_status "captures one screen, state and size" 0 $? "$out"
+    cmp -s "$captures/clean@1280x720.elements.json" "$work/first-map" && ok "a second capture gives the same element map" || bad "a second capture gives the same element map" "$out"
+    cmp -s "$captures/clean@1280x720.png" "$work/first-png" && ok "and the same image" || bad "a second capture gives the same image"
+    out="$(node "$helpers/validate.mjs" "$captures/clean.starter.excalidraw" clean 1280 720 "$app/tools/ui/drawing.mjs" 2>&1)"
+    expect_output "a captured starter drawing is valid Excalidraw and reads back empty" "^VALID" "$out"
+
+    # verify: a spec written from the capture matches it; moving one element 10% reports exactly it.
+    node -e '
+      const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      const rows = m.elements.filter((e) => ["back", "hero-sheet", "gear-list", "change"].includes(e.id))
+        .map((e, i) => `| ${i + 1} | ${e.id} | ${e.id} | ${e.rect_pct.join(", ")} | - | - | fit |`);
+      require("fs").writeFileSync(process.argv[2], "# Hero room\n\n## Layout (at 1280x720)\n| # | Element | Name | Where (x, y, w, h %) | Shows | Does | Size |\n|---|---|---|---|---|---|---|\n" + rows.join("\n") + "\n");
+    ' "$captures/clean@1280x720.elements.json" product/ui/clean.md
+    mkdir -p "$work/director-ui" && cp "$captures/clean.starter.excalidraw" "$work/director-ui/clean.excalidraw"
+    node tools/ui/drawing.mjs "$work/director-ui/clean.excalidraw" "$captures/clean.drawing.json" clean >/dev/null 2>&1
+    out="$(bash tools/ui_capture.sh clean --verify --size 1280x720 2>&1)"; expect_status "verify passes a screen built as its spec says" 0 $? "$out"
+    expect_output "with no deviations" "4 elements checked, 0 deviations" "$out"
+    expect_output "a broken entry elsewhere in the catalog doesn't stop it" "note: another entry in tools/ui/screens.mjs has a problem: bad:" "$out"
+    expect_output "it names the compare image" "compare image: product/ui/captures/clean.compare@1280x720.png" "$out"
+    [ "$(od -An -tu1 -j16 -N8 "$captures/clean.compare@1280x720.png" 2>/dev/null | tr -s ' ' | sed 's/^ //;s/ $//')" = "0 0 10 8 0 0 2 208" ] \
+      && ok "and writes it: the drawing's screenshot and the capture side by side (2568x720)" || bad "the compare image is the drawing's screenshot and the capture side by side (2568x720)" "$out"
+    sed 's#<section class="panel" data-testid="hero-sheet">#<section class="panel" data-testid="hero-sheet" style="margin-left:128px">#' "$src/tests/ui-web/site/index.html" > uifixture/site/index.html
+    out="$(bash tools/ui_capture.sh clean --verify --size 1280x720 2>&1)"; expect_status "verify fails a screen with an element moved 10%" 1 $? "$out"
+    if [ "$(printf '%s\n' "$out" | grep -c '^ui_verify: | .* | moved: ')" = "1" ]; then
+      expect_output "and reports exactly that element" "\| hero-sheet \| hero-sheet \| .* \| moved: left edge" "$out"
+    else
+      bad "verify reports exactly the moved element" "$out"
+    fi
+    cp "$src/tests/ui-web/site/index.html" uifixture/site/index.html
+
+    # A capture killed mid-run leaves the app it started running; the next capture stops it first,
+    # instead of taking it for an app the human started.
+    answers() { node -e 'require("http").get(process.argv[1], () => process.exit(0)).on("error", () => process.exit(1));' "http://127.0.0.1:$port/"; }
+    sed 's#^setup_timeout = .*#setup_timeout = 120#' "$work/fixture-cfg" > tools/ui_capture.cfg
+    rm -f .app-director/state/ui_app.pid
+    bash tools/ui_capture.sh stuck > "$work/stuck.log" 2>&1 &
+    stuck_pid=$!
+    waited=0
+    # Killed once it is at work in the browser ("begin stuck@..." comes after Chromium has started), not while Chromium is starting:
+    # a capture killed then leaves the browser running (T304). Whatever it left is stopped below, except the app.
+    until [ -f .app-director/state/ui_app.pid ] && answers && grep -q 'begin stuck@' "$work/stuck.log" 2>/dev/null; do
+      waited=$((waited + 1)); [ "$waited" -ge 60 ] && break; sleep 1
+    done
+    sleep 1
+    app_pid="$(cut -d' ' -f1 .app-director/state/ui_app.pid 2>/dev/null)"
+    capture_pid="$(cut -d' ' -f2 .app-director/state/ui_app.pid 2>/dev/null)"
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) taskkill //PID "$capture_pid" //F >/dev/null 2>&1 ;;
+      *) kill -9 "$capture_pid" 2>/dev/null ;;
+    esac
+    wait "$stuck_pid" 2>/dev/null
+    stop_orphans_of "$capture_pid" "$app_pid"
+    sleep 1
+    if answers; then ok "a capture killed mid-run leaves the app it started running"; else bad "a capture killed mid-run leaves the app it started running" "$(cat "$work/stuck.log")"; fi
+    cp "$work/fixture-cfg" tools/ui_capture.cfg
+    out="$(bash tools/ui_capture.sh clean --state default --size 1280x720 2>&1)"; expect_status "the next capture runs" 0 $? "$out"
+    expect_output "it stops the app the killed capture left running" "stopping the app an interrupted capture left running" "$out"
+    expect_output "and starts its own" "starting the app: node uifixture/serve.mjs $port" "$out"
+    if answers; then bad "and stops it afterwards: nothing is left running" "$out"; else ok "and stops it afterwards: nothing is left running"; fi
+    [ ! -f .app-director/state/ui_app.pid ] && ok "and clears its record of the app" || bad "capture clears its record of the app it started"
+
+    sed -e "s#^base_url =.*#base_url = http://127.0.0.1:$((port + 1))#" -e 's#^start_command =.*#start_command = node -e "process.exit(4)"#' "$work/saved-ui-cfg" > tools/ui_capture.cfg
+    out="$(bash tools/ui_capture.sh clean 2>&1)"; expect_status "exits 3 when the start command ends before the app answers" 3 $? "$out"
+    expect_output "and says so, naming the app's output" "ended with exit 4 before the app answered at .* \(its output: \.app-director/state/ui_app\.log\)" "$out"
+  fi
+  cp "$work/saved-ui-cfg" tools/ui_capture.cfg; cp "$work/saved-catalog" tools/ui/screens.mjs; cp "$work/saved-check-cfg" tools/check.cfg
+  rm -rf product/ui/captures product/ui/clean.md uifixture tools/ui/node_modules src/ui/screens
+fi
+
+  wait "$guard_pid" "$security_pid" "$prototype_pid"
+) > "$seg/2-installer-check" 2>&1 &
+wait
+passed=0; failed=0
+for part in framework main guard security prototype; do
+  if [ -f "$seg/count-$part" ]; then read -r p f < "$seg/count-$part"; else p=0; f=0; fi
+  passed=$((passed + p)); failed=$((failed + f))
+done
+cat "$seg"/1-framework "$seg"/2-installer-check "$seg"/3-guard "$seg"/4-protected "$seg"/5-ui-design "$seg"/6-security "$seg"/7-prototype
 finish

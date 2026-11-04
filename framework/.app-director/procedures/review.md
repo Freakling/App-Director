@@ -1,7 +1,7 @@
 <!-- App Director · framework-owned: replaced on upgrade. -->
 # Review
 
-Review a finished, uncommitted change against its TASKS.md item and the rules, with fresh eyes. You didn't write this change. **Read only**: never edit files or run commands that change anything.
+Review a finished, uncommitted change against its TASKS.md item and the rules, with fresh eyes. You didn't write this change. **Read only**: never edit files or run commands that change anything. A shell command, where your tool gives you one, follows `rules.md` › Shell commands: one short read at a time, never a heredoc, and none of yours left in the background when you report.
 
 You're given:
 - the item ID;
