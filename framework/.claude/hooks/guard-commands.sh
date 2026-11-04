@@ -38,8 +38,10 @@
 # The hang rules read the command without the bodies no shell runs (B50): a commit's, tag's or gh message, and a cat or tee
 # body nothing runs, are left out, so a message can name a loop, a pause or a timed wait. In PowerShell a here-string body
 # nothing runs is left out the same way. A wait loop is read to the done that closes it, counting the do and done of the loops
-# nested in it, and a pause may have a fraction (sleep 600.5, Start-Sleep 280.5). The empty-heredoc probe reads its body line by
-# line, so a body of blank lines is not empty, and python may sit behind a path (/usr/bin/python3).
+# nested in it, and a pause may have a fraction (sleep 600.5, Start-Sleep 280.5). A Python interpreter that reads its script from a
+# heredoc or a here-string (python - <<'EOF', python <<<"x", cat <<'EOF' | python -) is blocked whatever the body, also behind a path
+# (/usr/bin/python3) or a wrapper (timeout 60); a script file given a heredoc of data (python tool.py <<'EOF') passes, and so does
+# a message that names the form.
 # A shell or PowerShell name starts a script anywhere except right after a word that only prints its words (echo, printf,
 # Write-Output, Write-Host, write): `echo PowerShell 'x'` is text, and `ssh host pwsh -c 'x'` is still read (B48).
 #
@@ -1544,7 +1546,7 @@ git_print_re='(^|[^[:alnum:]_.-])[Gg][Ii][Tt](\.[Ee][Xx][Ee])?[[:space:]]+([^;&|
 
 # --- Hangs ---------------------------------------------------------------------------------------
 # A command that never returns, or runs past five minutes, lets the prompt cache expire, and the next
-# turn rewrites the whole context. So: no empty-heredoc probes, no unbounded wait loops, no long sleeps.
+# turn rewrites the whole context. So: no Python reading its script from a heredoc, no unbounded wait loops, no long sleeps.
 # Text matching only: a loop built another way isn't seen. The guard is also wired to Monitor. The rules
 # read the command without the bodies no shell runs (B50, hang_strip), so a message can name them.
 hang() {
@@ -1645,26 +1647,50 @@ blank_q() {
   done
   BQ="$out$t"
 }
+# The Python rule below reads hcode, so a quoted interpreter path is made the name the shell finds before the quoted strings are
+# blanked: "C:/Program Files/Python313/python.exe" and '/usr/bin/python3' are python. A string that ends in the name is one, and only
+# a command that can hold the rule's form (py, <<, a quote) is read. The names and the options an interpreter takes are py_name and py_opt.
+py_name='(python[0-9]*(\.[0-9]+)*|pythonw|py)(\.exe)?'
+py_dq='"([^"]*[/\\])?'"$py_name"'"'
+py_sq="'([^']*[/\\\\])?${py_name}'"
+if [[ $hcode == *[Pp][Yy]* && $hcode == *'<<'* && $hcode == *[\"\']* ]]; then
+  shopt -s nocasematch
+  while [[ $hcode =~ $py_dq ]]; do hcode="${hcode/"${BASH_REMATCH[0]}"/ python }"; done
+  while [[ $hcode =~ $py_sq ]]; do hcode="${hcode/"${BASH_REMATCH[0]}"/ python }"; done
+  shopt -u nocasematch
+fi
 blank_q "$hcode" "$hdq"; blank_q "$BQ" "$sq"; hcode="$BQ"
 
-# 1. `python - <<'EOF'` whose body is empty: Python waits for console input and never returns on
-#    Windows. Typically the "is Python here?" probe. The probe reads hbt: an interpreter's body stays in it, and a message's doesn't.
-#    The lines are read one by one, so a blank line stays a line (a body of blank lines is not empty), and python may sit behind a
-#    path (/usr/bin/python3).
-text="$hbt"
-heredoc_re='(^|[^[:alnum:]_.-])(python3?|py)(\.exe)?[[:space:]]+-[[:space:]]*<<-?[[:space:]]*\\?["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
-lines=()
-# The lines are read only when the text can hold the probe at all (py and <<), so a long body costs no pass of its lines.
-if [[ $text == *py* && $text == *'<<'* ]]; then
-  while IFS= read -r line || [ -n "$line" ]; do lines+=("$line"); done <<<"$text"
+# 1. Python that reads its script from a heredoc or a here-string, whatever the body: on Windows it can wait for console input and
+#    never return, and nothing shows that a time limit above it stops the Windows Store alias, so a bounded form is blocked too.
+#    The interpreter is python, python3, python3.13 (any minor version), pythonw or py, with or without .exe, bare, behind a path
+#    (/usr/bin/python3) or quoted (above). The forms, read in hcode (hbt, B50, with its quoted strings blanked, so a command or an echo
+#    that names the form is text, and so is a message's body, which hbt leaves out; an interpreter's body stays in hbt):
+#      py_here_re: the interpreter, its options (python3 -u, -X utf8, py -3) and a - for stdin, then a heredoc (<<, <<-, <<\E) or a
+#                  here-string (<<<), also after a redirect (python - 2>/dev/null <<'E'), behind a wrapper or in a chain
+#                  (timeout 60 python - <<E, cd x && python - <<E);
+#      py_pipe_re: a heredoc piped into the interpreter with no script (cat <<'E' | python -);
+#      py_hs_re:   a PowerShell here-string piped into it ('@ | python -), read in hbt, which keeps the line that closes the string.
+#    A script file (python tool.py <<'E'), -c and -m read no script from stdin, so a heredoc of data given to them passes. A line
+#    continuation is already joined in the text (Bash), and a script that bash -c, eval and the like run is a view of its own.
+py_opt='(-[XW]([^[:space:];&|<>]*|[[:space:]]+[^-[:space:];&|<>][^[:space:];&|<>]*)|-[ABD-LN-VYZabd-ln-z0-9.:_-]+|--[a-z-]+)'
+py_red='[0-9&]*>>?&?[^[:space:];&|<>]+'
+py_args='([[:space:]]+'"$py_opt"')*([[:space:]]+-)?([[:space:]]+'"$py_red"')*'
+py_pfx='((env|timeout|sudo|nice|time|nohup|winpty|exec|command|stdbuf|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|-[-A-Za-z0-9=.]+|[0-9][0-9.]*[smhd]?)[[:space:]]+)*'
+py_end="$py_args"'[[:space:]]*($|[;&|)}]|'"$nl"')'
+py_here_re='(^|[^[:alnum:]_.-])'"$py_name$py_args"'[[:space:]]*<<'
+py_pipe_re='<<[^;]*[|][[:space:]]*'"$py_pfx"'([^[:space:];&|<>]*[/\\])?'"$py_name$py_end"
+py_hs_re="(^|$nl)[[:space:]]*['\"]@[[:space:]]*[|][[:space:]]*(&[[:space:]]*)?${py_pfx}[\"']?([^;&|<>\"']*[/\\\\])?${py_name}[\"']?${py_end}"
+MSG_PY1="python reading its script from a heredoc can hang: on Windows it can wait for console input and never return."
+MSG_PY2="Write the script to a file with Write and run it (python3 script.py), use python3 -c for one line, and run python3 --version to test whether Python is there."
+shopt -s nocasematch
+if [[ $hcode == *py* && $hcode == *'<<'* ]]; then
+  [[ $hcode =~ $py_here_re || $hcode =~ $py_pipe_re ]] && hang "$MSG_PY1" "$MSG_PY2"
 fi
-for ((i = 0; i + 1 < ${#lines[@]}; i++)); do
-  if [[ ${lines[i]} =~ $heredoc_re ]]; then
-    delim="${BASH_REMATCH[4]}"; next="${lines[i + 1]//[[:space:]]/}"
-    [ "$next" = "$delim" ] && hang "python reading an empty heredoc waits for console input and never returns (on Windows)." \
-      "To test whether Python is there, run: python3 --version"
-  fi
-done
+if [[ $hbt == *py* && ( $hbt == *"@'"* || $hbt == *'@"'* ) ]]; then
+  [[ $hbt =~ $py_hs_re ]] && hang "$MSG_PY1" "$MSG_PY2"
+fi
+shopt -u nocasematch
 
 # 3. A lone sleep over 280 seconds. A count may have a fraction (sleep 600.5), read to the millisecond.
 sleep_re='(^|[^[:alnum:]_./-])sleep[[:space:]]+([0-9]+)(\.[0-9]*)?([smhd]?)([[:space:]]|$|[;&|)])'

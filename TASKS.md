@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T48 · B8 · R1
+**Next IDs:** T49 · B8 · R1
 
 ## Queue
+
+### T48 · The guard blocks any Python that reads its script from a heredoc · done · M · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, framework/.app-director/rules.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: the guard blocks `python`, `python3` and `py`, path-qualified too, reading its script from a heredoc or a here-string, whatever the body, in place of the empty-body check, so the form with a quoted multi-line string before the delimiter is blocked, with a case for each form (test) · a script file fed data from a heredoc, `python -c`, `python -m` and a message that names the form still pass (test) · a bounded form (`timeout 60 python - <<E`) is blocked too (test) · `rules.md` › Commands that may run long says to put the script in a file and probe with `python3 --version` (check) · the entry sits under the 1.14.0 heading, with upgrade steps: none, and `bash selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T309
 
 ### T47 · Subagents write no shell heredocs, and the background commands they leave are stopped · done · M · agent
 - Touches: framework/.app-director/rules.md, framework/.app-director/procedures/build.md, research.md, review.md and next-task.md, framework/.claude/agents/builder.md, researcher.md and reviewer.md, CHANGELOG.md, TASKS.md

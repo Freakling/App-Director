@@ -1227,12 +1227,12 @@ json_str() {
 # with its own payload, then checks every exit code against that case's expected one, in the order the cases were queued,
 # so a failure names its case and why. Each block of cases ends with guard_run and guard_report.
 guard_jobs=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4); [ "$guard_jobs" -le 12 ] || guard_jobs=12
-guard_cmds=(); guard_exps=(); guard_tools=()
-guard() { # guard <expected-exit> <command> [tool name: Bash by default, or PowerShell]
+guard_cmds=(); guard_exps=(); guard_tools=(); guard_msgs=()
+guard() { # guard <expected-exit> <command> [tool name: Bash by default, or PowerShell] [pattern its message must match, any case]
   local n=${#guard_cmds[@]} tool="${3:-Bash}"
   json_str "$2"
   printf '{"session_id":"s","tool_name":"%s","tool_input":{"command":"%s","description":"run"}}' "$tool" "$JSON_STR" > "$guard_dir/$n.json"
-  guard_cmds+=("$2"); guard_exps+=("$1"); guard_tools+=("$tool")
+  guard_cmds+=("$2"); guard_exps+=("$1"); guard_tools+=("$tool"); guard_msgs+=("${4:-}")
 }
 guard_run() {
   local n=${#guard_cmds[@]} lanes i k rc
@@ -1240,7 +1240,7 @@ guard_run() {
   for ((k = 0; k < lanes; k++)); do
     (
       for ((i = k; i < n; i += lanes)); do
-        bash .claude/hooks/guard-commands.sh < "$guard_dir/$i.json" >/dev/null 2>&1
+        bash .claude/hooks/guard-commands.sh < "$guard_dir/$i.json" >/dev/null 2>"$guard_dir/$i.err"
         echo "$?" > "$guard_dir/$i.rc"
       done
     ) &
@@ -1248,10 +1248,14 @@ guard_run() {
   wait
   for ((i = 0; i < n; i++)); do
     read -r rc < "$guard_dir/$i.rc" || rc=-1
-    [ "$rc" -eq "${guard_exps[i]}" ] || git_fail="$git_fail"$'\n'"  guard exited $rc, expected ${guard_exps[i]} (${guard_tools[i]}): ${guard_cmds[i]//$'\n'/ NL }"
+    if [ "$rc" -ne "${guard_exps[i]}" ]; then
+      git_fail="$git_fail"$'\n'"  guard exited $rc, expected ${guard_exps[i]} (${guard_tools[i]}): ${guard_cmds[i]//$'\n'/ NL }"
+    elif [ -n "${guard_msgs[i]}" ] && ! grep -qi -- "${guard_msgs[i]}" "$guard_dir/$i.err"; then
+      git_fail="$git_fail"$'\n'"  guard's message lacks \"${guard_msgs[i]}\" (${guard_tools[i]}): ${guard_cmds[i]//$'\n'/ NL }"
+    fi
   done
-  guard_cmds=(); guard_exps=(); guard_tools=()
-  rm -f "$guard_dir"/*.json "$guard_dir"/*.rc
+  guard_cmds=(); guard_exps=(); guard_tools=(); guard_msgs=()
+  rm -f "$guard_dir"/*.json "$guard_dir"/*.rc "$guard_dir"/*.err
 }
 for cmd in \
     'git commit -m x --no-verify' \
@@ -1337,6 +1341,7 @@ for cmd in \
     $'python - <<EOF\nEOF' \
     $'py.exe - <<-"EOF"\n  EOF' \
     $'python3 - <<\'EOF\' 2>/dev/null || python - <<\'EOF2\'\nEOF\nprint(1)\nEOF2' \
+    $'python3 - <<\'EOF\'\nprint("hi")\nEOF' \
     'until grep -q "^exit" /tmp/x/tasks/abc.output; do sleep 5; done' \
     'until test -f done.txt; do sleep 5; done' \
     'while true; do sleep 2; done' \
@@ -1347,7 +1352,6 @@ for cmd in \
   guard 2 "$cmd"
 done
 for cmd in \
-    $'python3 - <<\'EOF\'\nprint("hi")\nEOF' \
     $'python3 --version 2>/dev/null || echo "no python"' \
     "timeout 240 bash -c 'until test -f x; do sleep 5; done'" \
     '(timeout 4m bash -c "while true; do sleep 1; done")' \
@@ -1568,8 +1572,9 @@ guard_run
 guard_report "$git_fail" "the guard hook blocks a destructive git command, a hang, a git flag that writes or reads a file and a credential read, or blocks a plain form" "the guard hook blocks a destructive git command, a hang, a git flag that writes or reads a file and a credential read, and passes the plain forms"
 git_fail=""
 grep -q "Commands that may run long" .app-director/rules.md && grep -q "run_in_background" .app-director/rules.md \
-  && grep -q "empty heredoc" .app-director/rules.md && ok "rules.md gives the time-limit, background and empty-heredoc rules" \
-  || bad "rules.md gives the time-limit, background and empty-heredoc rules"
+  && grep -q "Python its script from a heredoc" .app-director/rules.md && grep -q "python3 --version" .app-director/rules.md \
+  && ok "rules.md gives the time-limit, background and Python-heredoc rules" \
+  || bad "rules.md gives the time-limit, background and Python-heredoc rules"
 
 # The hook runs under macOS's bash 3.2 too (CLAUDE.md > Scripts), so it holds no bash 4 form: case conversion (${x,,}, ${x^^}),
 # an associative array, mapfile or readarray, coproc, |&, or a negative substring offset (${x: -1}). Comment lines are skipped.
@@ -1865,7 +1870,7 @@ else
   # A Bash comment that ends in a backslash (B31): Bash ends the comment at the line break, so the line after it is a
   # command of its own, and the guard reads it as written. A continued command after such a comment is read from its
   # own line on. A # inside a word (a#b) is no comment, so its continuation is joined, as Bash joins it. The hang
-  # check reads a heredoc header joined to its delimiter (B29): python3 with - <<'EOF' on the next line and EOF after.
+  # check reads a heredoc header joined to its delimiter (B29): python3 with - <<'EOF' on the next line, with a body or not.
   git_fail=""
   if [ -f .claude/hooks/guard-commands.sh ]; then
     for cmd in \
@@ -1876,14 +1881,15 @@ else
         $'# a\\\ngit push \\\n--force' \
         $'# a\\\n# b\\\ngit push \\\n--force' \
         $'git push origin main#\\\n  --force' \
-        $'python3 \\\n- <<\'EOF\'\nEOF'; do
+        $'python3 \\\n- <<\'EOF\'\nEOF' \
+        $'python3 \\\n- <<\'EOF\'\nprint(1)\nEOF'; do
       guard 2 "$cmd"
     done
     for cmd in \
         $'# note\\\ngit status' \
         $'git status # note\\\n-s' \
         $'echo a#b\\\n--force' \
-        $'python3 \\\n- <<\'EOF\'\nprint(1)\nEOF'; do
+        $'python3 tool.py \\\n--flag <<\'EOF\'\ndata\nEOF'; do
       guard 0 "$cmd"
     done
   fi
@@ -2629,7 +2635,7 @@ EOF
   # The hang check reads the command without the bodies no shell runs (B50): a commit's, tag's or gh message, and a cat or tee body
   # nothing runs (the classification's reading, B40 and B48). So a message can name a loop, a pause or a timed wait, as plain text,
   # in a C-style or a PowerShell loop, with a pause or a wait over five minutes. A body a shell, an interpreter or a runner executes
-  # is still read, and so is the empty-heredoc probe and a command after a message. An unquoted message's substitution is run, so it
+  # is still read, and so is a Python heredoc and a command after a message. An unquoted message's substitution is run, so it
   # is read; a quoted one is text, and so are its backticks.
   git_fail=""
   if [ -f .claude/hooks/guard-commands.sh ]; then
@@ -3374,8 +3380,8 @@ EOF
   guard_report "$git_fail" "the guard hook reads a gh message's body, or a variable in a message or a cat body nothing runs, as a command, passes a body a shell runs, or reads a word after echo, printf, Write-Output, Write-Host or write, or a launcher's argument, wrongly (B48)" "the guard hook passes a gh pr, issue or release message with a quoted delimiter, and a variable in a message or in a cat body nothing runs, and blocks a git command after a message, an unquoted message, a message piped to a shell, and a variable in a body a shell runs; a shell or PowerShell name after echo, printf, Write-Output, Write-Host or write is text, and one that a launcher passes a script to is read (B48)"
 
   # The fixes the ports to SaaSAllTheThings and Godot-Director brought back (Director-Driven-Development T285). A path-qualified or
-  # .exe git is git, in any case (/usr/bin/git, git.exe, GIT.EXE), where a path that only ends in git is an argument. The empty
-  # heredoc probe reads its lines one by one, so a body of blank lines is not empty and python may sit behind a path. In PowerShell a
+  # .exe git is git, in any case (/usr/bin/git, git.exe, GIT.EXE), where a path that only ends in git is an argument. A Python heredoc
+  # is blocked whatever its body, also behind a path (a body of blank lines, one line), and a script file given a heredoc passes. In PowerShell a
   # backslash at a line's end is a path separator, not a continuation, so the line after a comment that ends in one is a command of
   # its own. A wait loop ends at the done that closes it, counting the do and done of the loops nested in it and skipping a done in
   # its condition, and a pause may have a fraction (sleep 600.5). The credential-print rules read a command without its messages.
@@ -3396,6 +3402,10 @@ EOF
         'echo hi && git.exe reset --hard' \
         "cd x && /usr/bin/python3 - <<'EOF'${nlc}EOF" \
         "/usr/bin/python3 - <<'EOF'${nlc}EOF" \
+        "python3 - <<'EOF'${nlc}${nlc}EOF" \
+        "python - <<-'EOF'${nlc}${nlc}EOF" \
+        "/usr/bin/python3 - <<'EOF'${nlc}${nlc}${nlc}EOF" \
+        "/usr/bin/python3 - <<'EOF'${nlc}print(1)${nlc}EOF" \
         "# c\\${nlc}gh auth token" \
         'until [ -f done ]; do sleep 5; done' \
         'until [ -f done ]; do sleep 5; done; echo done' \
@@ -3423,10 +3433,10 @@ EOF
         'ls /usr/bin/git' \
         'cp $SRC/git $DST' \
         'cd /c/git && ls' \
-        "python3 - <<'EOF'${nlc}${nlc}EOF" \
-        "python - <<-'EOF'${nlc}${nlc}EOF" \
-        "/usr/bin/python3 - <<'EOF'${nlc}${nlc}${nlc}EOF" \
-        "/usr/bin/python3 - <<'EOF'${nlc}print(1)${nlc}EOF" \
+        "python3 tool.py <<'EOF'${nlc}${nlc}EOF" \
+        "python tool.py <<-'EOF'${nlc}${nlc}EOF" \
+        "/usr/bin/python3 tool.py <<'EOF'${nlc}${nlc}${nlc}EOF" \
+        "/usr/bin/python3 tool.py <<'EOF'${nlc}print(1)${nlc}EOF" \
         'timeout 240 bash -c "until [ -f done ]; do sleep 5; done"' \
         'timeout 120 bash -c "while true; do for f in a b; do :; done; sleep 5; done"' \
         'for f in a b; do echo "$f"; done; sleep 5' \
@@ -3484,6 +3494,162 @@ EOF
     done
   fi
   guard_report "$git_fail" "the guard hook misses a path-qualified or .exe git, a PowerShell backslash, a nested or condition-named done in a wait loop, a pause with a fraction, a flag set by the environment or a credential-print command, or blocks a message that names one (T285)" "the guard hook reads a path-qualified or .exe git as git, a PowerShell backslash as a path separator, a wait loop to the done that closes it, a pause with a fraction, no flag from the environment, and a credential-print command but not a message that names one"
+
+  # Python that reads its script from a heredoc or a here-string is blocked whatever the body (Director-Driven-Development T309, B64):
+  # on Windows it can wait for console input and never return, so the check no longer looks for an empty body. Every form blocks and
+  # names Python: python, python3, python3.13, pythonw and py, with or without .exe, bare, behind a path or quoted; with or without the
+  # - and with interpreter options; each heredoc form and a here-string; behind a wrapper or in a chain, a time limit too; piped in
+  # (cat <<'E' | python -, and in PowerShell a here-string); split by a continuation; inside a heredoc body or a script a shell runs; and
+  # B64's form (a node -e string after the header closes on the second line, so the body looks empty). A script file given a heredoc
+  # of data, python -c and -m, python3 --version, and a message that names the form (a commit's or tag's body, a gh message, an echo or
+  # grep of the text, a cat body nothing runs) pass.
+  git_fail=""
+  nlc=$'\n'; py_msg='python reading its script from a heredoc'; py_body=$'\nprint(1)\nE'
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    for cmd in \
+        "python - <<'E'$py_body" \
+        "python <<'E'$py_body" \
+        "python3 - <<'E'$py_body" \
+        "python3 <<'E'$py_body" \
+        "python3.13 - <<'E'$py_body" \
+        "pythonw - <<'E'$py_body" \
+        "py - <<'E'$py_body" \
+        "py <<'E'$py_body" \
+        "python.exe - <<'E'$py_body" \
+        "python3.exe - <<'E'$py_body" \
+        "py.exe - <<'E'$py_body" \
+        "PYTHON.EXE - <<'E'$py_body" \
+        "/usr/bin/python3 - <<'E'$py_body" \
+        "/usr/bin/env python3 - <<'E'$py_body" \
+        "C:\\Python313\\python.exe - <<'E'$py_body" \
+        "\"C:/Program Files/Python313/python.exe\" - <<'E'$py_body" \
+        "'C:\\Program Files\\Python313\\python.exe' - <<'E'$py_body" \
+        "\"python3\" - <<'E'$py_body" \
+        "python3 -u - <<E$py_body" \
+        "python3 -X utf8 - <<E$py_body" \
+        "python3 -I -B - <<E$py_body" \
+        "python3 -W error - <<E$py_body" \
+        "py -3 - <<E$py_body" \
+        "py -3.12 -u - <<E$py_body" \
+        "python3 -u <<E$py_body" \
+        "python - <<E$py_body" \
+        "python - <<\"E\"$py_body" \
+        "python - <<\\E$py_body" \
+        "python - <<-E$py_body" \
+        "python - <<-'E'$py_body" \
+        "python -<<E$py_body" \
+        "python - <<<'print(1)'" \
+        "python <<<\"print(1)\"" \
+        "python3 - <<<\"print(1)\"" \
+        "timeout 60 python - <<E$py_body" \
+        "timeout -k 5 60 python3 - <<E$py_body" \
+        "env X=1 python - <<E$py_body" \
+        "PYTHONUNBUFFERED=1 python3 -u - <<E$py_body" \
+        "winpty python - <<E$py_body" \
+        "cd x && python - <<E$py_body" \
+        "python3 - <<E 2>/dev/null || true$py_body" \
+        "python3 - 2>/dev/null <<'E'$py_body" \
+        "python3 - <<'E' 2>/dev/null || echo \"no python\"$py_body" \
+        "python3 - <<'E' 2>/dev/null || node -e \"${nlc}x()\"${nlc}E" \
+        "python3 - <<'E' 2>/dev/null || node -e 'x()'${nlc}print(1)${nlc}E" \
+        "python3 - <<'E'${nlc}${nlc}E" \
+        "cat <<'E' | python -$py_body" \
+        "cat <<E | python3$py_body" \
+        "cat <<'E' | python3 -u -$py_body" \
+        "cat <<'E' | /usr/bin/python3 -$py_body" \
+        "cat <<'E' | timeout 60 python -$py_body" \
+        "cat <<'E' | \"C:/Program Files/Python313/python.exe\" -$py_body" \
+        "cat <<'E' | tr a b | python -$py_body" \
+        "python3 \\${nlc}- <<'E'$py_body" \
+        "python3 \\${nlc}  -u \\${nlc}  - <<'E'$py_body" \
+        "bash <<'X'${nlc}python3 - <<'E'${nlc}print(1)${nlc}E${nlc}X" \
+        "bash <<X${nlc}python3 - <<E${nlc}print(1)${nlc}E${nlc}X" \
+        "cat <<'X' | bash${nlc}python3 - <<'E'${nlc}print(1)${nlc}E${nlc}X" \
+        "bash -c \"python3 - <<'E'${nlc}print(1)${nlc}E\"" \
+        "bash -c 'python3 <<<\"print(1)\"'" \
+        "sh -c \"timeout 60 python3 - <<E${nlc}print(1)${nlc}E\"" \
+        "eval \"python3 - <<'E'${nlc}print(1)${nlc}E\"" \
+        "echo \$(python3 - <<'E'${nlc}print(1)${nlc}E${nlc})" \
+        "git commit -q -F - <<'E'${nlc}msg${nlc}E${nlc}python3 - <<'F'${nlc}print(1)${nlc}F" \
+        "cat > x.py <<'E'${nlc}print(1)${nlc}E${nlc}python3 - <<'F'${nlc}print(2)${nlc}F" \
+        "python3 - <<'E'${nlc}print(\"it's\")${nlc}E"; do
+      guard 2 "$cmd" Bash "$py_msg"
+    done
+    # The PowerShell tool reads the same text, and a here-string piped into the interpreter is its form of the pipe.
+    for cmd in \
+        "python - <<'E'$py_body" \
+        "python3 <<<\"print(1)\"" \
+        "timeout 60 python - <<E$py_body" \
+        "py -3 - <<E$py_body" \
+        "cat <<'E' | python -$py_body" \
+        "bash <<'X'${nlc}python3 - <<'E'${nlc}print(1)${nlc}E${nlc}X" \
+        "@'${nlc}print(1)${nlc}'@ | python -" \
+        "@\"${nlc}print(1)${nlc}\"@ | python" \
+        "@'${nlc}print(1)${nlc}'@ | python3 -u -" \
+        "@'${nlc}print(1)${nlc}'@ | python.exe -" \
+        "@'${nlc}print(1)${nlc}'@ | py -3 -" \
+        "@'${nlc}print(1)${nlc}'@ | & python -" \
+        "@'${nlc}print(1)${nlc}'@ | & \"C:\\Program Files\\Python313\\python.exe\" -" \
+        "@'${nlc}print(1)${nlc}'@ | C:\\Python313\\python.exe -" \
+        "@'${nlc}print(\"it's\")${nlc}'@ | python -" \
+        "@'${nlc}print(1)${nlc}'@ | python -${nlc}Get-Date" \
+        "@'${nlc}print(1)${nlc}'@ | python3.13 -"; do
+      guard 2 "$cmd" PowerShell "$py_msg"
+    done
+    guard 2 "@'${nlc}print(1)${nlc}'@ | python -" Bash "$py_msg"
+    for cmd in \
+        "python tool.py <<'E'${nlc}data${nlc}E" \
+        "python3 tool.py --flag <<E${nlc}data${nlc}E" \
+        "python3 tool.py <<<\"data\"" \
+        "python3 -u tool.py <<'E'${nlc}data${nlc}E" \
+        "py -3 tool.py <<'E'${nlc}data${nlc}E" \
+        "\"C:/Program Files/Python313/python.exe\" tool.py <<'E'${nlc}data${nlc}E" \
+        "timeout 60 python3 tool.py <<'E'${nlc}data${nlc}E" \
+        "python tool.py 2>/dev/null <<'E'${nlc}data${nlc}E" \
+        "python -c \"print(1)\"" \
+        "python -c \"print(1)\" <<'E'${nlc}data${nlc}E" \
+        "python3 -c \"print(1)\" <<<'data'" \
+        "python -m mod" \
+        "python -m mod <<'E'${nlc}data${nlc}E" \
+        "python3 -m json.tool <<<'{}'" \
+        "python3 --version" \
+        "python3 --version 2>/dev/null || echo \"no python\"" \
+        "python3 tool.py" \
+        "echo hi | python3 -c \"import sys\"" \
+        "cat <<'E' | python tool.py${nlc}data${nlc}E" \
+        "cat <<'E' | python3 -c \"import sys; print(sys.stdin.read())\"${nlc}data${nlc}E" \
+        "pytest -q <<E${nlc}E" \
+        "git commit -q -F - <<'E'${nlc}fix: the guard blocks python3 - <<'X' with a body${nlc}E" \
+        "git commit -q -F - <<E${nlc}docs: python <<E2 can hang${nlc}E" \
+        "git commit -q -m \"docs: python3 - <<'E' can hang\"" \
+        "git commit -q -m \"\$(cat <<'EOF'${nlc}fix: python3 - <<'X' can hang${nlc}EOF${nlc})\"" \
+        "git tag -a v1 -F - <<'E'${nlc}python3 - <<'X'${nlc}print(1)${nlc}X${nlc}E" \
+        "gh pr create --body-file - <<'E'${nlc}python3 - <<'X'${nlc}print(1)${nlc}X${nlc}E" \
+        "gh pr edit 5 --body-file - <<'E'${nlc}It blocks python <<<\"x\" and cat <<'X' | python -.${nlc}E" \
+        "echo \"python3 - <<'E'\"" \
+        "echo 'python3 - <<\"E\"'" \
+        "grep -n \"python3 - <<\" notes.md" \
+        "grep -rn 'python - <<' ." \
+        "cat > notes.md <<'E'${nlc}python3 - <<'X'${nlc}print(1)${nlc}X${nlc}E" \
+        "cat > notes.md <<'E'${nlc}run python <<<\"x\" or cat <<'X' | python -${nlc}E" \
+        "tee notes.md <<E${nlc}python3 - <<X${nlc}X${nlc}E"; do
+      guard 0 "$cmd"
+    done
+    for cmd in \
+        "@'${nlc}data${nlc}'@ | python tool.py" \
+        "@'${nlc}data${nlc}'@ | python -c \"import sys; print(sys.stdin.read())\"" \
+        "@'${nlc}data${nlc}'@ | python -m json.tool" \
+        "@'${nlc}data${nlc}'@ | Set-Content x.txt" \
+        "@'${nlc}python3 - <<'E'${nlc}'@ | Set-Content notes.md" \
+        "Get-Content x.py | python -" \
+        "python3 --version" \
+        "git commit -m \"python - <<E\"" \
+        "git commit -q -F - <<'E'${nlc}python3 - <<'X'${nlc}E"; do
+      guard 0 "$cmd" PowerShell
+    done
+  fi
+  guard_run
+  guard_report "$git_fail" "the guard hook passes Python that reads its script from a heredoc or a here-string, or blocks a script file given a heredoc of data, python -c or -m, or a message that names the form (T309, B64)" "the guard hook blocks Python reading its script from a heredoc or a here-string, whatever the body, behind a path, a wrapper or a time limit, piped in or inside a script a shell runs, and passes a script file given a heredoc of data, python -c and -m, and a message that names the form (T309, B64)"
 
   # The guard reads a long file body in time: the hook's timeout in settings.json is 10 seconds, and a hook that times out doesn't
   # block, so a command padded with a long body could pass unguarded. 900 lines of GDScript ($Node.method("x") calls, about 29 KB),
