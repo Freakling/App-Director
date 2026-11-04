@@ -33,6 +33,8 @@ Each entry lists what changed. **Upgrade steps** at the end of an entry cover bo
   - **Upgrade steps:** none; the procedures, `rules.md` and the agent definitions are framework-owned and arrive with the upgrade.
 - **The guard blocks any Python that reads its script from a heredoc.** The guard used to block only an empty heredoc on the next line, so a Python heredoc with a quoted multi-line string before its delimiter passed, and left a process spinning a core for days. Now `python`, `python3` and `py`, path-qualified too, are blocked reading a script from a heredoc or a here-string, whatever the body, with a time limit or without; a script file fed data from a heredoc still passes. Agents write a script to a file before running it (`rules.md` › Shell commands).
   - **Upgrade steps:** none; the hook and `rules.md` are framework-owned and arrive with the upgrade.
+- **A session says when the project is behind the latest release.** A framework fix only helps a project once it's installed there, and a project that had fallen behind showed no sign of it. `release-check.sh`, a new session-start hook, compares the installed version with the latest release tag on GitHub, at most once a day, and tells you and the agent when a newer one is out. It works offline, stays silent otherwise and never blocks a session; `PRIVACY.md` says what it reads, and `APP_DIRECTOR_RELEASE_CHECK=0` turns it off.
+  - **Upgrade steps:** the hook and `.claude/settings.json` are framework-owned and arrive with the upgrade (if you edited `.claude/settings.json`, merge its `.adir-new` file); restart Claude Code so the new hook loads.
 
 ## 1.13.0 (2026-11-02)
 

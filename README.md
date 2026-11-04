@@ -161,7 +161,8 @@ your-app/
 ├── .claude/skills/             /next-task and the rest: each points to its procedure
 ├── .claude/agents/             builder (builds each item in a fresh context) · reviewer and researcher (read-only)
 ├── .claude/hooks/              runs the check before a turn ends, for a session that changed code;
-│                               blocks risky git commands
+│                               blocks risky git commands; says at session start when the
+│                               project is behind the latest release
 └── .claude/settings.json       permissions, hooks, timeouts
 ```
 Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/settings.local.json`.
@@ -218,6 +219,6 @@ It exits 0 on pass, 1 on fail, and 3 when it can't run. It caches the last passi
 
 ## License
 
-Privacy: App Director runs on your machine and sends nothing anywhere; see [PRIVACY.md](PRIVACY.md).
+Privacy: App Director runs on your machine and sends nothing anywhere, apart from a release check at most once a day; see [PRIVACY.md](PRIVACY.md).
 
 MIT © 2026 Vikingur Saemundsson: see [LICENSE](LICENSE). You may use, fork and change App Director, including in commercial apps, as long as the copyright notice and the license stay with it. Installed apps carry a copy in `.app-director/LICENSE`.

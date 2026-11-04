@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T49 · B8 · R1
+**Next IDs:** T50 · B8 · R1
 
 ## Queue
+
+### T49 · A session says when the project is behind the latest release · done · M · agent
+- Touches: framework/.claude/hooks/release-check.sh (new), framework/.claude/settings.json, PRIVACY.md, README.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: a new SessionStart hook, `release-check.sh`, wired in `settings.json` with matcher `startup|resume` and a timeout of 10, reads the installed version from the first line of `.app-director/manifest` (without any ` + unreleased ...` tail) and the latest from `.app-director/state/latest-release`, refreshed at most once a day (missing or a day old) with `git ls-remote --tags --refs` for `refs/tags/v*` under `timeout 5` when `timeout` exists, keeping the highest `v<major>.<minor>.<patch>` by numeric fields and ignoring other tags; a failed lookup keeps the old value and touches the file, so an offline machine pays for one try a day; when the latest is above the installed version it prints one line of JSON with `systemMessage` and `additionalContext` (the text, and "Tell the human this once, in your first reply."), otherwise nothing; every path ends in exit 0, `APP_DIRECTOR_RELEASE_CHECK=0`, a missing manifest or no version line exits at once, and the hook uses bash 3.2 and BSD tools (check) · `selftest.sh` runs a section against a stand-in git that records its calls: behind warns with the JSON, 1.9.0 against 1.14.0 warns and the reverse doesn't, equal and newer are silent, ` + unreleased (abc)` and a CRLF manifest read as their version, a fresh cache doesn't call git, a day-old cache calls it once, a failed git prints nothing and isn't asked again that day, other tags are ignored, the off switch and a missing manifest are silent, and `tools/check.sh` never runs it; the installer installs the hook and git ignores its cache (check) · `PRIVACY.md` says it sends nothing apart from the release check and has a Release check paragraph naming `APP_DIRECTOR_RELEASE_CHECK=0`, and the README names the hook and its privacy line (check) · the entry sits under 1.14.0, with upgrade steps, and `selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T308
 
 ### T48 · The guard blocks any Python that reads its script from a heredoc · done · M · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, framework/.app-director/rules.md, selftest.sh, CHANGELOG.md, TASKS.md
