@@ -584,6 +584,18 @@ printf '{\n  "permissions": {\n    "deny": [\n      "Read(~/.ssh/**)",\n      "R
 [ -z "$(read_deny_missing "$work/read-deny-all.json")" ] || read_planted="$read_planted all"
 [ -z "$read_planted" ] && ok "the Read deny check flags each missing credential-store and .env rule, and passes settings with all seventeen" \
   || bad "the Read deny check misses a planted case:$read_planted"
+# Claude Code reads a hook's timeout in seconds and cancels the hook past it, so the guard's limit is 10 seconds (the guard's
+# long file body is timed above), and no hook waits an hour or more. settings.json has no bash key: Claude Code doesn't read
+# one, and the Bash tool's limits are the BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS variables (T45).
+hook_timeouts="$(grep -oE '"timeout"[[:space:]]*:[[:space:]]*[0-9]+' "$settings" | grep -oE '[0-9]+$')"
+guard_timeout="$(awk '/guard-commands\.sh/ { g = 1 } g && /"timeout"/ { gsub(/[^0-9]/, ""); print; exit }' "$settings")"
+timeout_fail=""
+[ -n "$hook_timeouts" ] || timeout_fail="$timeout_fail none-found"
+for hook_t in $hook_timeouts; do [ "$hook_t" -le 3600 ] || timeout_fail="$timeout_fail $hook_t"; done
+[ -n "$guard_timeout" ] && [ "$guard_timeout" -le 10 ] || timeout_fail="$timeout_fail guard=${guard_timeout:-none}"
+grep -qE '"bash"[[:space:]]*:' "$settings" && timeout_fail="$timeout_fail bash-key"
+[ -z "$timeout_fail" ] && ok "every hook timeout in settings.json is at most 3600 seconds, the guard's at most 10, and the file has no bash key" \
+  || bad "settings.json's hook timeouts (seconds: at most 3600, the guard's at most 10) or its bash key are wrong:$timeout_fail"
 
 ) > "$seg/1-framework" 2>&1 &
 (

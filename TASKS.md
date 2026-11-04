@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T45 · B8 · R1
+**Next IDs:** T46 · B8 · R1
 
 ## Queue
+
+### T45 · The hook timeouts are in seconds, as Claude Code reads them · done · XS · agent
+- Touches: framework/.claude/settings.json, selftest.sh, CHANGELOG.md
+- Done when: the guard's hook (guard-commands.sh) has a timeout of 10, each guard-protected.sh entry (Edit and Write) 5, and the Stop hook (stop-check.sh) 3600, all in seconds; the session-touched.sh entries are unchanged; the top-level `bash` block is gone, and the JSON is valid (check) · `selftest.sh` checks that every hook timeout in settings.json is at most 3600, the guard's at most 10, and that the file has no bash key (check) · the entry sits under the Unreleased heading, with upgrade steps
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T299
 
 ### T44 · The Stop hook runs the check only for the session that changed the code · done · M · agent
 - Touches: framework/.claude/hooks/stop-check.sh, framework/.claude/hooks/session-touched.sh (new), framework/.claude/settings.json, framework/.app-director/rules.md, README.md, selftest.sh, CHANGELOG.md
