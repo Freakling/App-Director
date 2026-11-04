@@ -160,7 +160,8 @@ your-app/
 │  App Director's, Claude Code adapter: updated on upgrade
 ├── .claude/skills/             /next-task and the rest: each points to its procedure
 ├── .claude/agents/             builder (builds each item in a fresh context) · reviewer and researcher (read-only)
-├── .claude/hooks/              runs the check before a turn ends; blocks risky git commands
+├── .claude/hooks/              runs the check before a turn ends, for a session that changed code;
+│                               blocks risky git commands
 └── .claude/settings.json       permissions, hooks, timeouts
 ```
 Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/settings.local.json`.
