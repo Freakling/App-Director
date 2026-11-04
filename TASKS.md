@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T50 · B8 · R1
+**Next IDs:** T51 · B8 · R1
 
 ## Queue
+
+### T50 · A session reports processes that outlived the shell that started them · done · M · agent
+- Touches: framework/.claude/hooks/orphan-report.sh (new), framework/.claude/settings.json, PRIVACY.md, README.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: a new SessionStart hook, `orphan-report.sh`, added to the `startup|resume` entry in `settings.json` next to the release check with a timeout of 10, reads the process list (on Windows, where `uname -s` is `MINGW*`, `MSYS*` or `CYGWIN*`, from `powershell.exe -NoProfile -NonInteractive -Command` with `Get-CimInstance Win32_Process`, the age computed from `CreationDate` and a process with none skipped, under `timeout 8` when `timeout` exists; elsewhere from `ps -A -o pid=,ppid=,etime=,comm=`, with `etime`'s `[[dd-]hh:]mm:ss` read into seconds and `comm` reduced to its base name) and lists the processes named python, python3, python3.<n>, pythonw, py, node, bash, sh, godot* or chrome-headless-shell (any case, `.exe` dropped; `chrome-headless`, the name Linux cuts it to, too) that are an hour old or more and whose parent is gone (a ppid of 0 or 1, no row with that pid, or a parent row younger than the process): the oldest ten and how many more, as one line of JSON with `systemMessage` and `additionalContext` ("Tell the human this once, in your first reply, and don't stop them unless the human asks."), ages as `<n> h` up to 48 hours and then `<n> d`, names reduced to `[A-Za-z0-9._-]`, and nothing otherwise; every path ends in exit 0, `APP_DIRECTOR_ORPHAN_REPORT=0` exits at once, a missing or failing process tool prints nothing, it stops, signals and writes nothing, and it uses bash 3.2 and BSD tools (check) · `selftest.sh` runs a section against stand-in `uname`, `powershell.exe` and `ps`, with stand-in `kill`, `taskkill`, `pkill` and `killall` that no case calls: for the Windows and the `ps` shape an hour-old `python3.13` with a dead parent is listed, one with a live parent or 59 minutes old is not, one whose parent row is younger is, unlisted names (`notepad`, `sshd`) are not, eleven orphans print ten and `and 1 more` oldest first, a name with odd characters can't break the JSON, `[[dd-]hh:]mm:ss` reads right in all three shapes, and the off switch and a failed or missing process tool are silent with exit 0; `tools/check.sh` never runs it (check) · the installer installs the hook (check) · `PRIVACY.md` says the hook reads the names, ids and ages of the processes and names `APP_DIRECTOR_ORPHAN_REPORT=0`, and the README names the hook (check) · the entry sits under 1.14.0, with upgrade steps, and `selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T310
 
 ### T49 · A session says when the project is behind the latest release · done · M · agent
 - Touches: framework/.claude/hooks/release-check.sh (new), framework/.claude/settings.json, PRIVACY.md, README.md, selftest.sh, CHANGELOG.md, TASKS.md

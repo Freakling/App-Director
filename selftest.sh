@@ -827,6 +827,237 @@ rc_bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|lo
   "$rc_hook" || true)
 if [ -z "$rc_bash4" ]; then ok "the release check uses no bash 4 form and no GNU-only tool flag"; else bad "the release check uses no bash 4 form and no GNU-only tool flag" "$rc_bash4"; fi
 
+# --- orphan report hook -------------------------------------------------------------------------
+# orphan-report.sh runs when a session starts and lists the Python, node, shell, Godot and headless browser processes that are
+# an hour old or more and whose parent is gone. Stand-ins first on PATH answer for the process list (powershell.exe on Windows, ps
+# elsewhere, and uname to choose between them), and others stand in for every program that stops a process, so no case reads this
+# machine's own processes or could stop one (T310).
+echo "orphan report hook"
+or_hook="$src/framework/.claude/hooks/orphan-report.sh"
+or_stub="$work/or-stub"; or_tstub="$work/or-tstub"; or_t124="$work/or-t124"; or_bare="$work/or-bare"; or_cwd="$work/or-cwd"
+mkdir -p "$or_stub" "$or_tstub" "$or_t124" "$or_bare" "$or_cwd"
+cat > "$or_stub/uname" <<'EOF'
+#!/bin/bash
+# a stand-in uname: the system a case sets in uname-is, Linux when it sets none
+if [ -f "$OR_STUB/uname-is" ]; then IFS= read -r line < "$OR_STUB/uname-is"; echo "$line"; else echo Linux; fi
+EOF
+cat > "$or_stub/ps" <<'EOF'
+#!/bin/bash
+# a stand-in ps: it records its arguments, then fails when ps-fails exists, or prints the rows a case sets
+printf '%s\n' "$*" >> "$OR_STUB/ps-calls"
+[ -e "$OR_STUB/ps-fails" ] && exit 1
+while IFS= read -r line; do printf '%s\n' "$line"; done < "$OR_STUB/ps-rows"
+EOF
+cat > "$or_stub/powershell.exe" <<'EOF'
+#!/bin/bash
+# a stand-in powershell.exe: it records its arguments, then fails when pwsh-fails exists, or prints the rows a case sets, with PowerShell's line ends
+printf '%s\n' "$*" >> "$OR_STUB/pwsh-calls"
+[ -e "$OR_STUB/pwsh-fails" ] && exit 1
+while IFS= read -r line; do printf '%s\r\n' "$line"; done < "$OR_STUB/win-rows"
+EOF
+cat > "$or_stub/kill" <<'EOF'
+#!/bin/bash
+# a stand-in for a program that stops a process: it records the call, and no case should make one
+printf '%s %s\n' "${0##*/}" "$*" >> "$OR_STUB/killed"
+EOF
+cp "$or_stub/kill" "$or_stub/taskkill"; cp "$or_stub/kill" "$or_stub/taskkill.exe"; cp "$or_stub/kill" "$or_stub/pkill"; cp "$or_stub/kill" "$or_stub/killall"
+cat > "$or_tstub/timeout" <<'EOF'
+#!/bin/bash
+# a stand-in timeout: it records its limit and runs the command
+printf '%s\n' "$1" >> "$OR_STUB/timeouts"
+shift
+exec "$@"
+EOF
+cat > "$or_t124/timeout" <<'EOF'
+#!/bin/bash
+# a stand-in timeout that runs out: the command runs, then the status is 124, as when the limit ends it
+shift
+"$@"
+exit 124
+EOF
+cat > "$or_bare/uname" <<'EOF'
+#!/bin/bash
+echo MINGW64_NT-10.0-26300
+EOF
+chmod +x "$or_stub"/* "$or_tstub/timeout" "$or_t124/timeout" "$or_bare/uname"
+# The builtin kill is no program on PATH, so a function stands in for it, exported to reach the hook's own bash.
+kill() { printf 'kill %s\n' "$*" >> "$OR_STUB/killed"; }
+export -f kill
+unset APP_DIRECTOR_ORPHAN_REPORT
+export OR_STUB="$or_stub"
+or_ask="Tell the human this once, in your first reply, and don't stop them unless the human asks."
+or_set() { # or_set <win|ps> [<pid> <ppid> <age in seconds> <name>]…: that machine, with these processes, in the shape of its list
+  local shape="$1" f d h m s
+  shift
+  rm -f "$or_stub/ps-calls" "$or_stub/pwsh-calls" "$or_stub/ps-fails" "$or_stub/pwsh-fails" "$or_stub/timeouts" "$or_stub/uname-is" "$or_stub/ps-rows" "$or_stub/win-rows"
+  if [ "$shape" = win ]; then echo MINGW64_NT-10.0-26300 > "$or_stub/uname-is"; f="$or_stub/win-rows"; else f="$or_stub/ps-rows"; fi
+  : > "$f"
+  while [ "$#" -ge 4 ]; do
+    if [ "$shape" = win ]; then
+      printf '%s %s %s %s\n' "$1" "$2" "$3" "$4" >> "$f"
+    else   # etime as ps writes it: dd-hh:mm:ss, hh:mm:ss or mm:ss
+      d=$(($3 / 86400)); h=$(($3 % 86400 / 3600)); m=$(($3 % 3600 / 60)); s=$(($3 % 60))
+      if [ "$d" -gt 0 ]; then printf '%6s %5s %d-%02d:%02d:%02d %s\n' "$1" "$2" "$d" "$h" "$m" "$s" "$4" >> "$f"
+      elif [ "$h" -gt 0 ]; then printf '%6s %5s %02d:%02d:%02d %s\n' "$1" "$2" "$h" "$m" "$s" "$4" >> "$f"
+      else printf '%6s %5s %02d:%02d %s\n' "$1" "$2" "$m" "$s" "$4" >> "$f"; fi
+    fi
+    shift 4
+  done
+}
+or_raw() { # or_raw <win|ps> <line>…: that machine, with these lines as its list, as given
+  local shape="$1" f l
+  or_set "$shape"
+  shift
+  if [ "$shape" = win ]; then f="$or_stub/win-rows"; else f="$or_stub/ps-rows"; fi
+  for l in "$@"; do printf '%s\n' "$l" >> "$f"; done
+}
+or_run() { # the hook's output, stdout and stderr together; its exit status is the hook's
+  printf '{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}' | PATH="$or_stub:$PATH" bash "$or_hook" 2>&1
+}
+or_json() { # or_json <list>: the line the hook prints for this list
+  local t="Processes that outlived the shell that started them (parent gone, over an hour old): $1. They may be left over from an ended session. Stopping them is your call."
+  printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s %s"}}' "$t" "$t" "$or_ask"
+}
+or_expect() { # or_expect <what> [<list>]: the process list was read, the hook exits 0 and prints the line for this list, or nothing without one
+  local out status read_it=no
+  out="$(or_run)"; status=$?
+  { [ -e "$or_stub/ps-calls" ] || [ -e "$or_stub/pwsh-calls" ]; } && read_it=yes
+  if [ -z "${2:-}" ]; then
+    [ -z "$out" ] && [ "$status" -eq 0 ] && [ "$read_it" = yes ] && ok "$1" || bad "$1" "exit $status, list read: $read_it: $out"
+  else
+    [ "$out" = "$(or_json "$2")" ] && [ "$status" -eq 0 ] && [ "$read_it" = yes ] && ok "$1" || bad "$1" "exit $status, list read: $read_it: $out"
+  fi
+}
+
+# 0. The stand-ins are in place: the stop programs are first on PATH, and the builtin kill is a function in the hook's own bash.
+if [ "$(PATH="$or_stub:$PATH" type -P taskkill)" = "$or_stub/taskkill" ] && [ "$(PATH="$or_stub:$PATH" type -P pkill)" = "$or_stub/pkill" ] && [ "$(bash -c 'type -t kill')" = function ]; then
+  ok "stand-ins for kill, taskkill and pkill are in place before every case"
+else bad "stand-ins for kill, taskkill and pkill are in place before every case" "$(PATH="$or_stub:$PATH" type -P taskkill) $(bash -c 'type -t kill')"; fi
+
+# 1. The cases that read the same on both machines, with the rows in the shape of each one's list.
+or_cases() { # or_cases <win|ps> <label>
+  local sh="$1" lb="$2" x="" X="" odd good
+  if [ "$sh" = win ]; then x=".exe"; X=".EXE"; fi
+  or_set "$sh" 4 0 900000 System 500 999 3600 "python3.13$x"
+  or_expect "$lb: an hour-old python3.13 with a dead parent is listed" "pid 500 python3.13 (1 h)"
+  or_set "$sh" 600 700 7200 "python3.13$x" 700 4 9000 "explorer$x"
+  or_expect "$lb: a process with a live parent isn't" ""
+  or_set "$sh" 500 999 3540 "python3.13$x" 501 999 3599 "node$x"
+  or_expect "$lb: processes 59 minutes old aren't" ""
+  or_set "$sh" 500 600 7200 "node$x" 600 4 100 "cmd$x"
+  or_expect "$lb: a process whose parent row is younger is listed (a reused pid)" "pid 500 node (2 h)"
+  or_set "$sh" 500 600 7200 "node$x" 600 4 7200 "cmd$x"
+  or_expect "$lb: and one whose parent is as old is not" ""
+  or_set "$sh" 40 999 7200 "notepad$x" 41 999 7200 "sshd$x" 42 999 7200 "nodejs$x" 43 999 7200 "bashful$x" 44 999 7200 "pythonista$x" 45 999 7200 "python3.x$x" 46 999 7200 "pyw$x" 47 999 7200 "shell$x" 48 999 7200 "godo$x" 49 999 7200 "chrome-headless-shells$x"
+  or_expect "$lb: names that aren't on the list (notepad, sshd, nodejs, bashful, python3.x, godo...) aren't listed" ""
+  or_set "$sh" 25 999 37000 "pythonw$x" 30 999 32000 "Godot_v4.7.2-stable_win64_console$x" 21 999 41000 "python$x" 28 999 34000 "bash$x" 22 999 40000 "python3$x" 26 999 36000 "py$x" 24 999 38000 "PYTHON3.13$X" 29 999 33000 "sh$x" 23 999 39000 "python3.9$x" 27 999 35000 "node$x"
+  or_ten="pid 21 python (11 h), pid 22 python3 (11 h), pid 23 python3.9 (10 h), pid 24 PYTHON3.13 (10 h), pid 25 pythonw (10 h), pid 26 py (10 h), pid 27 node (9 h), pid 28 bash (9 h), pid 29 sh (9 h), pid 30 Godot_v4.7.2-stable_win64_console (8 h)"
+  or_expect "$lb: python, python3, python3.<n>, pythonw, py, node, bash, sh and godot*, in any case, are listed, oldest first" "$or_ten"
+  or_set "$sh" 31 999 31000 "chrome-headless-shell$x" 25 999 37000 "pythonw$x" 30 999 32000 "Godot_v4.7.2-stable_win64_console$x" 21 999 41000 "python$x" 28 999 34000 "bash$x" 22 999 40000 "python3$x" 26 999 36000 "py$x" 24 999 38000 "PYTHON3.13$X" 29 999 33000 "sh$x" 23 999 39000 "python3.9$x" 27 999 35000 "node$x"
+  or_expect "$lb: eleven orphans print the oldest ten and 'and 1 more' (a headless browser is on the list)" "$or_ten, and 1 more"
+  or_set "$sh" 31 999 31000 "chrome-headless-shell$x" 32 999 30000 "node$x" 33 999 29000 "node$x" 25 999 37000 "pythonw$x" 30 999 32000 "Godot_v4.7.2-stable_win64_console$x" 21 999 41000 "python$x" 28 999 34000 "bash$x" 22 999 40000 "python3$x" 26 999 36000 "py$x" 24 999 38000 "PYTHON3.13$X" 29 999 33000 "sh$x" 23 999 39000 "python3.9$x" 27 999 35000 "node$x"
+  or_expect "$lb: thirteen print ten and 'and 3 more'" "$or_ten, and 3 more"
+  or_set "$sh" 31 999 172801 "node$x" 32 999 172800 "node$x" 33 999 50400 "python3.13$x" 34 999 259200 "node$x" 35 999 7199 "bash$x"
+  or_expect "$lb: ages read as hours up to 48 and as days after" "pid 34 node (3 d), pid 31 node (2 d), pid 32 node (48 h), pid 33 python3.13 (14 h), pid 35 bash (1 h)"
+  odd='godot "x" \y {z}, $(w) `v` 100%'
+  or_set "$sh" 70 999 7200 "$odd$x" 71 999 3700 $'godot\303\276x'"$x"
+  or_expect "$lb: a name with quotes, backslashes, braces, a substitution and a percent sign is cut down to [A-Za-z0-9._-], so the JSON holds" "pid 70 godotxyzwv100 (2 h), pid 71 godotx (1 h)"
+  if [ "$sh" = win ]; then good="80 999 7200 node.exe"; else good="   80   999 02:00:00 node"; fi
+  or_raw "$sh" 'PID PPID ELAPSED COMM' '1 2' 'a b c d' "5 6 -3 node$x" "7 8 9999999999999 node$x" '' "$good"
+  or_expect "$lb: rows that aren't pid, ppid, age and name (a header, a short row, words, a negative age) are skipped" "pid 80 node (2 h)"
+  or_set "$sh"
+  or_expect "$lb: an empty list prints nothing" ""
+  or_set "$sh" 500 999 7200 "node$x"
+  if [ "$sh" = win ]; then : > "$or_stub/pwsh-fails"; else : > "$or_stub/ps-fails"; fi
+  or_expect "$lb: a process tool that fails prints nothing and exits 0" ""
+  or_set "$sh" 500 999 7200 "node$x"
+  out="$(printf '{}' | APP_DIRECTOR_ORPHAN_REPORT=0 PATH="$or_stub:$PATH" bash "$or_hook" 2>&1)"; status=$?
+  if [ -z "$out" ] && [ "$status" -eq 0 ] && [ ! -e "$or_stub/ps-calls" ] && [ ! -e "$or_stub/pwsh-calls" ]; then ok "$lb: APP_DIRECTOR_ORPHAN_REPORT=0 turns the hook off: nothing printed, the process list not read"
+  else bad "$lb: APP_DIRECTOR_ORPHAN_REPORT=0 turns the hook off" "exit $status: $out"; fi
+}
+or_cases win "Windows list"
+or_cases ps "ps list"
+
+# 2. Windows: PowerShell is asked for the processes, under timeout 8 when timeout exists, and the list's own shape is read.
+or_set win 500 999 7200 node.exe
+out="$(or_run)"
+case "$(<"$or_stub/pwsh-calls")" in
+  "-NoProfile -NonInteractive -Command "*"Get-CimInstance Win32_Process"*"CreationDate"*) ok "Windows: PowerShell runs with -NoProfile -NonInteractive -Command, and asks Get-CimInstance Win32_Process for each CreationDate" ;;
+  *) bad "Windows: PowerShell runs with -NoProfile -NonInteractive -Command, and asks Get-CimInstance Win32_Process for each CreationDate" "$(<"$or_stub/pwsh-calls")" ;;
+esac
+case "$(<"$or_stub/pwsh-calls")" in
+  *'if($_.CreationDate)'*) ok "and skips a process that has no CreationDate" ;;
+  *) bad "and skips a process that has no CreationDate" "$(<"$or_stub/pwsh-calls")" ;;
+esac
+[ ! -e "$or_stub/ps-calls" ] && ok "and ps isn't run" || bad "and ps isn't run" "$(<"$or_stub/ps-calls")"
+or_set win 500 999 7200 node.exe
+out="$(printf '{}' | PATH="$or_tstub:$or_stub:$PATH" bash "$or_hook" 2>&1)"
+[ "$out" = "$(or_json 'pid 500 node (2 h)')" ] && [ "$(<"$or_stub/timeouts")" = "8" ] && [ -e "$or_stub/pwsh-calls" ] && ok "the PowerShell run is under timeout 8 when timeout exists" || bad "the PowerShell run is under timeout 8 when timeout exists" "$out"
+or_set win 500 999 7200 node.exe
+out="$(printf '{}' | PATH="$or_stub:/nonexistent" "$BASH" "$or_hook" 2>&1)"
+[ "$out" = "$(or_json 'pid 500 node (2 h)')" ] && [ ! -e "$or_stub/timeouts" ] && ok "and without timeout on PATH it still asks" || bad "and without timeout on PATH it still asks" "$out"
+or_set win 500 999 7200 node.exe
+out="$(printf '{}' | PATH="$or_t124:$or_stub:$PATH" bash "$or_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && [ -e "$or_stub/pwsh-calls" ] && ok "a PowerShell run that times out (status 124) prints nothing, even with rows read, and exits 0" || bad "a PowerShell run that times out prints nothing" "exit $status: $out"
+out="$(printf '{}' | PATH="$or_bare" "$BASH" "$or_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "a Windows machine with no PowerShell prints nothing and exits 0" || bad "a Windows machine with no PowerShell prints nothing and exits 0" "exit $status: $out"
+or_set win 600 0 7200 node.exe
+or_expect "Windows: a ppid of 0 is a gone parent" "pid 600 node (2 h)"
+for or_sys in MSYS_NT-10.0-26200 CYGWIN_NT-10.0-19045; do
+  or_set win 500 999 7200 node.exe
+  echo "$or_sys" > "$or_stub/uname-is"
+  or_expect "$or_sys is a Windows machine too" "pid 500 node (2 h)"
+done
+
+# 3. Elsewhere: ps -A -o pid=,ppid=,etime=,comm=, with etime read from [[dd-]hh:]mm:ss and comm cut to its base name.
+or_set ps 500 999 7200 node
+out="$(printf '{}' | PATH="$or_tstub:$or_stub:$PATH" bash "$or_hook" 2>&1)"
+[ "$out" = "$(or_json 'pid 500 node (2 h)')" ] && [ "$(<"$or_stub/ps-calls")" = "-A -o pid=,ppid=,etime=,comm=" ] && [ ! -e "$or_stub/pwsh-calls" ] && [ ! -e "$or_stub/timeouts" ] \
+  && ok "elsewhere ps -A -o pid=,ppid=,etime=,comm= is run, with no PowerShell and no timeout" || bad "elsewhere ps -A -o pid=,ppid=,etime=,comm= is run" "$out"
+or_raw ps '   11     1 10-00:00:00 node' '   12     1  2-01:00:00 node' '   13     1  1-23:59:59 node' '   14     1  1-08:09:09 node' '   15     1    08:09:09 node' \
+  '   16     1    01:08:09 node' '   17     1       60:00 node' '   18     1       59:59 node' '   19     1    00:59:59 node'
+or_expect "etime reads right as dd-hh:mm:ss, hh:mm:ss and mm:ss, with zeros that aren't octal (08:09:09), and 59:59 is under the hour" \
+  "pid 11 node (10 d), pid 12 node (2 d), pid 13 node (47 h), pid 14 node (32 h), pid 15 node (8 h), pid 16 node (1 h), pid 17 node (1 h)"
+or_raw ps '   81     1 05:00:00 /usr/local/bin/node' '   82     1 04:00:00 /Applications/Some App.app/Contents/MacOS/python3.13' '   83     1 03:00:00 chrome-headless' \
+  '   84     1 02:00:01 Godot_v4.7-stab' '   85     1 02:00:00 /usr/sbin/sshd'
+or_expect "comm is cut to its base name (a path with spaces too), and Linux's 15-character chrome-headless counts" \
+  "pid 81 node (5 h), pid 82 python3.13 (4 h), pid 83 chrome-headless (3 h), pid 84 Godot_v4.7-stab (2 h)"
+or_raw ps '    1     0 10-00:00:00 launchd' '   90     1 02:00:00 node' '   91     0 02:00:00 sh'
+or_expect "a ppid of 1 or 0 is a gone parent, though a row for pid 1 exists and is older" "pid 90 node (2 h), pid 91 sh (2 h)"
+or_set ps 500 999 7200 node
+out="$(printf '{}' | PATH="/nonexistent" "$BASH" "$or_hook" 2>&1)"; status=$?
+[ -z "$out" ] && [ "$status" -eq 0 ] && ok "a machine with no ps (and no uname) prints nothing and exits 0" || bad "a machine with no ps (and no uname) prints nothing and exits 0" "exit $status: $out"
+or_set ps 500 999 7200 node
+echo Darwin > "$or_stub/uname-is"
+or_expect "Darwin reads ps too" "pid 500 node (2 h)"
+
+# 4. It only reads: nothing is stopped, signalled or written.
+if [ ! -e "$or_stub/killed" ]; then ok "no case called kill, taskkill, pkill or killall"; else bad "no case called kill, taskkill, pkill or killall" "$(<"$or_stub/killed")"; fi
+or_set ps 500 999 7200 node
+out="$(cd "$or_cwd" && printf '{}' | PATH="$or_stub:$PATH" bash "$or_hook" 2>&1)"
+if [ -n "$out" ] && [ -z "$(ls -A "$or_cwd")" ]; then ok "a run writes no file in the folder it runs in"; else bad "a run writes no file in the folder it runs in" "$(ls -A "$or_cwd")"; fi
+or_stops=$(grep -vE '^[[:space:]]*#' "$or_hook" | grep -niE 'kill|Stop-Process|Remove-|Set-|New-Item|Out-File|Add-Content|Invoke-' || true)
+if [ -z "$or_stops" ]; then ok "the hook names no command that stops, changes or writes anything"; else bad "the hook names no command that stops, changes or writes anything" "$or_stops"; fi
+or_writes=$(grep -vE '^[[:space:]]*#' "$or_hook" | grep '>' | grep -v '/dev/null' || true)
+if [ -z "$or_writes" ]; then ok "and redirects its output nowhere but /dev/null"; else bad "and redirects its output nowhere but /dev/null" "$or_writes"; fi
+unset -f kill
+
+# 5. The project check never runs it; settings.json runs it at session start with the release check, in one entry.
+if ! grep -rq 'orphan-report' "$src/framework/tools" "$src/framework/.githooks" "$src/framework/.app-director"; then ok "the project check and the git hooks don't run the orphan report, so a report never fails tools/check.sh"
+else bad "the project check and the git hooks don't run the orphan report" "$(grep -rn 'orphan-report' "$src/framework/tools" "$src/framework/.githooks" "$src/framework/.app-director")"; fi
+or_wiring="$(awk '/^    "[A-Za-z]+": \[/ { ev = $1; gsub(/[":]/, "", ev) } /"matcher"/ { split($0, a, "\""); m = a[4] }
+  /orphan-report\.sh/ { hit = ev ";" m; next } hit != "" && /"timeout"/ { t = $2; gsub(/[^0-9]/, "", t); print hit ";" t; hit = "" }' "$settings")"
+[ "$or_wiring" = "SessionStart;startup|resume;10" ] && ok "settings.json runs the orphan report at SessionStart, on startup and resume, with a timeout of 10 seconds" \
+  || bad "settings.json runs the orphan report at SessionStart, on startup and resume, with a timeout of 10 seconds" "$or_wiring"
+or_entry="$(awk '/^    "[A-Za-z]+": \[/ { ev = $1; gsub(/[":]/, "", ev) } ev == "SessionStart" && /"matcher"/ { m++ } ev == "SessionStart" && /"command":/ { n++ } END { print m ";" n }' "$settings")"
+[ "$or_entry" = "1;2" ] && ok "and in the same entry as the release check: one matcher, two hooks" || bad "and in the same entry as the release check: one matcher, two hooks" "$or_entry"
+or_bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|local|typeset) +-[a-zA-Z]*A|(^|[;&| ])(mapfile|readarray) +|(^|[;&| ])coproc +[A-Za-z]|[[:space:]]\|&[[:space:]]|\$\{[A-Za-z_0-9@*]+(\[[^]]*\])?: -[0-9]|stat +-c|date +-d|sed +-i|readlink +-f|-printf|-delete)' \
+  "$or_hook" || true)
+if [ -z "$or_bash4" ]; then ok "the orphan report uses no bash 4 form and no GNU-only tool flag"; else bad "the orphan report uses no bash 4 form and no GNU-only tool flag" "$or_bash4"; fi
+if grep -q 'APP_DIRECTOR_ORPHAN_REPORT=0' "$src/PRIVACY.md" && grep -q 'names, ids and ages of the processes on this machine' "$src/PRIVACY.md" && grep -q 'ended session left behind' "$src/README.md"; then
+  ok "PRIVACY.md says the hook reads the names, ids and ages of the processes and names the switch, and the README names the hook"
+else bad "PRIVACY.md says the hook reads the names, ids and ages of the processes and names the switch, and the README names the hook"; fi
+
 ) > "$seg/1-framework" 2>&1 &
 (
   trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-main"' EXIT
@@ -894,6 +1125,10 @@ grep -q "$(printf '\t')tools/ui/capture.mjs$" .app-director/manifest && ! grep -
   && grep -q 'release-check\.sh' .claude/settings.json && git check-ignore -q .app-director/state/latest-release \
   && ok "installs the release check hook, wires it into settings.json, and git ignores the cache it keeps" \
   || bad "installs the release check hook, wires it into settings.json, and git ignores the cache it keeps" "$(cat .gitignore)"
+[ -x .claude/hooks/orphan-report.sh ] && grep -q "$(printf '\t').claude/hooks/orphan-report.sh$" .app-director/manifest \
+  && grep -q 'orphan-report\.sh' .claude/settings.json \
+  && ok "installs the orphan report hook and wires it into settings.json" \
+  || bad "installs the orphan report hook and wires it into settings.json"
 
 out="$(bash "$src/install.sh" . 2>&1)"
 expect_output "a second run changes nothing" "0 new, 0 updated" "$out"

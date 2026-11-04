@@ -162,7 +162,8 @@ your-app/
 ├── .claude/agents/             builder (builds each item in a fresh context) · reviewer and researcher (read-only)
 ├── .claude/hooks/              runs the check before a turn ends, for a session that changed code;
 │                               blocks risky git commands; says at session start when the
-│                               project is behind the latest release
+│                               project is behind the latest release, and lists the processes
+│                               an ended session left behind
 └── .claude/settings.json       permissions, hooks, timeouts
 ```
 Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/settings.local.json`.
