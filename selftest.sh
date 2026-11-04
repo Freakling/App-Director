@@ -3446,6 +3446,50 @@ EOF
   fi
   guard_report "$slow_fail" "the guard is too slow on a long file body" "the guard reads a 29 KB GDScript heredoc and here-string, each in under 5 seconds:$slow_times"
 
+  # A command name written as a path (Director-Driven-Development T292): a quoted name with a space in its path, or an unquoted backslash
+  # path that starts with a drive, ., .., ~ or two backslashes, is read as its last part (git.exe is git) in the Bash and the PowerShell
+  # tool, after a prefix, a separator or a call operator. A path that is an argument, a message or a body nothing runs is text, and an
+  # escaped name (c\at) is still the shell's name.
+  git_fail=""
+  for cmd in \
+      '"C:\Program Files\Git\bin\git.exe" push --force' \
+      "& 'C:\\Program Files\\Git\\bin\\git.exe' push --force" \
+      'C:\Git\bin\git.exe push --force' \
+      '"C:\Program Files\Git\cmd\git.exe" push --force' \
+      'FOO=1 "C:\Program Files\Git\bin\git.exe" push --force' \
+      'env "C:\Program Files\Git\bin\git.exe" push --force' \
+      'cd x && "C:\Program Files\Git\bin\git.exe" push --force' \
+      'true; C:\Git\bin\git.exe push --force' \
+      'echo $("C:\Program Files\Git\bin\git.exe" push --force)' \
+      '"/usr/bin/git" push --force' \
+      '..\bin\git.exe push --force' \
+      '~\bin\git.exe push --force' \
+      '\\server\share\git.exe push --force' \
+      '"C:\Program Files\Git\bin\git.exe" reset --hard' \
+      '"C:\Program Files\Git\bin\git.exe" commit -m x --no-verify'; do
+    guard 2 "$cmd"
+    guard 2 "$cmd" PowerShell
+  done
+  guard 2 "bash <<'EOF'${nlc}\"C:\\Program Files\\Git\\bin\\git.exe\" push --force${nlc}EOF"
+  for cmd in \
+      "& 'C:\\Program Files\\Git\\bin\\git.exe' status" \
+      '"C:\Program Files\Git\bin\git.exe" log -1' \
+      '"C:\Program Files\Git\bin\git.exe" push origin main' \
+      'git commit -q -m "docs: C:\Program Files\Git\bin\git.exe push --force is blocked"' \
+      'echo "C:\Program Files\Git"' \
+      'echo "C:\Program Files\Git\bin\git.exe push --force"' \
+      'git log "C:\Program Files\Git\bin\git.exe"' \
+      'git log --format="C:\Git\bin\git.exe push --force"' \
+      'cp "C:\x y\git.exe" backup' \
+      'c\at README.md'; do
+    guard 0 "$cmd"
+    guard 0 "$cmd" PowerShell
+  done
+  guard 0 "cat > notes.md <<'EOF'${nlc}\"C:\\Program Files\\Git\\bin\\git.exe\" push --force${nlc}EOF${nlc}git add notes.md"
+  guard 0 "git commit -q -F - <<'EOF'${nlc}docs: \"C:\\Program Files\\Git\\bin\\git.exe\" push --force is blocked${nlc}EOF"
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read a command name written as a path, quoted with a space or as a backslash path, so git passes behind it, or it blocks a path that is an argument, a message or a body nothing runs (Director-Driven-Development T292)" "the guard hook blocks git behind a quoted path with a space, a backslash path, a prefix, a separator, a call operator and a substitution, in the Bash and the PowerShell tool, and a heredoc body a shell runs, and passes the paths that are arguments and messages and an escaped name (T292)"
+
   # The PowerShell tool (B24) has its own name. The guard runs for it only when the hook's matcher names it,
   # and a Bash(...) deny or ask rule stops the same command in PowerShell only through its PowerShell(...)
   # twin, in the same list. The allow list names no PowerShell command, so nothing PowerShell runs is allowed

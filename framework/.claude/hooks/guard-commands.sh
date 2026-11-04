@@ -72,6 +72,8 @@
 # PowerShell finds a command case-insensitively, and Windows finds GIT, so GIT and Git are git (B46). Only the name is
 # matched so: git's subcommands and flags stay case-sensitive, as git reads them, and the name is written [Gg][Ii][Tt].
 # A path before the name and .exe after it are part of the shell's finding it, so /usr/bin/git and git.exe are git too (gitw_re).
+# A command name written as a path is read as its last part too: a quoted path with a space in it, or an unquoted backslash path
+# that starts with a drive, ., .., ~ or two backslashes (C:\Git\bin\git.exe push --force). See "Command names that are paths".
 # The shell's name in the script-path rule is read the same way (B47): "bash", 'sh' and BASH are bash and sh.
 # A heredoc body a shell runs (any body but a message, B40 and B48) takes a backtick as the end of a flag, and its words and the file-writing flags
 # are read there too; git branch with a delete and a force flag, git push --mirror, --delete and -d, and a :ref refspec are
@@ -1833,6 +1835,10 @@ shopt -u nocasematch
 # The git name is read as the shell reads it, quotes removed, so "git", 'git' and g"it" are git (B39).
 bare_g="${detect//$brackets/ }"; bare_g="${bare_g//[\"\'\\]/}"
 isgit=0; [[ $bare_g =~ (^|[^[:alnum:]_.-])[Gg][Ii][Tt](\.[Ee][Xx][Ee])?([[:space:]]|$) ]] && isgit=1
+# A path's last part is a name, so the git gate reads each backslash as a space (gp_g): "C:\Program Files\Git\bin\git.exe" is git, and
+# so is C:\Git\bin\git.exe. The words (dec_seg) read the same name, so a quoted path that isn't a name stays text.
+gp_g="${hst//[\"\']/}"; gp_g="${gp_g//\\/ }"
+[[ $gp_g =~ (^|[^[:alnum:]_.-])[Gg][Ii][Tt](\.[Ee][Xx][Ee])?([[:space:]]|$) ]] && isgit=1
 # The shell's name is read as the git name is (B47): quotes removed, and in any case, so "bash", 'sh' and BASH are a shell.
 isbash=0; [[ $bare_g =~ (^|[^[:alnum:]_.-])([Bb][Aa])?[Ss][Hh]([[:space:]]|$) ]] && isbash=1
 # A gh command (quotes removed, as the shell reads it) is read for the gh auth token rule too (B39).
@@ -2052,15 +2058,77 @@ cmt_spans_ps() {
 x5=$'\x05'
 qre='^(([^"'$sq1'\\]|\\.)*)("(([^"\\]|\\.)*)"|'$sq1'([^'$sq1']*)'$sq1')'
 lre='^(([^"'$sq1'\\]|\\.)*)(["'$sq1'])'
+# --- Command names that are paths -----------------------------------------------------------------
+# A command's name can be written as a path: a quoted one with a space in it ("C:\Program Files\Git\bin\git.exe" push --force, and
+# & 'C:\Program Files\Git\bin\git.exe' status), or a backslash path (C:\Git\bin\git.exe push --force). The first was blanked as text,
+# and the second lost its backslashes, so no git rule read the name. A name is the first word of a segment that isn't a prefix word
+# (NAME=value, the wrappers in nm_pfx, a . call operator; & is a separator, so the word after it is first). It reads as its last part
+# without .exe, .cmd or .bat, in any case. NMS is 1 at a name position. A backslash is a path where the shell doesn't read it as an
+# escape: always in PowerShell, and in Bash only when the word starts with a drive, ., .. or ~ or is a UNC path (c\at is still cat).
+# The git gate (gp_g, above) reads the same paths. The shell gate and its wrapper reader still read the bare text.
+nm_pfx='([A-Za-z_][A-Za-z0-9_]*\+?=[^[:space:]]*|env|exec|command|sudo|nohup|time|timeout|nice|ionice|stdbuf|xargs|builtin|setsid|watch|doas|coproc|if|then|else|elif|do|while|until|!|\{|-[^[:space:]]*|[0-9.]+[smhd]?|\.)'
+nm_wpfx_re='^'"$nm_pfx"'$'
+nm_all_re='^[[:space:]]*('"$nm_pfx"'[[:space:]]+)*('"$nm_pfx"')?[[:space:]]*$'
+nm_last_re='^(.*[;&|()'"$nl"'])?([^;&|()'"$nl"']*)$'
+nm_cut='[;&|()'"$nl"']*'
+nm_wre='^([[:space:]]*)(([\\].?|[^[:space:]\\])+)(.*)$'
+nm_bpath='^(([A-Za-z]:|\.\.?|~)[\\]|[\\][\\])'
+nm_path_re='[\\/]([^\\/]*)$'
+nm_ext_re='^(.+)\.([Ee][Xx][Ee]|[Cc][Mm][Dd]|[Bb][Aa][Tt])$'
+nm_cand_re='[[:space:]\\/]'
+NMS=1; NMO=""; NMB=""
+nm_bare() { # nm_bare <word>: sets NMB to the name the word names (its last part without .exe, .cmd or .bat), or to "" when it names none
+  NMB="$1"
+  [[ $NMB =~ $nm_path_re ]] && NMB="${BASH_REMATCH[1]}"
+  [[ $NMB =~ $nm_ext_re ]] && NMB="${BASH_REMATCH[1]}"
+  [[ -z $NMB || $NMB == *[[:space:]]* ]] && NMB=""
+  return 0
+}
+nm_chunk() { # nm_chunk <text>: sets NMO to a stretch of unquoted text as dec_seg reads it: a backslash that isn't an escape is removed, as
+  # before, and a name-position word that is a path is its name. NMS moves to the name state after the stretch, so a later quote knows.
+  local t="$1" o="" seg sep sg s2 ws w
+  NMO=""
+  [[ -z $t ]] && return 0
+  if [[ $t != *\\* ]]; then   # no backslash: the text stays, and only the state moves
+    NMO="$t"
+    if [[ $t =~ $nm_last_re ]]; then
+      if [[ -z ${BASH_REMATCH[1]} ]]; then [[ $t =~ $nm_all_re ]] || NMS=0
+      elif [[ ${BASH_REMATCH[2]} =~ $nm_all_re ]]; then NMS=1
+      else NMS=0; fi
+    fi
+    return 0
+  fi
+  while [[ -n $t ]]; do
+    seg="${t%%$nm_cut}"; t="${t:${#seg}}"; sep=""
+    if [[ -n $t ]]; then sep="${t:0:1}"; t="${t:1}"; fi
+    sg=""; s2="$seg"
+    while [[ $s2 =~ $nm_wre ]]; do
+      ws="${BASH_REMATCH[1]}"; w="${BASH_REMATCH[2]}"; s2="${BASH_REMATCH[4]}"
+      sg+="$ws"
+      if ((NMS)) && [[ $w =~ $nm_wpfx_re || $w == . ]]; then sg+="${w//\\/}"; continue; fi
+      if ((NMS)); then
+        NMS=0
+        if [[ $w == *\\* && ( $tool == PowerShell || $w =~ $nm_bpath ) ]]; then
+          nm_bare "$w"
+          if [[ -n $NMB ]]; then sg+="$NMB"; continue; fi
+        fi
+      fi
+      sg+="${w//\\/}"
+    done
+    o+="$sg$s2$sep"
+    [[ -n $sep ]] && NMS=1
+  done
+  NMO="$o"
+}
 # dec_seg <text> [1]: appends to dec the words of one stretch of a command, with the quoted strings walked from the left. One
-# with a space in it is message text, so it's blanked. One without a space is kept as a word: a flag ("--force", '-D'), a
-# refspec ("+main"), a path (".") or a subcommand ("drop") reads as it does to the shell. A quoted string that is a flag by
+# with a space in it is message text, so it's blanked, unless it is a command's name (a path, see above). One without a space is
+# kept as a word: a flag ("--force", '-D'), a refspec ("+main"), a path (".") or a subcommand ("drop") reads as it does to the shell. A quoted string that is a flag by
 # itself, or sits inside a word (--out"put"=x), keeps its spaces too. Inside a kept string, ; & | < > ( ) and a line break
 # are text, not separators: each is marked \x05, which no rule matches. A "..." holding a substitution keeps its text, which
 # has the placeholder, so the substitution's word is judged (B32). With the second argument 1 (a comment, B51) a quote that
 # never closes is text, and the quotes after it still pair within the comment.
 dec_seg() {
-  local rest="$1" lone="${2:-0}" pre quoted inner word keep
+  local rest="$1" lone="${2:-0}" pre quoted inner word keep fresh last
   while [[ $rest =~ $qre ]]; do
     pre="${BASH_REMATCH[1]}"; quoted="${BASH_REMATCH[3]}"; rest="${rest:${#BASH_REMATCH[0]}}"
     inner="${quoted:1:${#quoted}-2}"
@@ -2068,32 +2136,48 @@ dec_seg() {
       pre="${pre%?}"
       [[ $quoted == "'"* && $inner =~ \\[xuU0-7] ]] && block "ANSI-C quoting with a numeric escape (\$'\\055') can spell any flag past this check"
     fi
-    pre="${pre//\\/}"        # outside quotes a backslash only escapes the next character (a joined line is already one line)
-    dec+="$pre"
-    if [[ $inner == *$'\x1a'* ]]; then dec+="${inner//\\/}"; continue; fi   # a double-quoted substitution (B32)
+    nm_chunk "$pre"; dec+="$NMO"   # outside quotes a backslash only escapes the next character (a joined line is already one line)
+    # A quote starts a word unless the text before it ends in a word's characters (a glued one, such as --format="x")
+    fresh=1
+    if ((${#dec})); then
+      last="${dec:${#dec}-1}"
+      case $last in [[:space:]] | ';' | '&' | '|' | '(' | ')' | "$nl") ;; *) fresh=0 ;; esac
+    fi
+    if [[ $inner == *$'\x1a'* ]]; then dec+="${inner//\\/}"; ((fresh)) && NMS=0; continue; fi   # a double-quoted substitution (B32)
+    if ((fresh && NMS)) && [[ $inner =~ $nm_cand_re ]]; then   # a quoted name with a space or a path is read as its name
+      nm_bare "$inner"
+      if [[ -n $NMB ]]; then dec+=" $NMB "; NMS=0; continue; fi
+    fi
     word="${dec##*[[:space:];&|]}"               # the word so far
     keep=0
     if [[ $inner =~ ^--?[A-Za-z] ]]; then keep=1
     elif [[ $inner != *[[:space:]]* ]]; then keep=1
     elif [[ -n $word && $word =~ ^--[^=]*$ ]]; then keep=1; fi
     if ((keep)); then
+      if ((fresh)) && ! [[ $inner =~ $nm_wpfx_re ]]; then NMS=0; fi
       inner="${inner//[;&|<>()]/$x5}"; inner="${inner//$nl/$x5}"
       dec+="$inner"
-    else dec+=" Q "; fi
+    else
+      ((fresh)) && NMS=0
+      dec+=" Q "
+    fi
   done
   if ((lone)) && [[ $rest =~ $lre ]]; then           # B51: a comment's quote that never closes is text
     pre="${BASH_REMATCH[1]}"; rest="${rest:${#BASH_REMATCH[0]}}"
-    dec+="${pre//\\/}"; dec_seg "$rest" 1; return
+    nm_chunk "$pre"; dec+="$NMO"
+    dec_seg "$rest" 1; return
   fi
-  rest="${rest//\\/}"; dec+="${rest//[\"$sq1]/}"   # a quote left over never closes
+  nm_chunk "$rest"; dec+="${NMO//[\"$sq1]/}"   # a quote left over never closes
 }
 decode_words() {
   local orig="$1" p=0 k
   dec=""
+  NMS=1   # the text starts a command, and the text after a comment starts one too, since a comment ends its line
   if [[ $tool == PowerShell ]]; then cmt_spans_ps "$orig"; else cmt_spans "$orig"; fi
   for ((k = 0; k < ${#cms[@]}; k++)); do
     dec_seg "${orig:p:cms[k]-p}"
     dec_seg "${orig:cms[k]:cme[k]-cms[k]}" 1
+    NMS=1
     p=${cme[k]}
   done
   dec_seg "${orig:p}"

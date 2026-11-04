@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T43 · B8 · R1
+**Next IDs:** T44 · B8 · R1
 
 ## Queue
+
+### T43 · A quoted path with a space, or a backslash path, can't hide git from the guard · done · S · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md
+- Done when: the guard blocks `"C:\Program Files\Git\bin\git.exe" push --force`, `& 'C:\Program Files\Git\bin\git.exe' push --force` and `C:\Git\bin\git.exe push --force` in the Bash and PowerShell tools, as it blocks the bare name; a command name quoted with a space or a path, or an unquoted backslash path that starts with a drive, `.`, `..`, `~` or two backslashes, is read as its last part without `.exe`, `.cmd` or `.bat`; `& 'C:\Program Files\Git\bin\git.exe' status`, `"C:\Program Files\Git\bin\git.exe" log -1`, a commit message naming the path, `echo "C:\Program Files\Git"` and `c\at README.md` still pass; `selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T292
 
 ### T42 · The selftest's independent parts run side by side, and the guard cases run in lanes · done · S · agent
 - Touches: selftest.sh, CHANGELOG.md
