@@ -4,9 +4,17 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T53 · B8 · R1
+**Next IDs:** T54 · B8 · R1
 
 ## Queue
+
+### T53 · The selftest runs in far less time · done · L · agent
+- Touches: selftest.sh, framework/tools/check.sh, CHANGELOG.md, TASKS.md
+- Done when: `bash selftest.sh` finishes in under five minutes on this machine, with the same checks and output, measured before and after per section (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T283
+- Note: met with the machine quiet: 283 s on the final files, with no other project running. With other projects holding the cores it isn't: 491 s in a run that had them for part of its length. Only Git Bash on Windows ran it; macOS and Linux weren't run.
 
 ### T52 · A heredoc's delimiter isn't read as a Python with nothing to run · done · S · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md, TASKS.md

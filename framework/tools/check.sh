@@ -28,19 +28,25 @@ mode="${1:-}"
 state_dir=".app-director/state"
 GITLEAKS_MIN_DEFAULT="8.18.0"
 
-# Read an ini-style check.cfg value: cfg_get <section> <key>
+# Read an ini-style check.cfg value into cfg_value: cfg_get <section> <key>
 cfg_get() {
-  local section="$1" key="$2" in_section=0
+  local section="$1" key="$2" in_section=0 line k v cr=$'\r'
+  cfg_value=""
   [ -f tools/check.cfg ] || return 0
   while IFS= read -r line; do
-    line="$(printf '%s' "$line" | tr -d '\r' | sed 's/[[:space:]]*;.*//')"
+    # Comments and carriage returns come out. The pipeline starts four processes and a run reads about sixty lines, so
+    # only a line with one of them goes through it, and a line that is all comment needs nothing but emptying.
+    case "$line" in
+      \;*) line="" ;;
+      *\;*|*"$cr"*) line="$(printf '%s' "$line" | tr -d '\r' | sed 's/[[:space:]]*;.*//')" ;;
+    esac
     case "$line" in
       "[$section]") in_section=1 ;;
       "["*"]") in_section=0 ;;
       *) if [ "$in_section" -eq 1 ]; then
            k="${line%%=*}"; v="${line#*=}"
            k="${k%"${k##*[! ]}"}"; v="${v#"${v%%[! ]*}"}"
-           [ "$k" = "$key" ] && { printf '%s' "$v"; return; }
+           [ "$k" = "$key" ] && { cfg_value="$v"; return; }
          fi ;;
     esac
   done < tools/check.cfg
@@ -60,9 +66,8 @@ version_gte() {
   [ "$ic" -ge "$mc" ]
 }
 
-# Hash of every file that can change the result.
+# Hash of every file that can change the result. Outside a git repository there are no paths, so it prints nothing.
 fingerprint() {
-  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
   local paths
   paths="$(git -c core.quotePath=false ls-files -z -c -o --exclude-standard 2>/dev/null \
     | tr '\0' '\n' \
@@ -75,8 +80,11 @@ fingerprint() {
 }
 
 if [ "$mode" = "--fingerprint" ]; then fingerprint; exit 0; fi
-mkdir -p "$state_dir" || exit 3
+[ -d "$state_dir" ] || mkdir -p "$state_dir" || exit 3
 before="$(fingerprint)"
+
+# remove <file>: rm -f, with no process when there's nothing to remove.
+remove() { if [ -e "$1" ] || [ -L "$1" ]; then rm -f "$1"; fi; }
 
 # gitleaks's version, or "missing". Read once: the cached result depends on it (cache_key), and the
 # secrets step uses it, so a run calls `gitleaks version` at most once.
@@ -109,9 +117,9 @@ arch_only=0
 [ "$mode" = "--architecture" ] && arch_only=1
 
 # --- 1. UI purity check ---------------------------------------------------------------------------
-ui_dirs="$(cfg_get ui dirs)"
-data_dirs="$(cfg_get data dirs)"
-skip_dirs="$(cfg_get scan skip)"
+cfg_get ui dirs; ui_dirs="$cfg_value"
+cfg_get data dirs; data_dirs="$cfg_value"
+cfg_get scan skip; skip_dirs="$cfg_value"
 
 if [ -n "$ui_dirs" ] && [ -n "$data_dirs" ]; then
   echo "check: UI purity"
@@ -144,7 +152,7 @@ fi
 
 # --- 2. Secrets check (gitleaks) ------------------------------------------------------------------
 echo "check: secrets"
-gl_min="$(cfg_get gitleaks min-version)"
+cfg_get gitleaks min-version; gl_min="$cfg_value"
 gl_min="${gl_min:-$GITLEAKS_MIN_DEFAULT}"
 
 if [ "$gl_ver" = "missing" ]; then
@@ -170,7 +178,7 @@ gl_report="$state_dir/gitleaks.json"
 # and writes no report. So a failed scan that left no finding in the report is "couldn't scan"
 # (exit 3), never "credentials found". The scan's output is kept for that message.
 gl_scan() {
-  rm -f "$gl_report"
+  remove "$gl_report"
   if version_gte "$gl_ver" 8.19.1; then
     gitleaks dir --redact --report-path="$gl_report" . 2>&1
   else
@@ -179,7 +187,7 @@ gl_scan() {
 }
 gl_out="$(gl_scan)"; gl_rc=$?
 if [ "$gl_rc" -eq 0 ]; then
-  rm -f "$gl_report"
+  remove "$gl_report"
 elif grep -qs '"File"' "$gl_report"; then
   echo "check: secrets FAIL (OWASP Authentication Failures, credentials in source): gitleaks found credentials in the working tree."
   # Name each file with a finding. Only paths are printed; the values stay redacted in the report.
@@ -212,7 +220,7 @@ fi
 # [tests] timeout in tools/check.cfg (CHECK_TIMEOUT overrides it), default 600 seconds. GNU timeout only:
 # Windows' timeout.exe is something else. A run past the limit leaves exit status 124.
 limit="${CHECK_TIMEOUT:-}"
-[ -n "$limit" ] || limit="$(cfg_get tests timeout)"
+[ -n "$limit" ] || { cfg_get tests timeout; limit="$cfg_value"; }
 case "$limit" in ''|*[!0-9]*|0) limit=600 ;; esac
 timeout_cmd=""
 for candidate in timeout gtimeout; do
@@ -230,7 +238,7 @@ run_limited() {
 }
 
 # --- 3. Stack check -------------------------------------------------------------------------------
-stack="$(cfg_get project stack)"
+cfg_get project stack; stack="$cfg_value"
 if [ -z "$stack" ]; then
   echo "check: note: no stack set in tools/check.cfg [project] stack; only architecture checks ran"
 else
@@ -275,11 +283,11 @@ if [ "$failed" -eq 0 ]; then
   elif [ -n "$before" ]; then
     echo "check: note: files changed while the check ran; run it again to cover the changes."
   fi
-  rm -f "$state_dir/last-fail"
+  remove "$state_dir/last-fail"
   echo "check: PASS"
   exit 0
 fi
-rm -f "$state_dir/last-pass"
+remove "$state_dir/last-pass"
 if [ -n "$before" ] && [ "$before" = "$(fingerprint)" ]; then cache_key "$before" > "$state_dir/last-fail"; fi
 echo "check: FAIL (logs above)"
 exit 1
