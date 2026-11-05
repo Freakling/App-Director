@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.14.1 (2026-11-05)
 
 - **The guard blocks a Python with nothing to run.** `python3 -`, `python` or `py -3` with no script, no `-c`, no `-m` and nothing fed to it waits for input that never comes, and a time limit doesn't change that. The guard blocked only a Python reading a heredoc; now this form is blocked too, behind a path, a wrapper or a chain. `python3 - < x.py`, `cat x.py | python3 -`, a script file, `python3 --version` and `command -v python3` still pass, and so does a heredoc that ends in a line named `PY`.
   - **Upgrade steps:** none; the hook is framework-owned and arrives with the upgrade.
