@@ -33,10 +33,10 @@ expect_status() { # <what> <expected> <actual> [output]
   if [ "$3" -eq "$2" ]; then ok "$1"; else bad "$1 (exit $3, expected $2)" "${4:-}"; fi
 }
 expect_output() { # <what> <pattern> <output>
-  if printf '%s' "$3" | grep -qE -- "$2"; then ok "$1"; else bad "$1 (no match for /$2/)" "$3"; fi
+  if [ -n "$3" ] && grep -qE -- "$2" <<< "$3"; then ok "$1"; else bad "$1 (no match for /$2/)" "$3"; fi
 }
 expect_no_output() { # <what> <pattern> <output>
-  if printf '%s' "$3" | grep -qE -- "$2"; then bad "$1 (unexpected /$2/)" "$3"; else ok "$1"; fi
+  if [ -n "$3" ] && grep -qE -- "$2" <<< "$3"; then bad "$1 (unexpected /$2/)" "$3"; else ok "$1"; fi
 }
 git_q() { git -c user.name=selftest -c user.email=selftest@localhost "$@"; }
 hash_of() { git hash-object --stdin < "$1"; }
@@ -48,6 +48,13 @@ finish() {
 new_repo() { # new_repo <folder>
   mkdir -p "$1" && (cd "$1" && git init -q && git config core.autocrlf false \
     && printf '# app\n' > README.md && git add -A && git_q commit -qm init)
+}
+TAR=tar; [ -x /usr/bin/tar ] && TAR=/usr/bin/tar
+copy_without() { # copy_without <from> <to> <name>...: the folder's contents, without any file or folder of these names
+  local from="$1" to="$2" name skip=()
+  shift 2
+  for name in "$@"; do skip+=("--exclude=$name"); done
+  mkdir -p "$to" && (cd "$from" && "$TAR" "${skip[@]}" -cf - .) | (cd "$to" && "$TAR" -xf -)
 }
 # What a capture leaves behind when it is killed (T304). A capture killed while Chromium starts leaves the browser's helper processes
 # running on Windows (they hold the folder the browser was started in, which can't then be removed). Windows keeps a gone process's
@@ -97,14 +104,51 @@ stop_ui_leftovers() {
 }
 
 stories_seed="$src/project/product/user-stories.md"
-# The parts of the selftest that share nothing run side by side (T283). The framework checks run on their own. The installer
-# and the project check run in order, and then the guard cases (on a copy of the app as the check left it), the security and
-# user story checks and the prototype checks start beside the hooks and /ui-design. Each part writes its output and its counts
-# to its own file here, and the files print in the order of the sections, so the output reads as it always did.
+settings="$src/framework/.claude/settings.json"
+# The parts of the selftest run side by side (T283), and the last lines of this file start them. Each part is a function, run
+# in a subshell of its own from the temporary folder, and shares nothing another part changes: the ones that change the
+# installed example app each get a copy of it. Each writes its output and its counts to its own file here, and the files print
+# in the order of the sections, so the output reads as it always did. On a Windows machine measured here, processes start at about
+# 35 a second however many parts ask for them, from six parts up to thirty-two, so a run's length there is the number of processes
+# it starts, not the number of parts. Keep them few: a check that reads text already in a variable needs no pipeline.
 seg="$work/seg"; mkdir -p "$seg"
-( trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-framework"' EXIT
+# git's automatic maintenance starts a process after each commit, and no case tests it.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false
+part() { # part <name> <output file>: starts part_<name> beside the others. A part that stops early fails the run.
+  (
+    part_name="$1"
+    trap 'status=$?; printf "%s %s %s\n" "$passed" "$failed" "$status" > "$seg/count-$part_name"' EXIT
+    passed=0; failed=0
+    cd "$work" || exit 3
+    "part_$part_name"
+    exit 0
+  ) > "$seg/$2" 2>&1 &
+}
+part_framework() {
 # --- framework files ------------------------------------------------------------------------------
 echo "framework"
+# Most checks here ask whether a source file holds a plain text, hundreds of times. This grep answers grep -q and grep -qF on
+# one file under $src from the file's text, kept from the last call, when the pattern has nothing a regular expression reads
+# specially (\. and \* are a dot and a star). Everything else goes to grep itself.
+grep() {
+  local pattern="${2:-}" plain
+  if [ "$#" -eq 3 ] && [ -n "$pattern" ] && [ -f "$3" ]; then
+    case "$3" in "$src"/*) ;; *) command grep "$@"; return ;; esac
+    case "$1" in
+      -qF) ;;
+      -q) plain="${pattern//\\./}"; plain="${plain//\\\*/}"
+          case "$plain" in *[\\.*[\]^\$]*) command grep "$@"; return ;; esac
+          pattern="${pattern//\\./.}"; pattern="${pattern//\\\*/*}" ;;
+      *) command grep "$@"; return ;;
+    esac
+    if [ "$3" != "${grep_file:-}" ]; then
+      grep_file="$3"
+      IFS= read -r -d '' grep_text < "$3"
+    fi
+    case "$grep_text" in *"$pattern"*) return 0 ;; *) return 1 ;; esac
+  fi
+  command grep "$@"
+}
 
 plugin_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
   "$src/.claude-plugin/plugin.json")"
@@ -172,7 +216,7 @@ cmp -s "$src/LICENSE" "$src/framework/.app-director/LICENSE" \
 
 missing=""
 for skill in "$src"/framework/.claude/skills/*/SKILL.md; do
-  name="$(basename "$(dirname "$skill")")"
+  name="${skill%/*}"; name="${name##*/}"
   [ -f "$src/framework/.app-director/procedures/$name.md" ] || missing="$missing $name"
   grep -q "^name: $name$" "$skill" || missing="$missing $name(name)"
 done
@@ -188,7 +232,6 @@ for file in framework/.app-director/procedures/research.md framework/.app-direct
 done
 [ -z "$missing" ] && ok "the research assistant's files exist" || bad "research assistant files missing:$missing"
 researcher="$src/framework/.claude/agents/researcher.md"
-settings="$src/framework/.claude/settings.json"
 if [ "$(sed -n 's/^tools: //p' "$researcher" | tr -d '\r')" = "Read, Grep, Glob, WebSearch, WebFetch" ] \
     && grep -q '^model: inherit' "$researcher" \
     && grep -Eq '^ *"WebSearch",?[[:space:]]*$' "$settings" && grep -Eq '^ *"WebFetch",?[[:space:]]*$' "$settings"; then
@@ -294,7 +337,7 @@ done
 
 unrouted=""
 for proc in "$src"/framework/.app-director/procedures/*.md; do
-  name="$(basename "$proc")"
+  name="${proc##*/}"
   grep -qF "**$name:**" "$src/framework/.app-director/rules.md" \
     || grep -qF "\`$name\`" "$src/framework/.app-director/rules.md" \
     || unrouted="$unrouted $name"
@@ -564,21 +607,23 @@ EOF
 # may not open the credential stores (B15): five Read rules, always required, and the .env files that
 # hold values (.env.local and the other .env.<suffix> files the guard hook blocks, B21): twelve more,
 # each in its plain and **/ form.
-deny_needs() { # deny_needs <settings file> <allow rule pattern> <deny rule>...: the deny rules it lacks, when it allows that rule
-  local file="$1" pattern="$2" rule deny
-  sed -n '/"allow": *\[/,/\]/p' "$file" | grep -qE "$pattern" || return 0
-  deny="$(sed -n '/"deny": *\[/,/\]/p' "$file")"
-  shift 2
+deny_needs() { # deny_needs <allow rule pattern> <deny rule>...: the deny rules $deny lacks, when $allow has that rule
+  local pattern="$1" rule
+  grep -qE "$pattern" <<< "$allow" || return 0
+  shift
   for rule in "$@"; do
-    printf '%s\n' "$deny" | grep -qF "\"$rule\"" || printf '%s\n' "$rule"
+    case "$deny" in *"\"$rule\""*) ;; *) printf '%s\n' "$rule" ;; esac
   done
 }
 git_deny_missing() { # git_deny_missing <settings file>: the deny rules it lacks, for each wildcard rule it allows
-  deny_needs "$1" '"Bash\(git (diff|log|show|stash|commit) \*\)"' \
+  local allow deny
+  allow="$(sed -n '/"allow": *\[/,/\]/p' "$1")"
+  deny="$(sed -n '/"deny": *\[/,/\]/p' "$1")"
+  deny_needs '"Bash\(git (diff|log|show|stash|commit) \*\)"' \
     'Bash(git *--output*)' 'Bash(git *--no-index*)' 'Bash(git *--ext-diff*)' 'Bash(git commit *--file*)'
-  deny_needs "$1" '"Bash\(git grep \*\)"' 'Bash(git grep *--open*)' 'Bash(git grep *-O*)'
-  deny_needs "$1" '"Bash\(git tag \*\)"' 'Bash(git tag *--file*)'
-  deny_needs "$1" '"Bash\(bash tools/[^"]*\*' 'Bash(bash tools/*..*)'
+  deny_needs '"Bash\(git grep \*\)"' 'Bash(git grep *--open*)' 'Bash(git grep *-O*)'
+  deny_needs '"Bash\(git tag \*\)"' 'Bash(git tag *--file*)'
+  deny_needs '"Bash\(bash tools/[^"]*\*' 'Bash(bash tools/*..*)'
 }
 read_deny_missing() { # read_deny_missing <settings file>: the credential-store and .env Read rules it doesn't deny
   local rule deny
@@ -588,7 +633,7 @@ read_deny_missing() { # read_deny_missing <settings file>: the credential-store 
       'Read(.env.local)' 'Read(**/.env.local)' 'Read(.env.*.local)' 'Read(**/.env.*.local)' \
       'Read(.env.development)' 'Read(**/.env.development)' 'Read(.env.production)' 'Read(**/.env.production)' \
       'Read(.env.staging)' 'Read(**/.env.staging)' 'Read(.env.test)' 'Read(**/.env.test)'; do
-    printf '%s\n' "$deny" | grep -qF "\"$rule\"" || printf '%s\n' "$rule"
+    case "$deny" in *"\"$rule\""*) ;; *) printf '%s\n' "$rule" ;; esac
   done
 }
 if [ ! -f "$settings" ]; then
@@ -649,6 +694,9 @@ grep -qE '"bash"[[:space:]]*:' "$settings" && timeout_fail="$timeout_fail bash-k
 [ -z "$timeout_fail" ] && ok "every hook timeout in settings.json is at most 3600 seconds, the guard's at most 10, and the file has no bash key" \
   || bad "settings.json's hook timeouts (seconds: at most 3600, the guard's at most 10) or its bash key are wrong:$timeout_fail"
 
+}
+
+part_release() {
 # --- release check hook -------------------------------------------------------------------------
 # release-check.sh runs when a session starts and says when the installed version (the manifest's first line) is below the
 # latest release tag on GitHub. A throwaway project holds the manifest and the cache, and a stand-in git (first on PATH) records
@@ -689,8 +737,9 @@ rc_set() { # rc_set <manifest first line> [tag…]: a project at that version, n
 rc_cache_is() { # rc_cache_is <version>: write the cache with that value
   mkdir -p "$rc_proj/.app-director/state"; printf '%s\n' "$1" > "$rc_cache"
 }
-rc_run() { # the hook's output, stdout and stderr together; its exit status is the hook's
-  printf '{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}' | PATH="$rc_stub:$PATH" bash "$rc_hook" 2>&1
+printf '{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}' > "$work/rc-input"
+rc_run() { # the hook's output, stdout and stderr together; its exit status is the hook's. Always called in $(...).
+  PATH="$rc_stub:$PATH" exec bash "$rc_hook" < "$work/rc-input" 2>&1
 }
 rc_calls() { # how many times git was called
   local n=0 l
@@ -827,6 +876,9 @@ rc_bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|lo
   "$rc_hook" || true)
 if [ -z "$rc_bash4" ]; then ok "the release check uses no bash 4 form and no GNU-only tool flag"; else bad "the release check uses no bash 4 form and no GNU-only tool flag" "$rc_bash4"; fi
 
+}
+
+part_orphans() {
 # --- orphan report hook -------------------------------------------------------------------------
 # orphan-report.sh runs when a session starts and lists the Python, node, shell, Godot and headless browser processes that are
 # an hour old or more and whose parent is gone. Stand-ins first on PATH answer for the process list (powershell.exe on Windows, ps
@@ -911,8 +963,9 @@ or_raw() { # or_raw <win|ps> <line>…: that machine, with these lines as its li
   if [ "$shape" = win ]; then f="$or_stub/win-rows"; else f="$or_stub/ps-rows"; fi
   for l in "$@"; do printf '%s\n' "$l" >> "$f"; done
 }
-or_run() { # the hook's output, stdout and stderr together; its exit status is the hook's
-  printf '{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}' | PATH="$or_stub:$PATH" bash "$or_hook" 2>&1
+printf '{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}' > "$work/or-input"
+or_run() { # the hook's output, stdout and stderr together; its exit status is the hook's. Always called in $(...).
+  PATH="$or_stub:$PATH" exec bash "$or_hook" < "$work/or-input" 2>&1
 }
 or_json() { # or_json <list>: the line the hook prints for this list
   local t="Processes that outlived the shell that started them (parent gone, over an hour old): $1. They may be left over from an ended session. Stopping them is your call."
@@ -1058,9 +1111,9 @@ if grep -q 'APP_DIRECTOR_ORPHAN_REPORT=0' "$src/PRIVACY.md" && grep -q 'names, i
   ok "PRIVACY.md says the hook reads the names, ids and ages of the processes and names the switch, and the README names the hook"
 else bad "PRIVACY.md says the hook reads the names, ids and ages of the processes and names the switch, and the README names the hook"; fi
 
-) > "$seg/1-framework" 2>&1 &
-(
-  trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-main"' EXIT
+}
+
+part_main() {
 # --- installer ------------------------------------------------------------------------------------
 echo "installer"
 app="$work/todo-web"
@@ -1187,8 +1240,13 @@ out="$(bash "$src/install.sh" . 2>&1)"
 [ -f .app-director/LICENSE ] && ok "installs the LICENSE copy" \
   || bad "installs the LICENSE copy" "$out"
 
-# Installs from a cloned App Director folder and from one inside the app.
-adir_clone="$work/adir-clone"; cp -R "$src" "$adir_clone"; rm -rf "$adir_clone/.git"
+app_parts
+}
+
+# The rest of the installer's cases build their own apps from the source and share nothing with the example app.
+part_installer() {
+# Installs from a cloned App Director folder and from one inside the app. A clone has no node_modules, and its .git is made here.
+adir_clone="$work/adir-clone"; copy_without "$src" "$adir_clone" .git node_modules
 (cd "$adir_clone" && git init -q && git config core.autocrlf false \
   && git add -A && git_q commit -qm adir) >/dev/null 2>&1
 from_clone="$work/from-clone"; new_repo "$from_clone"
@@ -1246,11 +1304,14 @@ out="$(bash "$src/install.sh" "$gi_app" 2>&1)"; expect_status "upgrades an app w
   || bad "the upgrade's .gitattributes line goes under the one # App Director heading" "$(cat "$gi_app/.gitattributes")"
 
 inside="$work/inside"; new_repo "$inside"
-cp -R "$adir_clone" "$inside/App-Director"; rm -rf "$inside/App-Director/.git"
+copy_without "$adir_clone" "$inside/App-Director" .git
 printf '/App-Director/\n' >> "$inside/.git/info/exclude"
 out="$(bash "$inside/App-Director/install.sh" "$inside" 2>&1)"
 expect_status "installs from a folder inside the app" 0 $? "$out"
 
+}
+
+part_snapshot() {
 # An install from a source with unreleased changes says so. A copy of the installer and its files, in
 # a git repository of its own (so the commit is known), with the CHANGELOG given. The copy leaves out
 # the rest of this folder (tests, node_modules) to stay quick.
@@ -1327,27 +1388,17 @@ expect_no_output "the # source line isn't read as a file" "no longer part of App
 expect_no_output "the upgrade from an unreleased install closes without the snapshot line" "development snapshot" "$out"
 
 # Refuses a folder that isn't the repository root.
-mkdir -p "$app/sub"
-out="$(bash "$src/install.sh" "$app/sub" 2>&1)"
+mkdir -p "$snap_app/sub"
+out="$(bash "$src/install.sh" "$snap_app/sub" 2>&1)"
 expect_status "refuses a non-root folder" 1 $? "$out"
-
-cd "$app" || exit 1
+}
 
 # --- check ----------------------------------------------------------------------------------------
-echo "check"
 
-# Add a selftest detection rule to .gitleaks.toml so the planted marker is caught regardless of
-# entropy. The marker string is assembled at test time and never stored in this file.
+# What the parts know about gitleaks, and the stand-ins they share. It runs before the parts that need it start.
+gitleaks_setup() {
 _gl_rule_id="selftest-marker"
 _gl_marker_name="ADIR_SELFTEST_CRED"
-cat >> .gitleaks.toml << EOF
-
-[[rules]]
-id = "$_gl_rule_id"
-description = "App Director selftest marker; remove before production."
-regex = '''${_gl_marker_name}\\s*=\\s*['"]([A-Za-z0-9+/]{16,})['"]'''
-secretGroup = 1
-EOF
 
 # _cred_val assembled at test time from parts; no literal appears in this file and gitleaks
 # never sees it in source; it is written only to the temp working directory.
@@ -1387,6 +1438,67 @@ if [ "$_gl_ok" -eq 0 ]; then
 fi
 export PATH="$_stop_path"
 
+# Exit 3 when gitleaks is absent: the PATH without any directory that holds gitleaks (the stand-in's too).
+_no_gl_path=""
+for _gl_dir in $(printf '%s' "$PATH" | tr ':' '\n'); do
+  [ -x "$_gl_dir/gitleaks" ] || _no_gl_path="${_no_gl_path:+$_no_gl_path:}$_gl_dir"
+done
+
+# Stand-in for gitleaks: protect writes one finding, or exits 1 with no report (FAKE_GL_PROTECT=error),
+# as gitleaks 8.19.0 does for every scan. The check's dir and detect scans find nothing.
+_hook_gl="$work/fake-gl-hook"
+mkdir -p "$_hook_gl"
+cat > "$_hook_gl/gitleaks" << 'FAKE'
+#!/bin/bash
+case "$1" in
+  version) echo "v${FAKE_GL_VERSION:-8.18.0}" ;;
+  protect)
+    for a in "$@"; do case "$a" in --report-path=*) report="${a#--report-path=}" ;; esac; done
+    [ "${FAKE_GL_PROTECT:-finding}" = error ] && exit 1
+    printf '[\n {\n  "RuleID": "selftest-marker",\n  "Secret": "REDACTED",\n  "File": "src/services/TodoService.ts",\n  "Fingerprint": "src/services/TodoService.ts:selftest-marker:14"\n }\n]\n' > "$report"
+    exit 1 ;;
+  *) exit 0 ;;
+esac
+FAKE
+chmod +x "$_hook_gl/gitleaks"
+}
+
+# Once the installer's first cases have left the example app: the parts that need it.
+app_parts() {
+cd "$app" || exit 1
+
+# Add a selftest detection rule to .gitleaks.toml so the planted marker is caught regardless of
+# entropy. The marker string is assembled at test time and never stored in this file.
+cat >> .gitleaks.toml << EOF
+
+[[rules]]
+id = "$_gl_rule_id"
+description = "App Director selftest marker; remove before production."
+regex = '''${_gl_marker_name}\\s*=\\s*['"]([A-Za-z0-9+/]{16,})['"]'''
+secretGroup = 1
+EOF
+
+# The parts that change the app each get a copy of it as the installer left it (with the rule above). The example app itself
+# stays with /ui-design, which needs its path.
+_cp_pids=""
+for _lane_app in check1 check2 check3 guard hooks commit; do
+  ( rm -rf "$work/$_lane_app-app"; cp -R "$app" "$work/$_lane_app-app" ) &
+  _cp_pids="$_cp_pids $!"
+done
+for _cp_pid in $_cp_pids; do wait "$_cp_pid" || exit 3; done
+part check1 2c-check1
+part check2 2d-check2
+part check3 2e-check3
+part guard 3-guard
+part hooks 4a-hooks
+part commit 4b-precommit
+part ui_design 5-ui-design
+wait
+}
+
+part_check1() {
+  cd "$work/check1-app" || exit 3
+echo "check"
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes on a fresh install of the example" 0 $? "$out"
 out="$(bash tools/check.sh --if-changed 2>&1)"
@@ -1451,6 +1563,10 @@ else
   echo "  skip  the same string in src/x.ts still fails the secrets check"
 fi
 
+}
+
+part_check2() {
+  cd "$work/check2-app" || exit 3
 # Scan command by gitleaks version, with a test double, so it runs without real gitleaks: the double
 # reports $FAKE_GL_VERSION, scans with $FAKE_GL_SCAN, writes one finding in gitleaks' report layout
 # and exits 1 (leaks found). Regression: gitleaks 8.18 has no working `dir`, so check.sh must scan
@@ -1458,7 +1574,7 @@ fi
 _scan_gl="$work/fake-gl-scan"
 mkdir -p "$_scan_gl"
 cat > "$_scan_gl/gitleaks" << 'FAKE'
-#!/usr/bin/env bash
+#!/bin/bash
 echo "$*" >> "$FAKE_GL_LOG"
 case "$1" in
   version) echo "v$FAKE_GL_VERSION" ;;
@@ -1487,7 +1603,7 @@ done
 _err_gl="$work/fake-gl-error"
 mkdir -p "$_err_gl"
 cat > "$_err_gl/gitleaks" << 'FAKE'
-#!/usr/bin/env bash
+#!/bin/bash
 case "$1" in
   version) echo "v$FAKE_GL_VERSION" ;;
   *) echo "FTL $FAKE_GL_ERROR" >&2; exit 1 ;;
@@ -1509,11 +1625,7 @@ expect_no_output "a scan error with no finding is not a finding, and a stale rep
 rm -f .app-director/state/gitleaks.json
 
 # Exit 3 when gitleaks is absent: rebuild PATH stripping every directory that holds gitleaks
-# (including the fake one when we set it up, so this path contains neither).
-_no_gl_path=""
-for _gl_dir in $(printf '%s' "$PATH" | tr ':' '\n'); do
-  [ -x "$_gl_dir/gitleaks" ] || _no_gl_path="${_no_gl_path:+$_no_gl_path:}$_gl_dir"
-done
+# (including the fake one when we set it up, so this path contains neither). Built before the parts fork.
 out="$(PATH="$_no_gl_path" bash tools/check.sh 2>&1)"
 if [ $? -eq 3 ]; then ok "exits 3 when gitleaks is missing"; else bad "exits 3 when gitleaks is missing" "$out"; fi
 
@@ -1537,7 +1649,7 @@ if [ -n "$_gnu_timeout" ]; then
   out="$(bash tools/check.sh 2>&1)"
   expect_status "exits 3 when the stack check outlasts [tests] timeout" 3 $? "$out"
   printf '%s' "$out" | grep -q "timed out after 1 s" && ok "and says which run timed out and the limit" || bad "the timeout message" "$out"
-  printf '[project]\nstack = failing\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout = 1\n' > tools/check.cfg
+  printf '[project]\nstack = failing\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout = 5\n' > tools/check.cfg
   printf '#!/usr/bin/env bash\nsleep 20\n' > tools/check.local.sh
   out="$(bash tools/check.sh 2>&1)"
   expect_status "exits 1, not 3, when a failure was seen before the timeout" 1 $? "$out"
@@ -1550,6 +1662,10 @@ cp "$work/saved-cfg" tools/check.cfg
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes again after faults removed" 0 $? "$out"
 
+}
+
+part_check3() {
+  cd "$work/check3-app" || exit 3
 # --if-changed repeats a result only while gitleaks is the one it ran with. A changed version (even
 # the 8.19.0 that can't scan) or a removed gitleaks runs the secrets step again. The stand-in logs each
 # call, and a reused pass calls `gitleaks version` once and nothing else.
@@ -1557,7 +1673,7 @@ _cache_gl="$work/fake-gl-cache"
 _cache_log="$work/fake-gl-cache.log"
 mkdir -p "$_cache_gl"
 cat > "$_cache_gl/gitleaks" << 'FAKE'
-#!/usr/bin/env bash
+#!/bin/bash
 [ -n "${FAKE_GL_LOG:-}" ] && echo "$1" >> "$FAKE_GL_LOG"
 case "$1" in
   version) echo "v$FAKE_GL_VERSION" ;;
@@ -1607,10 +1723,9 @@ cp "$work/saved-ui-cache" src/ui/TodoList.ts
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes again once the UI violation is removed" 0 $? "$out"
 
-  rm -rf "$work/guard-app"; cp -R "$app" "$work/guard-app" || exit 3
-  (
-    trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-guard"' EXIT
-    passed=0; failed=0
+}
+
+part_guard() {
     cd "$work/guard-app" || exit 3
 # --- guard-commands hook --------------------------------------------------------------------------
 echo "guard-commands hook"
@@ -1640,10 +1755,14 @@ json_str() {
   JSON_STR="$out"
 }
 # The guard cases (Director-Driven-Development B41). guard queues a case: its JSON payload goes to a file, and its expected
-# exit code, tool and text are kept. guard_run runs the queued cases, guard_jobs at a time, each as its own run of the hook
-# with its own payload, then checks every exit code against that case's expected one, in the order the cases were queued,
+# exit code, tool and text are kept. guard_run runs the queued cases, up to guard_jobs at a time, each as its own run of the
+# hook with its own payload, then checks every exit code against that case's expected one, in the order the cases were queued,
 # so a failure names its case and why. Each block of cases ends with guard_run and guard_report.
-guard_jobs=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4); [ "$guard_jobs" -le 12 ] || guard_jobs=12
+# Each lane is a bash of its own that holds no variables, and each case sources the hook in a subshell of it, with no
+# arguments and the payload on stdin (T283). The hook sees what a run of its own sees, and on Windows this takes a fraction
+# of the time of starting a bash on a script this long, thousands of times over. The cases below that need the hook's
+# own environment (env.json) or its real time (slow.json) still start it as Claude Code does.
+guard_jobs=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4); [ "$guard_jobs" -le 6 ] || guard_jobs=6
 guard_cmds=(); guard_exps=(); guard_tools=(); guard_msgs=()
 guard() { # guard <expected-exit> <command> [tool name: Bash by default, or PowerShell] [pattern its message must match, any case]
   local n=${#guard_cmds[@]} tool="${3:-Bash}"
@@ -1652,22 +1771,28 @@ guard() { # guard <expected-exit> <command> [tool name: Bash by default, or Powe
   guard_cmds+=("$2"); guard_exps+=("$1"); guard_tools+=("$tool"); guard_msgs+=("${4:-}")
 }
 guard_run() {
-  local n=${#guard_cmds[@]} lanes i k rc
-  lanes=$guard_jobs; [ "$lanes" -le "$n" ] || lanes=$n
+  local n=${#guard_cmds[@]} lanes i j k rc msg="" said=$'\n' files
+  lanes=$(((n + 19) / 20)); [ "$lanes" -le "$guard_jobs" ] || lanes=$guard_jobs
   for ((k = 0; k < lanes; k++)); do
-    (
-      for ((i = k; i < n; i += lanes)); do
-        bash .claude/hooks/guard-commands.sh < "$guard_dir/$i.json" >/dev/null 2>"$guard_dir/$i.err"
-        echo "$?" > "$guard_dir/$i.rc"
-      done
-    ) &
+    bash -c 'while [ "$2" -lt "$4" ]; do
+      ( set --; . .claude/hooks/guard-commands.sh ) < "$1/$2.json" >/dev/null 2>"$1/$2.err"
+      echo "$?" > "$1/$2.rc"
+      set -- "$1" "$(($2 + $3))" "$3" "$4"
+    done' guard-lane "$guard_dir" "$k" "$lanes" "$n" &
   done
   wait
+  # One grep for each message, over the cases that expect it.
+  for ((i = 0; i < n; i++)); do
+    [ -n "${guard_msgs[i]}" ] && [ "${guard_msgs[i]}" != "$msg" ] || continue
+    msg="${guard_msgs[i]}"; files=()
+    for ((j = i; j < n; j++)); do [ "${guard_msgs[j]}" != "$msg" ] || files+=("$guard_dir/$j.err"); done
+    said+="$(grep -li -- "$msg" "${files[@]}")"$'\n'
+  done
   for ((i = 0; i < n; i++)); do
     read -r rc < "$guard_dir/$i.rc" || rc=-1
     if [ "$rc" -ne "${guard_exps[i]}" ]; then
       git_fail="$git_fail"$'\n'"  guard exited $rc, expected ${guard_exps[i]} (${guard_tools[i]}): ${guard_cmds[i]//$'\n'/ NL }"
-    elif [ -n "${guard_msgs[i]}" ] && ! grep -qi -- "${guard_msgs[i]}" "$guard_dir/$i.err"; then
+    elif [ -n "${guard_msgs[i]}" ] && [[ $said != *$'\n'"$guard_dir/$i.err"$'\n'* ]]; then
       git_fail="$git_fail"$'\n'"  guard's message lacks \"${guard_msgs[i]}\" (${guard_tools[i]}): ${guard_cmds[i]//$'\n'/ NL }"
     fi
   done
@@ -4145,6 +4270,7 @@ EOF
       $'python3 \\\n  -u \\\n  -' \
       $'timeout 60 \\\n  python3 -' \
       $'# note \\\npython3 -' \
+      $'cat <<E | head\nx\nE\npython3' \
       $'bash <<\'X\'\npython3 -\nX'; do
       guard 2 "$cmd" Bash "$bare_msg"
     done
@@ -4263,6 +4389,10 @@ EOF
       $'cat x.py | \\\n  python3 -' \
       $'cat x.py |\n  python3 -' \
       $'# note \\\npython3 tool.py' \
+      $'python3 tool.py <<\'PY\'\ndata\nPY' \
+      $'python3 tool.py <<PY\ndata\nPY' \
+      $'node x.js <<-PY\n\tdata\n\tPY' \
+      $'ruby x.rb <<"python"\ndata\npython' \
       $'gh pr create --title t --body-file - <<\'E\'\npython3 -\nE'; do
       guard 0 "$cmd"
     done
@@ -4376,8 +4506,10 @@ EOF
     while IFS= read -r rule; do
       [ -n "$rule" ] || continue
       twin="PowerShell(${rule#Bash(}"
-      printf '%s\n' "$arr" | grep -qF "\"$twin\"" \
-        || ps_fail="$ps_fail"$'\n'"  settings.json's $list rules have $rule but no $twin"
+      case "$arr" in
+        *"\"$twin\""*) ;;
+        *) ps_fail="$ps_fail"$'\n'"  settings.json's $list rules have $rule but no $twin" ;;
+      esac
     done <<< "$(printf '%s\n' "$arr" | grep -oE '"Bash\([^"]*\)"' | tr -d '"')"
   done
   printf '%s\n' "$perm_allow" | grep -q 'PowerShell(' \
@@ -4385,11 +4517,9 @@ EOF
   guard_report "$ps_fail" "the PowerShell tool isn't wired to the guard and the deny rules (B24)" "the guard hook's matcher names PowerShell, every Bash deny rule has a PowerShell twin, and the allow list names no PowerShell command"
 fi
 
-  ) > "$seg/3-guard" 2>&1 &
-  guard_pid=$!
-  (
-    trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-security"' EXIT
-    passed=0; failed=0
+}
+
+part_security() {
 # --- security assessment --------------------------------------------------------------------------
 echo "security assessment"
 # The tool step (tools/security.sh) on the seeded fixture and its clean twin (tests/security/README.md).
@@ -4413,18 +4543,18 @@ grep -q "${_tk1}${_tk2}" "$_sv/src/payments.js" && ok "the seeded copy holds a g
 # Stand-ins: an npm whose audit reports lodash (or can't reach the registry), and a semgrep with one finding.
 _sec_bin="$work/security-bin"; mkdir -p "$_sec_bin/vuln" "$_sec_bin/offline" "$_sec_bin/semgrep"
 cat > "$_sec_bin/vuln/npm" << 'FAKE'
-#!/usr/bin/env bash
+#!/bin/bash
 [ "$1" = "audit" ] || exit 0
 printf '# npm audit report\n\nlodash  <=4.17.20\nSeverity: high\nPrototype Pollution in lodash\nnode_modules/lodash\n\n3 vulnerabilities (1 moderate, 2 high)\n'
 exit 1
 FAKE
 cat > "$_sec_bin/offline/npm" << 'FAKE'
-#!/usr/bin/env bash
+#!/bin/bash
 printf 'npm error code ENOTFOUND\nnpm error audit endpoint returned an error\n'
 exit 1
 FAKE
 cat > "$_sec_bin/semgrep/semgrep" << 'FAKE'
-#!/usr/bin/env bash
+#!/bin/bash
 printf 'src/server.js:20:24:error(javascript.lang.security.audit.sqli.node-sqli):Untrusted input in a SQL string MATCHED_SOURCE_TEXT\n'
 exit 1
 FAKE
@@ -4448,7 +4578,7 @@ expect_output "it is noted with its reason" "^security: dependencies \(npm audit
 expect_output "a tool that isn't installed is skipped with a note" "^security: semgrep \(p/owasp-top-ten\): skipped: semgrep isn't installed" "$out"
 # A non-zero exit is never clean, even with the nothing-found line: a failed run is couldn't run.
 mkdir -p "$_sec_bin/failed"; cat > "$_sec_bin/failed/npm" << 'FAKE'
-#!/usr/bin/env bash
+#!/bin/bash
 printf 'npm error network request failed\nfound 0 vulnerabilities\n'
 exit 1
 FAKE
@@ -4507,6 +4637,9 @@ expect_output "--due counts squash-merge subjects and is due at [security] every
 out="$(cd "$_sv" && bash tools/security.sh --due 2>&1)"
 expect_output "--due ignores an item ID that doesn't end the subject" ": 3, \[security\] every = 3" "$out"
 
+}
+
+part_stories() {
 # --- user stories ---------------------------------------------------------------------------------
 echo "user stories"
 # tools/stories.sh --due counts built items as tools/security.sh --due does, from the commit on the
@@ -4563,19 +4696,21 @@ cp "$src/framework/tools/stories.sh" "$_st_nogit/tools/"; cp "$stories_seed" "$_
 out="$(cd "$_st_nogit" && GIT_CEILING_DIRECTORIES="$work" bash tools/stories.sh --due 2>&1)"; status=$?
 expect_status "stories --due exits 3 outside a git repository" 3 "$status" "$out"
 expect_output "and says it couldn't count" "^stories: couldn't count: not a git repository$" "$out"
-  ) > "$seg/6-security" 2>&1 &
-  security_pid=$!
-  exec > "$seg/4-protected" 2>&1
+}
+
+part_hooks() {
+  app="$work/hooks-app"; cd "$app" || exit 3
 # --- guard-protected hook -------------------------------------------------------------------------
 echo "guard-protected hook"
 # Claude Code sends the path as given: relative, absolute POSIX, or Windows (JSON-escaped). The
 # project root is $CLAUDE_PROJECT_DIR (the Windows cases pass a made-up root; the hook only reads text).
 guard_write() { # guard_write <expected exit> <what> <file_path as sent (JSON-escaped)> [project dir]
-  local out got
+  local out got verdict=allows
   out="$(printf '{"session_id":"s","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' "$3" \
     | CLAUDE_PROJECT_DIR="${4:-$app}" bash .claude/hooks/guard-protected.sh 2>&1)"
   got=$?
-  if [ "$got" -eq "$1" ]; then ok "$([ "$1" -eq 2 ] && echo blocks || echo allows): $2"; else bad "guard-protected exit $got, expected $1: $2" "$out"; fi
+  [ "$1" -eq 2 ] && verdict=blocks
+  if [ "$got" -eq "$1" ]; then ok "$verdict: $2"; else bad "guard-protected exit $got, expected $1: $2" "$out"; fi
 }
 guard_write 2 "relative director/mockup.png" 'director/mockup.png'
 guard_write 2 "relative director/notes.md" 'director/notes.md'
@@ -4661,7 +4796,9 @@ rm -f .app-director/state/building
 out="$(stop_hook)"; expect_status "blocks again once the builder is done" 2 $? "$out"
 cp "$work/stop-passing" src/ui/TodoList.ts
 out="$(stop_hook)"; expect_status "lets the fixed state through" 0 $? "$out"
+}
 
+part_session() {
 # --- Stop hook, per session -----------------------------------------------------------------------
 # Two sessions can share one working folder (a design session and a build session, no worktree). The Stop hook runs the
 # check only for a session that wrote or edited a source file itself: session-touched.sh keeps that record by the
@@ -4831,7 +4968,10 @@ bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|local
   "$sr_hooks/session-touched.sh" "$sr_hooks/stop-check.sh" || true)
 if [ -z "$bash4" ]; then ok "the Stop hook and the record hook use no bash 4 form and no GNU-only tool flag"
 else bad "the Stop hook and the record hook use no bash 4 form and no GNU-only tool flag" "$bash4"; fi
+}
 
+part_commit() {
+  app="$work/commit-app"; cd "$app" || exit 3
 # --- pre-commit hook ------------------------------------------------------------------------------
 echo "pre-commit hook"
 # PATH already includes gitleaks (real or fake) from the check section export above.
@@ -4862,7 +5002,7 @@ fi
 _refuse_gl="$work/fake-gl-refuse"
 mkdir -p "$_refuse_gl"
 cat > "$_refuse_gl/gitleaks" << 'FAKE'
-#!/usr/bin/env bash
+#!/bin/bash
 case "$1" in
   version) echo "v8.19.0" ;;
   *) echo "FTL flag accessed but not defined: source" >&2; exit 1 ;;
@@ -4951,24 +5091,7 @@ stage_secret() {
   cp "$work/saved-svc-staged" src/services/TodoService.ts
 }
 
-# Stand-in for gitleaks: protect writes one finding, or exits 1 with no report (FAKE_GL_PROTECT=error),
-# as gitleaks 8.19.0 does for every scan. The check's dir and detect scans find nothing.
-_hook_gl="$work/fake-gl-hook"
-mkdir -p "$_hook_gl"
-cat > "$_hook_gl/gitleaks" << 'FAKE'
-#!/usr/bin/env bash
-case "$1" in
-  version) echo "v${FAKE_GL_VERSION:-8.18.0}" ;;
-  protect)
-    for a in "$@"; do case "$a" in --report-path=*) report="${a#--report-path=}" ;; esac; done
-    [ "${FAKE_GL_PROTECT:-finding}" = error ] && exit 1
-    printf '[\n {\n  "RuleID": "selftest-marker",\n  "Secret": "REDACTED",\n  "File": "src/services/TodoService.ts",\n  "Fingerprint": "src/services/TodoService.ts:selftest-marker:14"\n }\n]\n' > "$report"
-    exit 1 ;;
-  *) exit 0 ;;
-esac
-FAKE
-chmod +x "$_hook_gl/gitleaks"
-
+# The stand-in gitleaks for the staged scan ($_hook_gl) is built before the parts fork (see the check section).
 stage_secret
 out="$(export PATH="$_hook_gl:$PATH"; git_q commit -qm "staged secret" 2>&1)"
 expect_status "pre-commit blocks a staged secret (stand-in)" 1 $? "$out"
@@ -5035,11 +5158,9 @@ else
   echo "  skip  real gitleaks Markdown staged-secret tests (gitleaks not found or below $_gl_min_req)"
 fi
 
-  (
-    trap 'printf "%s %s\n" "$passed" "$failed" > "$seg/count-prototype"' EXIT
-    passed=0; failed=0
+}
+
 # --- prototypes -----------------------------------------------------------------------------------
-echo "prototype"
 # tools/prototype.sh on a throwaway repository with an origin: start stops while origin/main is ahead, creates the
 # worktree beside the project, the branch from main with no upstream and the committed PROTOTYPE.md, and refuses
 # an existing name or an invalid one. Only a prototype (a linked worktree on a proto/ branch with PROTOTYPE.md at
@@ -5062,10 +5183,13 @@ _proto_repo() { # _proto_repo <folder> <origin>: an app with the prototype tools
     && git add -A && git commit -qm "tools and a stub check" && git remote add origin "$2" \
     && git push -q origin main && PATH="$_stop_path" bash tools/setup-clone.sh) >/dev/null 2>&1
 }
+part_prototype() {
+echo "prototype"
 _pa="$work/proto-app"; _pw="$work/proto-app-proto-quick-add"; _po="$work/proto-origin.git"
 _proto_repo "$_pa" "$_po"
-proto() { (cd "$_pa" && PATH="$_stop_path" bash tools/prototype.sh "$@" 2>&1); }
-commit_in() { (cd "$1" && PATH="$2" git commit -qm "$3" 2>&1); }   # commit_in <folder> <PATH> <message>
+# Both are always called in $(...), so they can change folder and give their process to the command.
+proto() { cd "$_pa" && PATH="$_stop_path" exec bash tools/prototype.sh "$@" 2>&1; }
+commit_in() { cd "$1" && PATH="$2" exec git commit -qm "$3" 2>&1; }   # commit_in <folder> <PATH> <message>
 _pa_none() { [ ! -e "$_pw" ] && [ -z "$(git -C "$_pa" for-each-ref refs/heads/proto/)" ]; }   # no prototype yet
 
 out="$(proto list)"
@@ -5322,7 +5446,10 @@ expect_output "list shows a prototype whose worktree is gone" "^proto/quick-add 
 [ -z "$(git --git-dir="$_po" for-each-ref refs/heads/proto/)" ] && [ -n "$(git --git-dir="$_po" for-each-ref refs/heads/main)" ] \
   && ok "nothing pushes a proto/ branch" || bad "a proto/ branch reached the origin" "$(git --git-dir="$_po" for-each-ref)"
 
+}
+
 # A project folder whose name has a space.
+part_protospace() {
 _ps="$work/proto space app"; _psw="$work/proto space app-proto-try"
 _proto_repo "$_ps" "$work/proto-space-origin.git"
 out="$(cd "$_ps" && PATH="$_stop_path" bash tools/prototype.sh start try 2>&1)"; status=$?
@@ -5335,10 +5462,9 @@ out="$(cd "$_ps" && bash tools/prototype.sh harvest try 2>&1)"
 expect_status "harvest works there" 0 $? "$out"
 out="$(cd "$_ps" && bash tools/prototype.sh remove try 2>&1)"; status=$?
 [ "$status" -eq 0 ] && [ ! -e "$_psw" ] && ok "remove works there" || bad "remove works in a folder whose name has a space (exit $status)" "$out"
+}
 
-  ) > "$seg/7-prototype" 2>&1 &
-  prototype_pid=$!
-  exec > "$seg/5-ui-design" 2>&1
+part_ui_design() {
 # --- /ui-design -----------------------------------------------------------------------------------
 echo "ui-design"
 # Everything here runs in the installed example ($app). The reader and the capture checks need Node;
@@ -5519,7 +5645,7 @@ else
 
   # An upgrade from the release before /ui-design: an app without its files gets the stubs, the
   # .gitignore lines and the manifest entries, and keeps its own AGENTS.md and check.cfg.
-  upgraded="$work/upgraded"
+  upgraded="$work/upgraded-ui"
   new_repo "$upgraded"
   bash "$src/install.sh" "$upgraded" >/dev/null 2>&1
   (cd "$upgraded" && rm -rf .app-director/procedures/ui-design.md .claude/skills/ui-design tools/ui_capture.sh tools/ui tools/ui_capture.cfg product/ui \
@@ -5550,7 +5676,7 @@ else
   if [ "$chromium_ok" -eq 0 ]; then
     echo "  skip  capture of the fixture web app (no Playwright with Chromium in tests/ui-web/node_modules or \$ADIR_PLAYWRIGHT)"
   else
-    rm -rf uifixture && cp -R "$src/tests/ui-web" uifixture && rm -rf uifixture/node_modules
+    rm -rf uifixture && copy_without "$src/tests/ui-web" uifixture node_modules
     port=$((40000 + $$ % 20000))
     # The runs that capture states that finish keep the shipped 60-second setup_timeout: a state here takes a fraction of a second,
     # but on a busy machine (the other parts of this selftest run beside this one, and so may other work) it can take seconds, and
@@ -5711,14 +5837,32 @@ EOF
   cp "$work/saved-ui-cfg" tools/ui_capture.cfg; cp "$work/saved-catalog" tools/ui/screens.mjs; cp "$work/saved-check-cfg" tools/check.cfg
   rm -rf product/ui/captures product/ui/clean.md uifixture tools/ui/node_modules src/ui/screens
 fi
+}
 
-  wait "$guard_pid" "$security_pid" "$prototype_pid"
-) > "$seg/2-installer-check" 2>&1 &
+# --- the run --------------------------------------------------------------------------------------
+# The parts that need only the source start at once. part_main installs the example app and starts the ones that need it (app_parts).
+part framework 1-framework
+part release 1b-release
+part orphans 1c-orphans
+gitleaks_setup
+part installer 2b-installer
+part snapshot 2b-snapshot
+part security 6-security
+part stories 6b-stories
+part session 4b-session
+part prototype 7-prototype
+part protospace 7b-protospace
+part main 2-installer
 wait
 passed=0; failed=0
-for part in framework main guard security prototype; do
-  if [ -f "$seg/count-$part" ]; then read -r p f < "$seg/count-$part"; else p=0; f=0; fi
+stopped=""
+for name in framework release orphans main installer snapshot check1 check2 check3 guard hooks session commit ui_design security stories prototype protospace; do
+  if [ -f "$seg/count-$name" ]; then read -r p f status < "$seg/count-$name"; else p=0; f=1; status="no count"; fi
   passed=$((passed + p)); failed=$((failed + f))
+  [ "$status" = 0 ] || { failed=$((failed + 1)); stopped="$stopped$nl  FAIL  the $name part stopped early ($status)"; }
 done
-cat "$seg"/1-framework "$seg"/2-installer-check "$seg"/3-guard "$seg"/4-protected "$seg"/5-ui-design "$seg"/6-security "$seg"/7-prototype
+cat "$seg"/1-framework "$seg"/1b-release "$seg"/1c-orphans "$seg"/2-installer "$seg"/2b-installer "$seg"/2b-snapshot \
+  "$seg"/2c-check1 "$seg"/2d-check2 "$seg"/2e-check3 "$seg"/3-guard "$seg"/4a-hooks "$seg"/4b-session "$seg"/4b-precommit \
+  "$seg"/5-ui-design "$seg"/6-security "$seg"/6b-stories "$seg"/7-prototype "$seg"/7b-protospace
+[ -z "$stopped" ] || printf '%s\n' "${stopped#"$nl"}"
 finish
