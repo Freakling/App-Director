@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T54 · B8 · R1
+**Next IDs:** T55 · B8 · R1
 
 ## Queue
+
+### T54 · The guard reads a quoted or backslash path to git or a shell as it reads the bare name · done · M · agent
+- Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: `"C:\Program Files\Git\bin\git.exe" -c core.pager=calc log` and `--upload-pack` with a quoted git path, and `"C:\Program Files\Git\bin\bash.exe" -c "git push --force"` and `C:\Git\bin\bash.exe -c ...`, are blocked as the bare names are, with their cases (test) · the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T294
 
 ### T53 · The selftest runs in far less time · done · L · agent
 - Touches: selftest.sh, framework/tools/check.sh, CHANGELOG.md, TASKS.md

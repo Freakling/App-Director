@@ -4445,6 +4445,41 @@ EOF
   fi
   guard_report "$slow_fail" "the guard is too slow on a long file body" "the guard reads a 29 KB GDScript heredoc and here-string, each in under 5 seconds:$slow_times"
 
+  # The same, for a body that names the programs the shell and git rules look for (Director-Driven-Development T294): 300 lines of
+  # "see C:\Git\bin\bash.exe -c and git.exe -c here" (about 14 KB), in a Bash heredoc and a PowerShell here-string. Every line gives
+  # the wrapper gate and the git option rules something to read, so this body costs more than the GDScript one, and its cost grows
+  # faster than its length (900 lines take about 6 seconds in the heredoc and 2 in the here-string; 300 take about 1 and 0.4). The
+  # body is short because this part runs beside the others, where a 900-line body took 14 seconds. Each must take under 5 seconds, the
+  # best of three runs counting. A here-string's body is no command, so the rules leave it out and it must cost about what the
+  # heredoc costs: the here-string must also take no more than 1.5 times the heredoc's time plus half a second (it took 13 seconds
+  # against 6 at 900 lines when the rules read it). The two are measured one after the other, so a busy machine slows both.
+  slow_fail=""; slow_times=""; slow_bt_Bash=999
+  if [ -f .claude/hooks/guard-commands.sh ]; then
+    slow_body=""; for ((si = 0; si < 300; si++)); do slow_body+=$'see C:\\Git\\bin\\bash.exe -c and git.exe -c here\n'; done
+    for slow_tool in Bash PowerShell; do
+      if [ "$slow_tool" = Bash ]; then slow_cmd=$'cat > x.gd <<\'EOF\'\n'"$slow_body"$'EOF'
+      else slow_cmd=$'@\'\n'"$slow_body"$'\'@ | Set-Content x.gd'; fi
+      json_str "$slow_cmd"
+      printf '{"session_id":"s","tool_name":"%s","tool_input":{"command":"%s","description":"run"}}' "$slow_tool" "$JSON_STR" > "$guard_dir/slow.json"
+      slow_best=999; slow_rc=0
+      for slow_try in 1 2 3; do
+        TIMEFORMAT='%R'
+        { time bash .claude/hooks/guard-commands.sh < "$guard_dir/slow.json" >/dev/null 2>&1; slow_rc=$?; } 2> "$guard_dir/slow.time"
+        slow_s=$(<"$guard_dir/slow.time")
+        [ "${slow_s%%[.,]*}" -lt "${slow_best%%[.,]*}" ] 2>/dev/null && slow_best="$slow_s"
+      done
+      slow_times="$slow_times ($slow_tool ${slow_best}s)"
+      [ "$slow_tool" = Bash ] && slow_bt_Bash="$slow_best"
+      [ "$slow_rc" = 0 ] || slow_fail="$slow_fail"$'\n'"  ($slow_tool) the guard exited $slow_rc on a 14 KB body that names bash.exe and git.exe, expected 0"
+      [ "${slow_best%%[.,]*}" -lt 5 ] 2>/dev/null || slow_fail="$slow_fail"$'\n'"  ($slow_tool) the guard took ${slow_best}s on a 14 KB body that names bash.exe and git.exe, over 5 seconds"
+      if [ "$slow_tool" = PowerShell ] && ! awk -v p="$slow_best" -v b="$slow_bt_Bash" 'BEGIN { exit !(p <= 1.5 * b + 0.5) }'; then
+        slow_fail="$slow_fail"$'\n'"  (PowerShell) the here-string took ${slow_best}s against ${slow_bt_Bash}s for the heredoc: its body is read as commands"
+      fi
+    done
+    rm -f "$guard_dir/slow.json" "$guard_dir/slow.time"
+  fi
+  guard_report "$slow_fail" "the guard is too slow on a long body that names bash.exe and git.exe -c, reads a here-string's body as commands, or exits non-zero on one" "the guard reads a 14 KB heredoc and here-string that name bash.exe and git.exe -c, each in under 5 seconds, the here-string in about the heredoc's time:$slow_times"
+
   # A command name written as a path (Director-Driven-Development T292): a quoted name with a space in its path, or an unquoted backslash
   # path that starts with a drive, ., .., ~ or two backslashes, is read as its last part (git.exe is git) in the Bash and the PowerShell
   # tool, after a prefix, a separator or a call operator. A path that is an argument, a message or a body nothing runs is text, and an
@@ -4488,6 +4523,60 @@ EOF
   guard 0 "git commit -q -F - <<'EOF'${nlc}docs: \"C:\\Program Files\\Git\\bin\\git.exe\" push --force is blocked${nlc}EOF"
   guard_run
   guard_report "$git_fail" "the guard hook doesn't read a command name written as a path, quoted with a space or as a backslash path, so git passes behind it, or it blocks a path that is an argument, a message or a body nothing runs (Director-Driven-Development T292)" "the guard hook blocks git behind a quoted path with a space, a backslash path, a prefix, a separator, a call operator and a substitution, in the Bash and the PowerShell tool, and a heredoc body a shell runs, and passes the paths that are arguments and messages and an escaped name (T292)"
+
+  # The same paths in front of git's -c and program flags and in front of a shell (Director-Driven-Development T294): the name is its last
+  # part without .exe in any case, quoted with a space, as a backslash path, with forward slashes, behind a prefix, so the rules that read
+  # git's options and the shell wrapper's script judge them as they do the bare names.
+  git_fail=""
+  for cmd in \
+      '"C:\Program Files\Git\bin\git.exe" -c core.pager=calc log' \
+      'C:\Git\bin\git.exe -c core.pager=calc log' \
+      '"C:/Program Files/Git/bin/git.exe" -c core.pager=calc log' \
+      '"C:\Program Files\Git\bin\GIT.EXE" -c core.sshCommand=calc fetch' \
+      'env "C:\Program Files\Git\bin\git.exe" -c core.pager=calc log' \
+      '..\bin\git.exe -c core.pager=calc log' \
+      '\\server\share\git.exe -c core.pager=calc log' \
+      '"C:\Program Files\Git\bin\git.exe" fetch --upload-pack=calc origin' \
+      '"C:\Program Files\Git\bin\git.exe" ls-remote --upload-pack calc origin' \
+      'C:\Git\bin\git.exe push --receive-pack=calc origin' \
+      '"C:\Program Files\Git\bin\git.exe" clone -u calc u' \
+      '"C:\Program Files\Git\bin\bash.exe" -c "git push --force"' \
+      'C:\Git\bin\bash.exe -c "git push --force"' \
+      '"C:\Program Files\Git\bin\sh.exe" -c "git reset --hard"' \
+      'C:\Git\usr\bin\sh.exe -c "git push --force"' \
+      '/c/Git/bin/BASH.EXE -c "git push --force"' \
+      '"C:/Program Files/Git/bin/bash.exe" -c "git push --force"' \
+      'C:/Git/bin/bash.exe -c "git push --force"' \
+      '"C:\Program Files\Git\bin\BASH.EXE" -c "git push --force"' \
+      '"C:\Program Files\Git\bin\zsh.exe" -c "git push --force"' \
+      'env "C:\Program Files\Git\bin\bash.exe" -c "git push --force"' \
+      'timeout 5 C:\Git\bin\bash.exe -c "git push --force"' \
+      'x && C:\Git\bin\bash.exe -lc "git push --force"' \
+      '..\bin\bash.exe -c "git push --force"' \
+      '\\server\share\bash.exe -c "git push --force"' \
+      '~\bin\sh.exe -c "git push --force"'; do
+    guard 2 "$cmd"
+    guard 2 "$cmd" PowerShell
+  done
+  for cmd in \
+      '"C:\Program Files\Git\bin\git.exe" -c user.name=x log' \
+      '"C:\Program Files\Git\bin\git.exe" log -1' \
+      '"C:\Program Files\tool\app.exe" -c x' \
+      'C:\tools\app.exe -c "git push --force"' \
+      'echo "C:\Program Files\Git\bin\bash.exe -c foo"' \
+      'echo "C:\Program Files\Git\bin\git.exe -c core.pager=calc log"' \
+      'cp "C:\Program Files\Git\bin\bash.exe" backup' \
+      'ls C:\Git\bin\bash.exe' \
+      'C:\Windows\System32\notepad.exe C:\Git\bin\bash.exe -c foo' \
+      'git log "C:\Program Files\Git\bin\bash.exe" -c' \
+      'git commit -q -m "docs: C:\Program Files\Git\bin\git.exe -c core.pager=calc log is blocked"' \
+      '"C:\Program Files\Git\bin\bash.exe" -c "echo hi"' \
+      'C:\Git\bin\bash.exe tools/check.sh'; do
+    guard 0 "$cmd"
+    guard 0 "$cmd" PowerShell
+  done
+  guard_run
+  guard_report "$git_fail" "the guard hook doesn't read a path in front of git's -c and program flags or in front of a shell, so they pass behind it, or it blocks a path that is an argument or a message (Director-Driven-Development T294)" "the guard hook blocks git's -c and program flags and a shell's script behind a quoted path with a space, a backslash path, forward slashes, .exe in any case and a prefix, in the Bash and the PowerShell tool, and passes the paths that are arguments, messages and other programs (T294)"
 
   # The PowerShell tool (B24) has its own name. The guard runs for it only when the hook's matcher names it,
   # and a Bash(...) deny or ask rule stops the same command in PowerShell only through its PowerShell(...)
