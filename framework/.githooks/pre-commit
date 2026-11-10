@@ -2,7 +2,8 @@
 # App Director pre-commit hook · framework-owned: replaced on upgrade.
 # `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
 #
-# When a commit touches source files (the paths source_staged names, less those under [tests] ignore in tools/check.cfg):
+# When a commit touches source files (the staged paths that tools/check.sh --unignored keeps: its source-path rule, less
+# [tests] ignore in tools/check.cfg):
 #   1. Runs the project check (working tree) with --if-changed caching, in the tier `bash tools/check.sh --due` names:
 #      the full tier when it's due, the fast tier otherwise, and says which and why. A pass of the same files, a
 #      builder's for one, is reused, so no second run starts. Not in a prototype (a linked
@@ -32,21 +33,16 @@ prototype=0
 
 nl='
 '
-# The staged source files, one per line, in staged_src: the code extensions and the check's own files. Outside a
-# prototype, those under [tests] ignore don't count (tools/check.sh --unignored reads the setting); a check.sh that can't
-# answer leaves them all counted. A commit that stages none of these starts nothing.
-# The list (ts tsx js jsx mjs cjs mts cts dart py json yaml yml, and tools/check.cfg, tools/check.sh,
-# tools/check.local.sh, tools/stacks/*.sh, .gitleaks.toml and .gitleaksignore) is the one tools/check.sh's fingerprint
-# and tools/stacks/typescript.sh name: the three must match.
+# The staged source files, one per line, in staged_src. Which paths count as source, and which [tests] ignore leaves out,
+# is tools/check.sh's to say (--unignored: its source-path rule is the one definition, so this hook keeps no copy). A
+# check.sh that can't answer leaves every staged path counted, so the check runs and says what's wrong. A commit that
+# stages none starts nothing.
 staged_src=""
 source_staged() {
-  local kept
-  staged_src="$(git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD \
-    | tr '\0' '\n' \
-    | grep -E '\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^tools/stacks/[^/]+\.sh$|^\.gitleaks(\.toml|ignore)$')"
-  [ -n "$staged_src" ] || return 1
-  [ "$prototype" -eq 1 ] && return 0
-  if kept="$(printf '%s\n' "$staged_src" | bash tools/check.sh --unignored 2>/dev/null)"; then staged_src="$kept"; fi
+  local staged
+  staged="$(git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD | tr '\0' '\n')"
+  [ -n "$staged" ] || return 1
+  staged_src="$(printf '%s\n' "$staged" | bash tools/check.sh --unignored 2>/dev/null)" || staged_src="$staged"
   [ -n "$staged_src" ]
 }
 
