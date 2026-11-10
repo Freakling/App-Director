@@ -323,6 +323,18 @@ if grep -qiE 'ui_capture|tools/ui/|playwright' "$src/framework/tools/check.sh" "
 else
   ok "the check and setup-clone never run the capture tools (they would need Node)"
 fi
+# Which paths count as source has one definition, tools/check.sh's source_re: the pre-commit hook asks check.sh
+# --unignored and keeps no copy, and the TypeScript stack hands the related tests the same extensions.
+if command grep -qE '(^|[^a-z])(tsx|mjs|mts)([^a-z]|$)|tools/stacks' "$src/framework/.githooks/pre-commit"; then
+  bad "the pre-commit hook keeps no copy of the source-path rule (it asks tools/check.sh --unignored)" \
+    "$(command grep -nE '(^|[^a-z])(tsx|mjs|mts)([^a-z]|$)|tools/stacks' "$src/framework/.githooks/pre-commit")"
+else
+  ok "the pre-commit hook keeps no copy of the source-path rule (it asks tools/check.sh --unignored)"
+fi
+_src_ext="$(sed -n "s/^source_re='\\\\\\.(\\([a-z|]*\\))\\\$|.*/\\1/p" "$src/framework/tools/check.sh")"
+_ts_ext="$(sed -n 's/^ *\(\*\.[a-z|*.]*\)) related+=.*/\1/p' "$src/framework/tools/stacks/typescript.sh")"; _ts_ext="${_ts_ext//\*./}"
+[ -n "$_src_ext" ] && [ "$_ts_ext" = "$_src_ext" ] && ok "the TypeScript stack's related run takes check.sh's source extensions" \
+  || bad "the TypeScript stack's related run takes check.sh's source extensions" "check.sh: $_src_ext${nl}typescript.sh: $_ts_ext"
 _pw_range() { sed -n 's/.*"playwright"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1"; }
 [ "$(_pw_range "$src/framework/tools/ui/package.json")" = "$(_pw_range "$src/tests/ui-web/package.json")" ] \
   && ok "the selftest's Playwright is the version range capture asks for" \
@@ -1481,7 +1493,7 @@ EOF
 # The parts that change the app each get a copy of it as the installer left it (with the rule above). The example app itself
 # stays with /ui-design, which needs its path.
 _cp_pids=""
-for _lane_app in check1 check2 check3 guard hooks commit; do
+for _lane_app in check1 check2 check3 check4 check5 guard hooks commit; do
   ( rm -rf "$work/$_lane_app-app"; cp -R "$app" "$work/$_lane_app-app" ) &
   _cp_pids="$_cp_pids $!"
 done
@@ -1489,6 +1501,8 @@ for _cp_pid in $_cp_pids; do wait "$_cp_pid" || exit 3; done
 part check1 2c-check1
 part check2 2d-check2
 part check3 2e-check3
+part check4 2f-check4
+part check5 2f2-check5
 part guard 3-guard
 part hooks 4a-hooks
 part commit 4b-precommit
@@ -1723,6 +1737,678 @@ cp "$work/saved-ui-cache" src/ui/TodoList.ts
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes again once the UI violation is removed" 0 $? "$out"
 
+}
+
+part_check4() {
+  cd "$work/check4-app" || exit 3
+echo "check tiers, the cache and the run log"
+# The two tiers on the example app: what a fast and a full result record and stand for, the line each miss prints, when
+# the full tier is due, the summary, the run log, what tools/check.local.sh is given, the per-tier time limits, the
+# progress line, a stack with no fast mode and the paths that count. A stand-in gitleaks reports $FAKE_GL_VERSION
+# (8.30.1 by default) and finds nothing, so a run is quick and the version can change. The example's stack (none) has no
+# fast mode, so a fast request there runs as the full tier (the cases near the end): a stand-in stack that reads the
+# tier, as tools/stacks/typescript.sh does, keeps the two tiers apart for the others.
+_t_gl="$work/fake-gl-tiers"; mkdir -p "$_t_gl"
+printf '#!/bin/bash\n[ "$1" = version ] && echo "v${FAKE_GL_VERSION:-8.30.1}"\nexit 0\n' > "$_t_gl/gitleaks"
+chmod +x "$_t_gl/gitleaks"
+c4() { PATH="$_t_gl:$PATH" bash tools/check.sh "$@" 2>&1; }
+_st=.app-director/state
+printf '#!/usr/bin/env bash\n: "${CHECK_TIER:-full}"\nexit 0\n' > tools/stacks/tiers.sh
+sed 's/^stack = .*/stack = tiers/' tools/check.cfg > "$work/c4-cfg-tiers" && cp "$work/c4-cfg-tiers" tools/check.cfg
+rm -f "$_st/last-pass" "$_st/last-fail" "$_st/last-full" "$_st/check-runs.log"
+git add -A >/dev/null 2>&1 && git_q commit -qm "the tiers' start" >/dev/null 2>&1
+
+out="$(c4 --due)"; status=$?
+expect_status "--due exits 0" 0 "$status" "$out"
+expect_output "--due with no full pass recorded says the full tier is due" "^check: full tier due: no full pass recorded yet$" "$out"
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "--fast --if-changed passes on the example" 0 "$status" "$out"
+expect_output "a miss with nothing recorded says so before the run" "^check: running the fast tier: no result recorded yet$" "$out"
+expect_output "a fast pass is reported as fast, with when the full tier is due" "^check: PASS \(fast tier; full tier due now: no full pass recorded yet\)$" "$out"
+expect_output "the summary names the tier, the result and the time" "^check: summary: fast tier, PASS in [0-9]+ s$" "$out"
+expect_output "and each step's time" "^check:   steps: UI purity [0-9]+ s, secrets [0-9]+ s, stack [0-9]+ s$" "$out"
+expect_output "and what the cache found" "^check:   cache: no result recorded yet$" "$out"
+rec="$(cat "$_st/last-pass" 2>/dev/null)"
+expect_output "a pass's line 1 is the key: the fingerprint and gitleaks's version" "^[0-9a-f]{40} gitleaks=8\.30\.1$" "$rec"
+expect_output "line 2 the tier, time, commit, caller and run" "^tier=fast at=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} commit=[0-9a-f]{7} caller=manual run=[0-9T]+-[0-9]+$" "$rec"
+grep -qxF "$(git hash-object --no-filters src/ui/TodoList.ts) src/ui/TodoList.ts" "$_st/last-pass.files" \
+  && ok "beside it, the files it checked, each with its blob hash" || bad "beside it, the files it checked, each with its blob hash" "$(cat "$_st/last-pass.files" 2>&1)"
+expect_output "the run log has a line for the run" \
+  "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8} tier=fast result=pass secs=[0-9]+ caller=manual commit=[0-9a-f]{7} tests=\?/\?$" "$(cat "$_st/check-runs.log" 2>&1)"
+
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "--fast --if-changed reuses a fast pass" 0 "$status" "$out"
+expect_output "and says which pass it reused" "^check: PASS \(reused the fast pass at [0-9]{2}:[0-9]{2}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+expect_no_output "a reuse prints no summary" "summary" "$out"
+# A fast pass checks the changes from HEAD. It stands on a later commit when every path that differs from HEAD now was
+# among those it checked: committing the checked change leaves fewer. A reset to the commit before leaves more, which it
+# didn't check.
+_c4_h0="$(git rev-parse HEAD)"; _c4_h0="${_c4_h0:0:7}"
+printf '\n// committed next\n' >> src/ui/TodoList.ts
+out="$(c4 --fast)"; expect_status "a fast pass of a change" 0 $? "$out"
+git add src/ui/TodoList.ts && git_q commit -qm "the checked change" >/dev/null 2>&1
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "--fast --if-changed passes once that change is committed" 0 "$status" "$out"
+expect_output "and reuses the pass from the commit before" \
+  "^check: PASS \(reused the fast pass at [0-9:]{5}, commit $_c4_h0, by manual; nothing changed\)$" "$out"
+_c4_h1="$(git rev-parse HEAD)"; _c4_h1="${_c4_h1:0:7}"
+out="$(c4 --fast)"; expect_status "a fast pass of the clean tree" 0 $? "$out"
+git reset -q --soft HEAD~1
+out="$(c4 --fast --if-changed)"
+expect_output "isn't reused after a reset to the commit before, which leaves a change it didn't check; the miss names both commits" \
+  "^check: running the fast tier: the fast pass at [0-9:]{5} \(manual\) checked the changes from commit $_c4_h1; HEAD is now $_c4_h0$" "$out"
+git_q commit -qm "the checked change, again" >/dev/null 2>&1
+out="$(CHECK_CALLER=pre-commit c4 --if-changed --full)"; status=$?
+expect_status "--if-changed --full runs the full tier after a fast pass" 0 "$status" "$out"
+expect_output "a fast pass never satisfies a full request, and the miss says so" "^check: running the full tier: the last pass was the fast tier, at [0-9]{2}:[0-9]{2} \(commit [0-9a-f]{7}, manual\)$" "$out"
+expect_output "a full pass is reported as the full tier" "^check: PASS \(full tier\)$" "$out"
+lf="$(cat "$_st/last-full" 2>/dev/null)"
+[ "${lf%% *}" = "$(git rev-parse HEAD)" ] && ok "a full pass writes last-full: HEAD's commit and the time" || bad "a full pass writes last-full: HEAD's commit and the time" "$lf"
+out="$(c4 --fast --if-changed)"
+expect_output "a full pass satisfies --fast --if-changed, and the reuse names its caller" "^check: PASS \(reused the full pass at [0-9:]+, commit [0-9a-f]{7}, by pre-commit; nothing changed\)$" "$out"
+out="$(c4 --fast)"; status=$?
+expect_status "--fast without --if-changed runs" 0 "$status" "$out"
+expect_output "and its summary says the cache wasn't asked" "^check:   cache: not used \(run without --if-changed\)$" "$out"
+{ IFS= read -r _l1; IFS= read -r _l2; } < "$_st/last-pass"
+expect_output "a fast pass leaves a full pass of the same files recorded" "^tier=full .* caller=pre-commit " "$_l2"
+log="$(cat "$_st/check-runs.log")"
+expect_output "the log names the caller from CHECK_CALLER" " tier=full result=pass secs=[0-9]+ caller=pre-commit commit=[0-9a-f]{7} " "$log"
+expect_output "and logs a reuse" " tier=fast result=reused-pass secs=0 caller=manual commit=[0-9a-f]{7} tests=0/\?$" "$log"
+out="$(c4 --due)"
+expect_output "--due right after a full pass: not due, with the count, the pass and the setting" \
+  "^check: full tier not due: 0 commits since the last full pass \([0-9a-f]{7}, [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\), \[tests\] full-every = 10$" "$out"
+
+# Each miss names what changed since the result it compared with, in one line before the run.
+cp src/ui/TodoList.ts "$work/c4-ui"; cp src/services/TodoService.ts "$work/c4-svc"; cp src/store/TodoStore.ts "$work/c4-store"
+printf '\n// changed\n' >> src/ui/TodoList.ts
+out="$(c4 --if-changed)"
+expect_output "a miss names a changed file and the pass it compared with" "^check: running the full tier: src/ui/TodoList\.ts changed since the full pass at [0-9]{2}:[0-9]{2} \(commit [0-9a-f]{7}, pre-commit\)$" "$out"
+printf '\n// changed\n' >> src/services/TodoService.ts; printf '\n// changed\n' >> src/store/TodoStore.ts
+printf '{}\n' > a.json; printf '{}\n' > b.json; rm src/ui/TodoList.ts
+out="$(c4 --if-changed)"
+expect_output "a miss names the first changed file and how many more" "src/services/TodoService\.ts and 1 more changed, " "$out"
+expect_output "new files" ", a\.json and 1 more are new, " "$out"
+expect_output "and a removed one" ", src/ui/TodoList\.ts was removed since the full pass at " "$out"
+cp "$work/c4-ui" src/ui/TodoList.ts; cp "$work/c4-svc" src/services/TodoService.ts; cp "$work/c4-store" src/store/TodoStore.ts; rm a.json b.json
+out="$(c4 --if-changed)"
+expect_output "a new file, and removed files" ", src/ui/TodoList\.ts is new, a\.json and 1 more were removed since " "$out"
+out="$(FAKE_GL_VERSION=8.29.0 c4 --if-changed)"
+expect_output "a miss names a changed gitleaks, with both versions" "^check: running the full tier: gitleaks changed from 8\.30\.1 to 8\.29\.0 since the full pass at " "$out"
+printf '%s gitleaks=8.30.1' "$(c4 --fingerprint)" > "$_st/last-pass"
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "a record in the older one-line format is a miss, and the run goes on" 0 "$status" "$out"
+expect_output "which says the last result was recorded by an older check" "^check: running the fast tier: the last result was recorded by an older check$" "$out"
+
+# A failure: exit 1, recorded with its tier. A fast failure doesn't stand for a full request; a full one covers a fast request.
+{ printf '\n'; printf 'import { TodoStore } from '"'"'../store/TodoStore'"'"';\n'; } >> src/ui/TodoList.ts
+out="$(c4 --fast)"; status=$?
+expect_status "the fast tier fails on a UI purity violation, with exit 1" 1 "$status" "$out"
+expect_output "and says FAIL with its tier" "^check: FAIL \(fast tier; logs above\)$" "$out"
+expect_output "its summary says FAIL" "^check: summary: fast tier, FAIL in [0-9]+ s$" "$out"
+out="$(c4 --full --if-changed)"; status=$?
+expect_status "a fast failure doesn't stand for a full request: the full tier runs, and fails" 1 "$status" "$out"
+expect_output "the miss says the last failure was the fast tier" "^check: running the full tier: the last failure was the fast tier, at " "$out"
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "a full failure stands for a fast request on the same files" 1 "$status" "$out"
+expect_output "and says which failure it repeated" "^check: FAIL \(reused the full failure at [0-9:]+, commit [0-9a-f]{7}, by manual; nothing changed; run 'bash tools/check\.sh' to see why\)$" "$out"
+cp "$work/c4-ui" src/ui/TodoList.ts
+
+out="$(c4 --bogus)"; status=$?
+expect_status "an unknown flag exits 3" 3 "$status" "$out"
+expect_output "with a usage line" "^usage: bash tools/check\.sh \[--full \| --fast\] \[--if-changed\]" "$out"
+out="$(c4 --fast --full)"; expect_status "--fast with --full exits 3" 3 $? "$out"
+out="$(PATH="$_no_gl_path" bash tools/check.sh --fast 2>&1)"; expect_status "the fast tier exits 3 without gitleaks" 3 $? "$out"
+expect_output "and the log says it couldn't run" " tier=fast result=couldnt-run " "$(tail -n 1 "$_st/check-runs.log")"
+
+# When the full tier is due: [tests] full-every commits after the last full pass, a [tests] full-when path, a path on the
+# framework's own list, or a last full pass that isn't in this history.
+cp tools/check.cfg "$work/c4-cfg"
+printf '\n[tests]\nfull-every = 2\nfull-when = db/migrations/\n' >> tools/check.cfg
+git add -A >/dev/null 2>&1 && git_q commit -qm "full-every 2" >/dev/null 2>&1
+out="$(c4)"; expect_status "the full tier passes after the settings change" 0 $? "$out"
+git_q commit -q --allow-empty -m "one" >/dev/null 2>&1
+out="$(c4 --due)"
+expect_output "--due one commit after the full pass, with full-every = 2: not due" "^check: full tier not due: 1 commit since the last full pass \([0-9a-f]{7}, .*\), \[tests\] full-every = 2$" "$out"
+out="$(c4 --fast)"
+expect_output "a fast pass says in how many commits the full tier is due" "^check: PASS \(fast tier; full tier due in 1 commit\)$" "$out"
+git_q commit -q --allow-empty -m "two" >/dev/null 2>&1
+out="$(c4 --due)"
+expect_output "--due when full-every is reached" "^check: full tier due: 2 commits since the last full pass \([0-9a-f]{7}, [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\), \[tests\] full-every = 2$" "$out"
+mkdir -p db/migrations && printf 'create table t (id int);\n' > db/migrations/001.sql
+out="$(c4 --due)"
+expect_output "--due for a changed path under [tests] full-when" "^check: full tier due: db/migrations/001\.sql changed$" "$out"
+rm -rf db; printf '{}\n' > package.json
+out="$(c4 --due)"
+expect_output "--due for a path on the framework's own list" "^check: full tier due: package\.json changed$" "$out"
+out="$(c4 --fast)"
+expect_output "a fast pass says the full tier is due now, and why" "^check: PASS \(fast tier; full tier due now: package\.json changed\)$" "$out"
+rm package.json
+cp "$_st/last-full" "$work/c4-last-full"
+printf '0123456789012345678901234567890123456789 2026-01-01T00:00:00\n' > "$_st/last-full"
+out="$(c4 --due)"
+expect_output "--due when the last full pass isn't in this history" "^check: full tier due: the last full pass \(0123456, 2026-01-01 00:00\) isn't in this history$" "$out"
+cp "$work/c4-last-full" "$_st/last-full"
+
+# [tests] ignore: a change only under it leaves the fingerprint, so a recorded pass stands, and isn't a changed path.
+# tools/check.local.sh gets the tier, the state folder and, in the fast tier, the list of changed paths, and what it
+# writes to stack-summary is printed in the summary.
+printf 'ignore = marketing/ *.draft.json\n' >> tools/check.cfg
+cat > tools/check.local.sh << 'EOF'
+#!/usr/bin/env bash
+{ echo "tier=$CHECK_TIER"; echo "state=$CHECK_STATE"; echo "changed=${CHECK_CHANGED:-}"; [ -z "${CHECK_CHANGED:-}" ] || cat "$CHECK_CHANGED"; } > "$CHECK_STATE/local-env"
+echo "local: ran in the $CHECK_TIER tier" >> "$CHECK_STATE/stack-summary"
+EOF
+out="$(c4 --fast)"; expect_status "passes with a tools/check.local.sh" 0 $? "$out"
+fp1="$(c4 --fingerprint)"
+mkdir -p marketing && printf '{ "title": "x" }\n' > marketing/page.json && printf '{}\n' > notes.draft.json
+[ "$(c4 --fingerprint)" = "$fp1" ] && ok "a change only under [tests] ignore leaves the fingerprint as it was" \
+  || bad "a change only under [tests] ignore leaves the fingerprint as it was"
+out="$(c4 --fast --if-changed)"
+expect_output "so the recorded pass stands" "^check: PASS \(reused the fast pass at " "$out"
+printf '\n// changed\n' >> src/ui/TodoList.ts
+out="$(c4 --fast)"
+env_seen="$(cat "$_st/local-env" 2>&1)"
+expect_output "tools/check.local.sh gets CHECK_TIER" "^tier=fast$" "$env_seen"
+expect_output "and CHECK_STATE, an absolute path" "^state=/.*\.app-director/state$" "$env_seen"
+expect_output "and CHECK_CHANGED, an absolute path, in the fast tier" "^changed=/.*\.app-director/state/changed$" "$env_seen"
+expect_output "which lists a changed file" "^src/ui/TodoList\.ts$" "$env_seen"
+expect_output "and an untracked one" "^tools/check\.local\.sh$" "$env_seen"
+expect_no_output "but not a path under [tests] ignore, nor the check's state" "marketing|draft|\.app-director/state/" "$(printf '%s\n' "$env_seen" | sed 1,3d)"
+expect_output "what it writes to stack-summary is in the summary" "^check:   local: ran in the fast tier$" "$out"
+out="$(c4)"
+env_seen="$(cat "$_st/local-env" 2>&1)"
+expect_output "the full tier gives CHECK_TIER=full" "^tier=full$" "$env_seen"
+expect_output "and no CHECK_CHANGED" "^changed=$" "$env_seen"
+
+# The run log keeps its last 500 lines once it passes 1000.
+_i=0; while [ "$_i" -lt 1000 ]; do echo "an earlier run $_i"; _i=$((_i + 1)); done > "$_st/check-runs.log"
+out="$(c4 --fast)"
+_n="$(wc -l < "$_st/check-runs.log" | tr -d ' ')"; _first="$(head -n 1 "$_st/check-runs.log")"
+if [ "$_n" -eq 500 ] && [ "$_first" = "an earlier run 501" ]; then ok "the run log is trimmed to its last 500 lines past 1000"
+else bad "the run log is trimmed to its last 500 lines past 1000" "$_n lines, the first: $_first"; fi
+cp "$work/c4-ui" src/ui/TodoList.ts
+
+# Per-tier time limits and the progress line. GNU timeout only, as in the check's own limit; skipped without.
+_c4_timeout=""
+for _c in timeout gtimeout; do
+  if "$_c" --version 2>/dev/null | grep -qi coreutils; then _c4_timeout="$_c"; break; fi
+done
+if [ -n "$_c4_timeout" ]; then
+  rm -f tools/check.local.sh
+  printf '#!/usr/bin/env bash\n: "${CHECK_TIER:-full}"\nsleep 10\n' > tools/stacks/slow.sh
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-fast = 1\ntimeout = 30\n' > tools/check.cfg
+  out="$(c4 --fast)"; status=$?
+  expect_status "the fast tier exits 3 past [tests] timeout-fast" 3 "$status" "$out"
+  expect_output "and says which run timed out, after how long, and the setting" "^check: couldn't run to the end: the stack check timed out after 1 s \(the fast tier's limit, \[tests\] timeout-fast in tools/check\.cfg\)$" "$out"
+  expect_output "and how to go on: again in the background with a longer CHECK_TIMEOUT, whose pass a commit reuses, or a higher setting" \
+    "^check: to go on, run it again in the background with a longer limit, 'CHECK_TIMEOUT=<seconds> bash tools/check\.sh --fast': a commit then reuses its pass, since the limit isn't part of what a pass stands for\. Or raise \[tests\] timeout-fast in tools/check\.cfg\.$" "$out"
+  [ ! -f "$_st/last-pass" ] && ok "a run past its limit records no pass" || bad "a run past its limit records no pass" "$(cat "$_st/last-pass")"
+  expect_output "and the log says it couldn't run" " tier=fast result=couldnt-run " "$(tail -n 1 "$_st/check-runs.log")"
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-full = 1\ntimeout = 30\n' > tools/check.cfg
+  out="$(c4)"; status=$?
+  expect_status "the full tier exits 3 past [tests] timeout-full, which wins over timeout" 3 "$status" "$out"
+  expect_output "and names timeout-full and the full tier" "timed out after 1 s \(the full tier's limit, \[tests\] timeout-full in tools/check\.cfg\)$" "$out"
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-fast = 30\n' > tools/check.cfg
+  out="$(CHECK_TIMEOUT=1 c4 --fast)"; status=$?
+  expect_status "CHECK_TIMEOUT overrides the tier's limit" 3 "$status" "$out"
+  expect_output "and is named as the limit" "timed out after 1 s \(the fast tier's limit, CHECK_TIMEOUT\)$" "$out"
+  printf '#!/usr/bin/env bash\nsleep 3\n' > tools/stacks/slow.sh
+  # That stand-in has no fast mode, so a fast request runs under the full tier's limit: [tests] timeout-fast doesn't end it.
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-fast = 1\n' > tools/check.cfg
+  out="$(c4 --fast)"; status=$?
+  expect_status "a fast request on a stack with no fast mode runs under the full tier's limit, past [tests] timeout-fast" 0 "$status" "$out"
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n' > tools/check.cfg
+  _t0=$SECONDS
+  out="$(CHECK_PROGRESS_EVERY=1 PATH="$_t_gl:$PATH" "$_c4_timeout" 60 bash tools/check.sh 2>&1)"; status=$?
+  _took=$((SECONDS - _t0))
+  expect_status "a run with the progress line passes" 0 "$status" "$out"
+  expect_output "a long stack check prints that it is still running, with the tier and the minutes" "^check: still running the stack check \(full tier\), 0 min$" "$out"
+  [ "$_took" -lt 30 ] && ok "the progress line ends with the check, and holds nothing open" || bad "the progress line ends with the check, and holds nothing open" "took $_took s"
+  rm -f tools/stacks/slow.sh
+else
+  echo "  skip: no GNU timeout, so the per-tier time limits and the progress line aren't tested"
+fi
+cp "$work/c4-cfg" tools/check.cfg; rm -rf marketing notes.draft.json tools/check.local.sh
+
+# A stack with no fast mode: neither the stack check nor tools/check.local.sh names CHECK_TIER outside a comment, so there
+# is one suite. A fast request runs as the full tier and says why, its pass is a full pass, and a full request (a
+# push's) reuses it: the suite runs once for both.
+sed 's/^stack = .*/stack = none/' "$work/c4-cfg" > tools/check.cfg
+printf '#!/usr/bin/env bash\n# No fast mode: this comment names CHECK_TIER, and no command does.\necho ran >> "$CHECK_STATE/suite-runs"\n' > tools/check.local.sh
+rm -f "$_st/suite-runs"
+out="$(c4 --fast)"; status=$?
+expect_status "a fast request passes on a stack with no fast mode" 0 "$status" "$out"
+expect_output "it runs as the full tier, and says why" \
+  "^check: note: neither the stack check nor tools/check\.local\.sh has a fast mode \(reads CHECK_TIER\), so the fast tier runs as the full tier$" "$out"
+expect_output "and reports a full pass" "^check: PASS \(full tier\)$" "$out"
+{ IFS= read -r _l1; IFS= read -r _l2; } < "$_st/last-pass"
+expect_output "which it records as one" "^tier=full " "$_l2"
+out="$(CHECK_CALLER=pre-push c4 --full --if-changed)"
+expect_output "a full request, a push's, reuses that pass" "^check: PASS \(reused the full pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+_n="$(wc -l < "$_st/suite-runs" | tr -d ' ')"
+[ "$_n" -eq 1 ] && ok "so the suite ran once for both" || bad "so the suite ran once for both" "$_n runs"
+printf '#!/usr/bin/env bash\n[ "$CHECK_TIER" = fast ] || echo ran >> "$CHECK_STATE/suite-runs"\n' > tools/check.local.sh
+out="$(c4 --fast)"
+expect_output "a tools/check.local.sh that reads CHECK_TIER is a fast mode: the fast tier stays" "^check: PASS \(fast tier" "$out"
+expect_no_output "with no note" "so the fast tier runs as the full tier" "$out"
+rm -f tools/check.local.sh "$_st/suite-runs"
+
+# The paths that make the full tier due count like source paths: a change to one changes the fingerprint, so a recorded
+# pass doesn't stand, and --unignored keeps it (the pre-commit hook's question). [tests] ignore still wins, and a path
+# that is neither source nor due counts for nothing.
+printf '\n[tests]\nfull-when = db/migrations/\nignore = db/migrations/old/\n' >> tools/check.cfg
+mkdir -p db/migrations/old && printf 'create table t (id int);\n' > db/migrations/001.sql
+out="$(c4)"; expect_status "a full pass with a migration in the tree" 0 $? "$out"
+fp1="$(c4 --fingerprint)"
+printf 'alter table t add n int;\n' >> db/migrations/001.sql
+[ "$(c4 --fingerprint)" != "$fp1" ] && ok "a change under [tests] full-when changes the fingerprint" \
+  || bad "a change under [tests] full-when changes the fingerprint"
+out="$(c4 --if-changed)"
+expect_output "so the recorded pass doesn't stand, and the miss names the path" \
+  "^check: running the full tier: db/migrations/001\.sql changed since the full pass at " "$out"
+fp1="$(c4 --fingerprint)"
+printf 'pytest==8.0\n' > requirements.txt
+[ "$(c4 --fingerprint)" != "$fp1" ] && ok "and so does a path on the framework's own list (requirements.txt)" \
+  || bad "and so does a path on the framework's own list (requirements.txt)"
+fp1="$(c4 --fingerprint)"
+printf 'drop table t;\n' > db/migrations/old/000.sql; printf 'notes\n' > notes.txt
+[ "$(c4 --fingerprint)" = "$fp1" ] && ok "a path under [tests] ignore, or one that is neither source nor due, leaves it as it was" \
+  || bad "a path under [tests] ignore, or one that is neither source nor due, leaves it as it was"
+out="$(printf '%s\n' db/migrations/001.sql requirements.txt db/migrations/old/000.sql notes.txt src/ui/TodoList.ts | c4 --unignored)"
+[ "$out" = "db/migrations/001.sql${nl}requirements.txt${nl}src/ui/TodoList.ts" ] \
+  && ok "--unignored keeps the paths that make the full tier due, less [tests] ignore" \
+  || bad "--unignored keeps the paths that make the full tier due, less [tests] ignore" "$out"
+# The settings read the same from a file checked out with CRLF line endings: a value has no carriage return, nor the
+# comment after it.
+printf '[project]\r\nstack = none\r\n[gitleaks]\r\nmin-version = 8.18.0\r\n[tests]\r\nfull-when = db/migrations/   ; a comment after the value\r\nignore = marketing/\r\n' > tools/check.cfg
+out="$(printf '%s\n' db/migrations/001.sql marketing/page.json notes.txt | c4 --unignored)"
+[ "$out" = "db/migrations/001.sql" ] && ok "settings with CRLF line endings, and a comment after a value, read as the same settings" \
+  || bad "settings with CRLF line endings, and a comment after a value, read as the same settings" "$out"
+cp "$work/c4-cfg" tools/check.cfg; rm -rf db requirements.txt notes.txt
+
+# With no commit yet, the fast tier runs as the full tier and says why.
+_nh="$work/no-head"; mkdir -p "$_nh/tools/stacks" && git init -q "$_nh"
+cp "$src/framework/tools/check.sh" "$_nh/tools/" && cp "$src/framework/tools/stacks/none.sh" "$_nh/tools/stacks/"
+printf '[project]\nstack = none\n' > "$_nh/tools/check.cfg"; printf '.app-director/state/\n' > "$_nh/.gitignore"; printf 'export const x = 1;\n' > "$_nh/x.ts"
+# The Stop hook does nothing there: the first commit's hook gates the work.
+out="$(printf '{}' | CLAUDE_PROJECT_DIR="$_nh" PATH="$_t_gl:$PATH" bash "$src/framework/.claude/hooks/stop-check.sh" 2>&1)"; status=$?
+expect_status "the Stop hook ends the turn in a repository with no commit" 0 "$status" "$out"
+[ -z "$out" ] && [ ! -e "$_nh/.app-director/state/check-runs.log" ] && ok "quietly, and starts no check" || bad "quietly, and starts no check" "$out"
+out="$(cd "$_nh" && PATH="$_t_gl:$PATH" bash tools/check.sh --fast 2>&1)"; status=$?
+expect_status "the fast tier passes in a repository with no commit" 0 "$status" "$out"
+expect_output "and says it runs as the full tier, and why" "^check: note: there's no commit yet, so the fast tier runs as the full tier$" "$out"
+expect_output "and reports the full tier" "^check: PASS \(full tier\)$" "$out"
+}
+
+part_check5() {
+  cd "$work/check5-app" || exit 3
+echo "check, single flight"
+# One run at a time per checkout. A stand-in stack counts its starts (a line each, with the tier, in suites), sleeps
+# $SLOW_SECS seconds (3 by default) and exits $SLOW_EXIT, so two runs side by side show whether a second suite started. A
+# stand-in gitleaks finds nothing, and the settings name no UI folders, so a run starts few processes. The stale and busy
+# cases plant a lock: a pid that has ended, or this selftest's own, which is running.
+_f_gl="$work/fake-gl-flight"; mkdir -p "$_f_gl"
+printf '#!/bin/bash\n[ "$1" = version ] && echo v8.30.1\nexit 0\n' > "$_f_gl/gitleaks"; chmod +x "$_f_gl/gitleaks"
+printf '#!/usr/bin/env bash\necho "$CHECK_TIER" >> "$CHECK_STATE/suites"\nsleep "${SLOW_SECS:-3}"\nexit "${SLOW_EXIT:-0}"\n' > tools/stacks/slow.sh
+printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n' > tools/check.cfg
+_st=.app-director/state; _lock="$_st/check.lock"
+c5() { PATH="$_f_gl:$PATH" bash tools/check.sh "$@" 2>&1; }
+c5_bg() { # c5_bg <name> <flag>...: a check in the background, its output in $work/c5-<name>.out and its status in .rc
+  local name="$1"; shift
+  ( PATH="$_f_gl:$PATH" bash tools/check.sh "$@" > "$work/c5-$name.out" 2>&1; echo "$?" > "$work/c5-$name.rc" ) &
+}
+c5_read() { c5_out=""; c5_rc=""; IFS= read -r -d '' c5_out < "$work/c5-$1.out"; read -r c5_rc < "$work/c5-$1.rc"; }  # c5_read <name>
+c5_suites() { # the suites started since the file was last removed: how many in c5_n, their tiers in c5_list
+  local l
+  c5_n=0; c5_list=""
+  [ -f "$_st/suites" ] || return 0
+  while IFS= read -r l; do c5_n=$((c5_n + 1)); c5_list="$c5_list$l "; done < "$_st/suites"
+}
+c5_lock_gone() { # c5_lock_gone <after what>
+  if [ ! -e "$_lock" ]; then ok "the lock is gone after $1"; else bad "the lock is gone after $1" "$(cat "$_lock")"; fi
+}
+
+# 1. Two runs started at once: one suite starts, and the other waits for it and reuses its pass.
+rm -f "$_st/suites"
+c5_bg a --fast; c5_bg b --fast; wait
+c5_read a; _oa="$c5_out"; _ra="$c5_rc"; c5_read b; _ob="$c5_out"; _rb="$c5_rc"
+c5_suites
+[ "$c5_n" -eq 1 ] && ok "two runs started at once start one suite" || bad "two runs started at once start one suite ($c5_n started)" "$_oa$nl$_ob"
+[ "$_ra" = 0 ] && [ "$_rb" = 0 ] && ok "and both pass" || bad "and both pass (exit $_ra and $_rb)" "$_oa$nl$_ob"
+expect_output "the second says what it waits for: the start, the caller, the tier and the pid" \
+  "^check: waiting for the check started [0-9]{2}:[0-9]{2} by manual \(fast tier, pid [0-9]+\)$" "$_oa$nl$_ob"
+expect_output "and reuses the first one's pass, recorded while it waited" \
+  "^check: PASS \(reused the fast pass at [0-9]{2}:[0-9]{2}, commit [0-9a-f]{7}, by manual, recorded while this check waited; nothing changed\)$" "$_oa$nl$_ob"
+c5_lock_gone "a pass"
+_log=""; IFS= read -r -d '' _log < "$_st/check-runs.log"
+expect_output "the run log has the reuse, with the seconds it waited" " tier=fast result=reused-pass secs=[0-9]+ caller=manual " "$_log"
+
+# 2. The same with a failing suite: the second repeats the first one's failure.
+rm -f "$_st/suites"
+export SLOW_EXIT=1
+c5_bg a --fast; c5_bg b --fast; wait
+unset SLOW_EXIT
+c5_read a; _oa="$c5_out"; _ra="$c5_rc"; c5_read b; _ob="$c5_out"; _rb="$c5_rc"
+c5_suites
+[ "$c5_n" -eq 1 ] && ok "two failing runs started at once start one suite" || bad "two failing runs started at once start one suite ($c5_n started)" "$_oa$nl$_ob"
+[ "$_ra" = 1 ] && [ "$_rb" = 1 ] && ok "and both fail" || bad "and both fail (exit $_ra and $_rb)" "$_oa$nl$_ob"
+expect_output "the second reuses the first one's failure, and says so" \
+  "^check: FAIL \(reused the fast failure at [0-9:]{5}, commit [0-9a-f]{7}, by manual, recorded while this check waited; nothing changed; run 'bash tools/check\.sh --fast' to see why\)$" "$_oa$nl$_ob"
+c5_lock_gone "a failure"
+
+# 3. A full request waits for a fast run, then runs its own full suite: a fast pass doesn't stand for a full request.
+rm -f "$_st/suites"
+c5_bg a --fast
+_i=0; while [ ! -s "$_lock" ] && [ "$_i" -lt 100 ]; do sleep 0.1; _i=$((_i + 1)); done
+_held=""; [ -f "$_lock" ] && IFS= read -r _held < "$_lock"
+out="$(c5 --full --if-changed)"; status=$?
+wait
+expect_output "the lock names the run that holds it: its pid, start, time, caller, tier and time limit" \
+  "^pid=[0-9]+ started=[0-9]+ at=[0-9]{2}:[0-9]{2} caller=manual tier=fast limit=300$" "$_held"
+expect_output "a full request waits for a fast run" "^check: waiting for the check started [0-9:]{5} by manual \(fast tier, pid [0-9]+\)$" "$out"
+expect_output "then says why the fast run's pass doesn't stand for it" "^check: running the full tier after the wait: the last pass was the fast tier, at " "$out"
+expect_status "and runs its own full suite, which passes" 0 "$status" "$out"
+c5_suites
+[ "$c5_list" = "fast full " ] && ok "the full suite starts once the fast one has ended" || bad "the full suite starts once the fast one has ended" "$c5_list"
+
+# 4. A stale lock, whose process is gone or which is older than twice the full tier's limit plus 600 s, is removed with a
+# note, and the run goes on.
+export SLOW_SECS=0
+true & _dead=$!; wait "$_dead"
+_now="${EPOCHSECONDS:-$(date +%s)}"
+printf 'pid=%s started=%s at=09:15 caller=pre-commit tier=full\n' "$_dead" "$_now" > "$_lock"
+out="$(c5 --fast)"; status=$?
+expect_status "a run that finds a stale lock goes on, and passes" 0 "$status" "$out"
+expect_output "it removes a lock whose process is gone, with a note naming its pid and start" \
+  "^check: note: removed a stale lock \(pid $_dead, started 09:15 by pre-commit\): its process is gone$" "$out"
+printf 'pid=%s started=1000 at=01:00 caller=stop-hook tier=fast\n' "$$" > "$_lock"
+out="$(c5 --fast)"; status=$?
+expect_status "and a run goes on past a lock that is too old" 0 "$status" "$out"
+expect_output "older than twice the full tier's limit plus 600 s, though its process runs" \
+  "^check: note: removed a stale lock \(pid $$, started 01:00 by stop-hook\): it is older than 7800 s, " "$out"
+c5_lock_gone "a run that removed a stale lock"
+# The age bound is the holder's limit (limit= in its lock) when that is longer than this run's: a lock 8000 s old, of a
+# run with a 5000 s limit, isn't stale.
+_c5_long="pid=$$ started=$((_now - 8000)) at=10:30 caller=pre-push tier=full limit=5000"
+printf '%s\n' "$_c5_long" > "$_lock"
+out="$(CHECK_WAIT=1 c5 --fast)"; status=$?
+_held=""; IFS= read -r _held < "$_lock"
+[ "$status" -eq 3 ] && [ "$_held" = "$_c5_long" ] && ok "a lock younger than twice its holder's limit plus 600 s stands, past this run's own bound" \
+  || bad "a lock younger than twice its holder's limit plus 600 s stands, past this run's own bound (exit $status)" "$out"
+# A lock whose pid runs (this selftest's, which isn't a check) but that no heartbeat has touched for 5 minutes names a
+# pid another process has taken since, when that holds at two looks CHECK_UNTOUCHED_RECHECK seconds apart (75 by
+# default): one look isn't enough, since a machine that wakes from sleep wakes the waiter before the holder's heartbeat.
+printf 'pid=%s started=%s at=12:41 caller=pre-commit tier=full limit=3600\n' "$$" "$_now" > "$_lock"
+touch -t 202001010000 "$_lock"
+out="$(CHECK_WAIT=1 c5 --fast)"; status=$?
+[ "$status" -eq 3 ] && [ -e "$_lock" ] && ok "one look at a lock no heartbeat has touched for 5 minutes leaves it alone" \
+  || bad "one look at a lock no heartbeat has touched for 5 minutes leaves it alone (exit $status)" "$out"
+out="$(CHECK_UNTOUCHED_RECHECK=1 c5 --fast)"; status=$?
+expect_status "a run goes on past it once a second look, a poll later, finds it untouched too" 0 "$status" "$out"
+expect_output "and says why it removed it" \
+  "^check: note: removed a stale lock \(pid $$, started 12:41 by pre-commit\): it hasn't been touched for 5 minutes, though a running check touches it every minute$" "$out"
+c5_lock_gone "a run that removed a lock no heartbeat touched"
+
+# 4b. Another run takes the lock between this run's look at a stale one and its move (a stand-in mv plays that run,
+# once): the moved lock is that run's, so it goes back, and this run waits for it, then runs its own suite once it is
+# gone.
+_c5_real_mv="$(command -v mv)"; mkdir -p "$work/c5-mv"
+printf '#!/usr/bin/env bash\n[ -e "$C5_MV_DONE" ] || { : > "$C5_MV_DONE"; printf "%%s\\n" "$C5_MV_LINE" > "$C5_MV_LOCK"; }\nexec "$C5_REAL_MV" "$@"\n' > "$work/c5-mv/mv"
+chmod +x "$work/c5-mv/mv"
+rm -f "$_st/suites" "$work/c5-mv-done"; : > "$work/c5-mv.out"
+printf 'pid=%s started=%s at=09:15 caller=pre-commit tier=full limit=3600\n' "$_dead" "$_now" > "$_lock"
+_c5_live="pid=$$ started=$_now at=12:41 caller=stop-hook tier=fast limit=300"
+( C5_MV_DONE="$work/c5-mv-done" C5_MV_LINE="$_c5_live" C5_MV_LOCK="$PWD/$_lock" C5_REAL_MV="$_c5_real_mv" \
+  PATH="$work/c5-mv:$_f_gl:$PATH" bash tools/check.sh --fast > "$work/c5-mv.out" 2>&1; echo "$?" > "$work/c5-mv.rc" ) &
+_bg=$!
+_i=0; _o=""
+while [ "$_i" -lt 100 ]; do
+  IFS= read -r -d '' _o < "$work/c5-mv.out"
+  case "$_o" in *"check: waiting for "*) break ;; esac
+  sleep 0.1; _i=$((_i + 1))
+done
+_held=""; [ -f "$_lock" ] && IFS= read -r _held < "$_lock"
+[ "$_held" = "$_c5_live" ] && ok "a lock another run took while this one removed a stale lock is put back" \
+  || bad "a lock another run took while this one removed a stale lock is put back" "$_held$nl$_o"
+expect_output "and the run waits for that run" "^check: waiting for the check started 12:41 by stop-hook \(fast tier, pid $$\)$" "$_o"
+rm -f "$_lock"; wait "$_bg"
+c5_read mv; c5_suites
+[ "$c5_rc" = 0 ] && [ "$c5_n" -eq 1 ] && ok "then runs its own suite once that lock is gone: one suite, and a pass" \
+  || bad "then runs its own suite once that lock is gone: one suite, and a pass (exit $c5_rc, $c5_n suites)" "$c5_out"
+c5_lock_gone "that run"
+
+# 5. CHECK_WAIT caps the wait: past it nothing starts, the check says it is busy and exits 3, and the other's lock stays.
+printf 'pid=%s started=%s at=12:41 caller=pre-commit tier=full\n' "$$" "$_now" > "$_lock"
+c5_suites; _n0="$c5_n"
+out="$(CHECK_WAIT=1 c5 --fast)"; status=$?
+expect_status "CHECK_WAIT past its limit exits 3" 3 "$status" "$out"
+expect_output "with the busy line" "^check: busy: the check started 12:41 by pre-commit \(full tier\) is still running after [0-9]+ s; no second check started$" "$out"
+c5_suites
+[ "$c5_n" -eq "$_n0" ] && ok "and starts nothing" || bad "and starts nothing" "$c5_list"
+_held=""; IFS= read -r _held < "$_lock"
+[ "$_held" = "pid=$$ started=$_now at=12:41 caller=pre-commit tier=full" ] && ok "and leaves the other check's lock alone" || bad "and leaves the other check's lock alone" "$_held"
+IFS= read -r -d '' _log < "$_st/check-runs.log"
+expect_output "the run log says it was busy" " tier=fast result=busy secs=[0-9]+ caller=manual " "$_log"
+rm -f "$_lock"
+
+# 6. The lock is gone after a run that couldn't run (exit 3), and after one past its time limit (GNU timeout only).
+out="$(PATH="$_no_gl_path" bash tools/check.sh --fast 2>&1)"; status=$?
+expect_status "a run without gitleaks exits 3" 3 "$status" "$out"
+c5_lock_gone "a run that couldn't run"
+_c5_timeout=""
+for _c in timeout gtimeout; do
+  if "$_c" --version 2>/dev/null | grep -qi coreutils; then _c5_timeout="$_c"; break; fi
+done
+if [ -n "$_c5_timeout" ]; then
+  export SLOW_SECS=5
+  out="$(CHECK_TIMEOUT=1 c5 --fast)"; status=$?
+  expect_status "a run past its time limit exits 3" 3 "$status" "$out"
+  c5_lock_gone "a run past its time limit, with the ticker stopped"
+else
+  echo "  skip: no GNU timeout, so the lock after a run past its time limit isn't tested"
+fi
+
+# 7. The heartbeat, and a check killed with SIGKILL. With a line a second (CHECK_PROGRESS_EVERY=1), a running check
+# touches its lock as often: a lock aged on disk is fresh again by the next progress line. Killed during its stack step,
+# the check leaves its background loop behind for a tick at most: no progress line comes after that.
+_c5_find=find; [ -x /usr/bin/find ] && _c5_find=/usr/bin/find
+c5_ticks() { # the progress lines in c5-kill.out, in c5_t; in c5_ended whether the check printed its result, and in
+  # c5_joined how many progress lines don't come after an empty line
+  local l prev=""
+  c5_t=0; c5_ended=0; c5_joined=0
+  while IFS= read -r l; do
+    case "$l" in
+      "check: still running "*) c5_t=$((c5_t + 1)); [ -z "$prev" ] || c5_joined=$((c5_joined + 1)) ;;
+      "check: PASS"*|"check: FAIL"*) c5_ended=1 ;;
+    esac
+    prev="$l"
+  done < "$work/c5-kill.out"
+}
+# Long enough for the waits below on a busy machine: the check is killed well before its stack step ends.
+export SLOW_SECS=15
+rm -f "$_st/suites" "$_lock"
+CHECK_PROGRESS_EVERY=1 PATH="$_f_gl:$PATH" bash tools/check.sh --fast > "$work/c5-kill.out" 2>&1 &
+_bg=$!
+_i=0; while [ ! -s "$_st/suites" ] && [ "$_i" -lt 100 ]; do sleep 0.1; _i=$((_i + 1)); done
+touch -t 202001010000 "$_lock"
+# Two lines after the lock was aged: a whole turn of the loop, its touch included, came after it.
+c5_ticks; _t0="$c5_t"
+_i=0; while [ "$c5_t" -le $((_t0 + 1)) ] && [ "$_i" -lt 60 ]; do sleep 0.1; c5_ticks; _i=$((_i + 1)); done
+[ -n "$("$_c5_find" "$_lock" -mmin -5 2>/dev/null)" ] && ok "a running check touches its lock (the heartbeat)" \
+  || bad "a running check touches its lock (the heartbeat)" "$(cat "$work/c5-kill.out")"
+_held=""; [ -f "$_lock" ] && IFS= read -r _held < "$_lock"
+_pid="${_held#pid=}"; _pid="${_pid%% *}"
+# A lock with another run's line in it is that run's: the heartbeat leaves it alone.
+printf 'pid=%s started=%s at=12:41 caller=pre-commit tier=full limit=3600\n' "$$" "$_now" > "$_lock"
+touch -t 202001010000 "$_lock"
+c5_ticks; _t0="$c5_t"
+_i=0; while [ "$c5_t" -le $((_t0 + 1)) ] && [ "$_i" -lt 60 ]; do sleep 0.1; c5_ticks; _i=$((_i + 1)); done
+[ -z "$("$_c5_find" "$_lock" -mmin -5 2>/dev/null)" ] && ok "and touches no other run's lock" \
+  || bad "and touches no other run's lock" "$(cat "$work/c5-kill.out")"
+kill -9 "${_pid:-$_bg}" 2>/dev/null; wait "$_bg" 2>/dev/null
+sleep 2; c5_ticks; _t1="$c5_t"
+sleep 2; c5_ticks
+[ "$c5_t" -eq "$_t1" ] && [ "$_t1" -gt 0 ] && [ "$c5_ended" -eq 0 ] \
+  && ok "a check killed with SIGKILL leaves no progress line after a tick: its loop ends with it" \
+  || bad "a check killed with SIGKILL leaves no progress line after a tick: its loop ends with it ($_t1 lines, then $c5_t)" "$(cat "$work/c5-kill.out")"
+[ "$c5_joined" -eq 0 ] && ok "the progress line starts with a line break when the output isn't a terminal" \
+  || bad "the progress line starts with a line break when the output isn't a terminal" "$(cat "$work/c5-kill.out")"
+rm -f "$_lock"
+unset SLOW_SECS
+}
+
+part_check_ts() {
+echo "check, TypeScript tiers"
+# The TypeScript stack in both tiers, with a stand-in npx that logs each command and plays tsc, eslint and vitest (or
+# jest): vitest writes a json report of $FAKE_VITEST_TESTS tests (3 by default) in two files, and $FAKE_<TOOL>_EXIT is
+# each tool's exit status. The fixture has a package.json, a vitest config, an eslint config and a node_modules folder,
+# so nothing installs, and a [tests] fast-map rule for its translations. A stand-in gitleaks finds nothing.
+ts="$work/ts-app"; new_repo "$ts" >/dev/null 2>&1
+mkdir -p "$ts/tools/stacks" "$ts/src/i18n" "$ts/tests" "$ts/node_modules"
+cp "$src/framework/tools/check.sh" "$ts/tools/" && cp "$src/framework/tools/stacks/typescript.sh" "$ts/tools/stacks/"
+ts_cfg='[project]\nstack = typescript\n\n[gitleaks]\nmin-version = 8.18.0\n\n[tests]\nfast-map = src/i18n/*.json:tests/i18n.test.ts\n'
+printf '%b' "$ts_cfg" > "$ts/tools/check.cfg"
+printf '{ "name": "ts-app", "private": true }\n' > "$ts/package.json"
+printf 'export default {};\n' > "$ts/vitest.config.ts"
+printf '{ "root": true }\n' > "$ts/.eslintrc.json"
+printf 'export const a = 1;\n' > "$ts/src/a.ts"
+printf 'import { a } from "./a";\n' > "$ts/src/a.test.ts"
+printf '{ "hello": "Hello" }\n' > "$ts/src/i18n/en.json"
+printf 'import en from "../src/i18n/en.json";\n' > "$ts/tests/i18n.test.ts"
+printf '/node_modules/\n.app-director/state/\n' > "$ts/.gitignore"
+(cd "$ts" && git add -A && git_q commit -qm "a TypeScript app") >/dev/null 2>&1
+cd "$ts" || exit 3
+_ts_bin="$work/fake-ts-bin"; mkdir -p "$_ts_bin"
+printf '#!/bin/bash\n[ "$1" = version ] && echo v8.30.1\nexit 0\n' > "$_ts_bin/gitleaks"
+cat > "$_ts_bin/npx" << 'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_NPX_LOG"
+case "$1" in
+  tsc) exit "${FAKE_TSC_EXIT:-0}" ;;
+  eslint) exit "${FAKE_ESLINT_EXIT:-0}" ;;
+  vitest)
+    out=""
+    for a in "$@"; do case "$a" in --outputFile.json=*) out="${a#--outputFile.json=}" ;; esac; done
+    root="$(pwd -W 2>/dev/null || pwd -P)"
+    [ -z "$out" ] || printf '{"numTotalTests":%s,"testResults":[{"startTime":1000,"endTime":1500,"name":"%s/src/a.test.ts"},{"startTime":1000,"endTime":4200,"name":"%s/tests/i18n.test.ts"}]}' \
+      "${FAKE_VITEST_TESTS:-3}" "$root" "$root" > "$out"
+    exit "${FAKE_VITEST_EXIT:-0}" ;;
+  jest) exit "${FAKE_JEST_EXIT:-0}" ;;
+esac
+exit 0
+FAKE
+chmod +x "$_ts_bin/gitleaks" "$_ts_bin/npx"
+_npx_log="$work/fake-npx.log"
+ts_check() { : > "$_npx_log"; FAKE_NPX_LOG="$_npx_log" PATH="$_ts_bin:$PATH" bash tools/check.sh "$@" 2>&1; }
+_have_node=0; command -v node >/dev/null 2>&1 && _have_node=1
+
+out="$(ts_check)"; status=$?; log="$(cat "$_npx_log")"
+expect_status "TypeScript: no argument runs the full tier, and passes" 0 "$status" "$out"
+expect_output "the full tier type-checks with no build info of the fast tier's" "^tsc --noEmit$" "$log"
+expect_output "lints the whole project" "^eslint \. --max-warnings 0$" "$log"
+expect_output "and runs the whole suite, with the dot reporter (the output isn't a terminal) and the json report" \
+  "^vitest run --reporter=dot --reporter=json --outputFile\.json=/.*/\.app-director/state/vitest\.json$" "$log"
+expect_output "and says PASS (full tier)" "^check: PASS \(full tier\)$" "$out"
+if [ "$_have_node" -eq 1 ]; then
+  expect_output "after a full run, the slowest test files, under their heading" "^check: slowest test files \(full tier\):$" "$out"
+  expect_output "the slowest first, with its path from the repository root" "^ +3\.2 s  tests/i18n\.test\.ts$" "$out"
+  expect_output "the summary counts the tests" "^check:   tests: 3 run, the whole suite$" "$out"
+else
+  echo "  skip  the slowest test files and the test count (no node to read vitest's report)"
+fi
+out="$(FAKE_TSC_EXIT=2 ts_check)"; expect_status "the full tier fails when tsc fails" 1 $? "$out"
+out="$(FAKE_VITEST_EXIT=1 ts_check)"; expect_status "and when a test fails" 1 $? "$out"
+
+printf 'export const a = 2;\n' > src/a.ts
+out="$(FAKE_VITEST_TESTS=1 ts_check --fast)"; status=$?; log="$(cat "$_npx_log")"
+expect_status "--fast passes after a change to a source file" 0 "$status" "$out"
+expect_output "the fast tier type-checks the whole project, incrementally, with its build info in the state folder" \
+  "^tsc --noEmit --incremental --tsBuildInfoFile /.*/\.app-director/state/tsc-fast\.tsbuildinfo$" "$log"
+expect_output "with a legacy eslint config (.eslintrc*), it lints the whole project, as the full tier does" "^eslint \. --max-warnings 0$" "$log"
+expect_output "and says so" "^check: eslint on the whole project: a legacy config \(\.eslintrc\*\) can't lint only the changed files$" "$out"
+expect_output "in the summary too" "^check:   lint: eslint on the whole project, as the config is a legacy one \(\.eslintrc\*\)$" "$out"
+expect_output "and runs only the tests related to the change, with coverage off" \
+  "^vitest related --run --passWithNoTests --coverage\.enabled=false --reporter=dot --reporter=json --outputFile\.json=[^ ]*/vitest\.json src/a\.ts$" "$log"
+expect_output "a fast pass says when the full tier is due" "^check: PASS \(fast tier; full tier due in 10 commits\)$" "$out"
+expect_output "and what the fast tier left to the full tier" "^check:   left to the full tier: the tests not related to the change$" "$out"
+expect_no_output "a fast run prints no slowest test files" "slowest test files" "$out"
+if [ "$_have_node" -eq 1 ]; then
+  expect_output "the summary counts the tests run against the last full run's" "^check:   tests: 1 of 3 run, 2 not related to the change$" "$out"
+  expect_output "and the run log has both" " tier=fast result=pass .* tests=1/3$" "$(tail -n 1 .app-director/state/check-runs.log)"
+fi
+printf 'export const a = 1;\n' > src/a.ts
+
+printf '{ "hello": "Hej" }\n' > src/i18n/en.json
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "a change matching [tests] fast-map runs the test it maps to" "^vitest related --run --passWithNoTests .* tests/i18n\.test\.ts$" "$log"
+expect_no_output "instead of the tests related to the changed file" "^vitest .*src/i18n/en\.json" "$log"
+rm src/i18n/en.json
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "removing a file that matches a [tests] fast-map rule still runs the test it maps to" \
+  "^vitest related --run --passWithNoTests .* tests/i18n\.test\.ts$" "$log"
+printf '{ "hello": "Hello" }\n' > src/i18n/en.json
+
+printf '%bignore = marketing/\n' "$ts_cfg" > tools/check.cfg
+git add tools/check.cfg >/dev/null 2>&1 && git_q commit -qm "ignore marketing" >/dev/null 2>&1
+fp1="$(bash tools/check.sh --fingerprint)"
+mkdir -p marketing && printf '{ "title": "Buy" }\n' > marketing/page.json
+[ "$(bash tools/check.sh --fingerprint)" = "$fp1" ] && ok "a change only under [tests] ignore doesn't change the fingerprint" \
+  || bad "a change only under [tests] ignore doesn't change the fingerprint"
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_no_output "nor start a test" "^vitest" "$log"
+expect_output "the fast tier says no tests are related to the change" "^check: no tests related to the change$" "$out"
+printf 'x\n' > .gitleaksignore
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "a change to only the check's own files (.gitleaksignore) has no tests related to it" "^check: no tests related to the change$" "$out"
+expect_no_output "and starts none" "^vitest" "$log"
+rm .gitleaksignore
+
+printf '%bignore = marketing/\nworkers = 2\n' "$ts_cfg" > tools/check.cfg
+printf 'export default [];\n' > eslint.config.js; printf 'export const a = 3;\n' > src/a.ts
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "[tests] workers sets vitest's --maxWorkers" "^vitest related .* --maxWorkers=2 src/a\.ts" "$log"
+expect_output "a flat eslint config lints only the changed files, with --no-warn-ignored" "^eslint --max-warnings 0 --no-warn-ignored src/a\.ts eslint\.config\.js$" "$log"
+expect_output "a changed tools file makes the full tier due now" "^check: PASS \(fast tier; full tier due now: tools/check\.cfg changed\)$" "$out"
+git add -A >/dev/null 2>&1 && git_q commit -qm "a flat eslint config" >/dev/null 2>&1
+printf '{ "hello": "Hej" }\n' > src/i18n/en.json
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "with a flat config and no changed file to lint, eslint is skipped, and says so" "^check: eslint skipped: no changed file to lint$" "$out"
+expect_no_output "and doesn't run" "^eslint" "$log"
+printf '{ "hello": "Hello" }\n' > src/i18n/en.json
+# A change of more than 100 files (101 here) runs as the full tier, since its file lists wouldn't fit on one command line.
+mkdir -p src/many
+_i=0; while [ "$_i" -le 100 ]; do printf 'export const n = %s;\n' "$_i" > "src/many/f$_i.ts"; _i=$((_i + 1)); done
+out="$(ts_check --fast)"; status=$?; log="$(cat "$_npx_log")"
+expect_status "a fast request with 101 changed files passes" 0 "$status" "$out"
+expect_output "it runs as the full tier, and says why" "^check: note: 101 changed source files, so the fast tier runs as the full tier$" "$out"
+expect_output "tsc as the full tier runs it" "^tsc --noEmit$" "$log"
+expect_output "eslint over the whole project" "^eslint \. --max-warnings 0$" "$log"
+expect_output "and the whole suite" "^vitest run --reporter=dot " "$log"
+expect_no_output "with no file list" "^vitest related|^eslint .*src/many" "$log"
+expect_output "it reports a full pass" "^check: PASS \(full tier\)$" "$out"
+{ IFS= read -r _l1; IFS= read -r _l2; } < .app-director/state/last-pass
+expect_output "and records one" "^tier=full " "$_l2"
+rm -rf src/many
+# Only source paths count toward it: 150 changed images keep the fast tier.
+mkdir -p assets/many
+_i=0; while [ "$_i" -lt 150 ]; do : > "assets/many/i$_i.png"; _i=$((_i + 1)); done
+out="$(ts_check --fast)"
+expect_no_output "150 changed images keep the fast tier" "so the fast tier runs as the full tier" "$out"
+rm -rf assets
+printf '%bignore = marketing/\nfast = none\n' "$ts_cfg" > tools/check.cfg
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_no_output "[tests] fast = none runs no test" "^vitest" "$log"
+expect_output "and leaves every test to the full tier" "^check:   left to the full tier: every test, eslint on unchanged files$" "$out"
+printf '%bignore = marketing/\nfast = all\n' "$ts_cfg" > tools/check.cfg
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "[tests] fast = all runs the whole suite" "^vitest run --reporter=dot " "$log"
+expect_output "and leaves only eslint on the unchanged files" "^check:   left to the full tier: eslint on unchanged files$" "$out"
+printf '%bignore = marketing/\n' "$ts_cfg" > tools/check.cfg
+rm vitest.config.ts; printf 'module.exports = {};\n' > jest.config.js; printf 'export const a = 4;\n' > src/a.ts
+out="$(ts_check --fast)"; status=$?; log="$(cat "$_npx_log")"
+expect_status "the fast tier passes with jest" 0 "$status" "$out"
+expect_output "jest runs the tests related to the changed files, with coverage off" "^jest --findRelatedTests src/a\.ts .*--passWithNoTests --coverage=false$" "$log"
+out="$(FAKE_JEST_EXIT=1 ts_check --fast)"; expect_status "and fails when they fail" 1 $? "$out"
 }
 
 part_guard() {
@@ -4873,8 +5559,8 @@ expect_status "blocks a failing change" 2 "$status" "$out"
 expect_output "gives Claude the check output" "check.sh fails" "$out"
 out="$(stop_hook)"; expect_status "reports the same failing state only once" 0 $? "$out"
 
-out="$(bash tools/check.sh --if-changed 2>&1)"; status=$?
-expect_status "--if-changed repeats a failure without rerunning" 1 "$status" "$out"
+out="$(bash tools/check.sh --fast --if-changed 2>&1)"; status=$?
+expect_status "--fast --if-changed repeats the Stop hook's failure without rerunning" 1 "$status" "$out"
 expect_output "says the failing state is unchanged" "nothing changed" "$out"
 
 rm -f .app-director/state/last-reported
@@ -4885,6 +5571,30 @@ rm -f .app-director/state/building
 out="$(stop_hook)"; expect_status "blocks again once the builder is done" 2 $? "$out"
 cp "$work/stop-passing" src/ui/TodoList.ts
 out="$(stop_hook)"; expect_status "lets the fixed state through" 0 $? "$out"
+
+# The Stop hook runs the fast tier only, as stop-hook. While another check holds the lock it waits no longer than the fast
+# tier's limit (CHECK_TIMEOUT=1 here), then ends the turn quietly and records nothing as reported. A check that couldn't
+# run for another reason (a stand-in gitleaks below the minimum) blocks once, and asks for the work to be reported as
+# unverified.
+_hl=""; IFS= read -r -d '' _hl < .app-director/state/check-runs.log
+expect_output "the Stop hook runs the fast tier, as stop-hook" " tier=fast result=pass secs=[0-9]+ caller=stop-hook " "$_hl"
+expect_no_output "and never the full tier" " tier=full .* caller=stop-hook " "$_hl"
+printf '// one more harmless change\n' >> src/services/TodoService.ts
+printf 'pid=%s started=%s at=12:41 caller=pre-commit tier=full\n' "$$" "${EPOCHSECONDS:-$(date +%s)}" > .app-director/state/check.lock
+rm -f .app-director/state/last-reported
+out="$(CHECK_TIMEOUT=1 stop_hook)"; status=$?
+expect_status "while another check holds the lock past the fast tier's limit, the Stop hook ends the turn" 0 "$status" "$out"
+[ -z "$out" ] && ok "quietly" || bad "quietly" "$out"
+[ ! -e .app-director/state/last-reported ] && ok "and records nothing as reported" || bad "and records nothing as reported"
+rm -f .app-director/state/check.lock
+_old_gl="$work/fake-gl-old"; mkdir -p "$_old_gl"
+printf '#!/bin/bash\n[ "$1" = version ] && echo v8.0.0\nexit 0\n' > "$_old_gl/gitleaks"; chmod +x "$_old_gl/gitleaks"
+out="$(printf '{}' | CLAUDE_PROJECT_DIR="$app" PATH="$_old_gl:$_stop_path" bash .claude/hooks/stop-check.sh 2>&1)"; status=$?
+expect_status "a check that couldn't run for another reason blocks the turn once" 2 "$status" "$out"
+expect_output "and says it couldn't verify this work" "^App Director: the project check couldn't verify this work:$" "$out"
+expect_output "quoting the reason" "^check: secrets FAIL: gitleaks 8\.0\.0 is below minimum 8\.18\.0\.$" "$out"
+expect_output "and asks for the work to be reported as unverified, not failed" "^Report this work as unverified, not failed" "$out"
+expect_no_output "without telling Claude to stop, or that the work isn't done" "Don't call the work done|[Ss]top" "$out"
 }
 
 part_session() {
@@ -5247,6 +5957,151 @@ else
   echo "  skip  real gitleaks Markdown staged-secret tests (gitleaks not found or below $_gl_min_req)"
 fi
 
+# --- pre-commit and pre-push: the tiers -----------------------------------------------------------
+# The pre-commit hook asks `bash tools/check.sh --due` for the tier: full when it's due, fast otherwise, and says which and
+# why; the pre-push hook runs the full tier. A stand-in stack counts the suites that start (a line each, with the tier and
+# the caller, in suites), so a reused pass adds none, and keeps a line it could read from its stdin (stdin-seen: there
+# should be none). The settings bring the full tier every 3 commits and for anything under db/, and leave marketing/ out.
+echo "pre-commit and pre-push, the tiers"
+_pst=.app-director/state
+printf '#!/usr/bin/env bash\nread -r -t 5 _line && echo "$_line" >> "$CHECK_STATE/stdin-seen"\necho "$CHECK_TIER ${CHECK_CALLER:-manual}" >> "$CHECK_STATE/suites"\nexit 0\n' > tools/stacks/counted.sh
+printf '[project]\nstack = counted\n\n[ui]\ndirs = src/ui\n\n[data]\ndirs = store\n\n[gitleaks]\nmin-version = 8.18.0\n\n[tests]\nfull-every = 3\nfull-when = db/\nignore = marketing/\n' > tools/check.cfg
+pc_suites() { # the suites started: how many in pc_n, the last one's tier and caller in pc_last
+  local l
+  pc_n=0; pc_last=""
+  [ -f "$_pst/suites" ] || return 0
+  while IFS= read -r l; do pc_n=$((pc_n + 1)); pc_last="$l"; done < "$_pst/suites"
+}
+_pc_violation() { { printf '\n'; printf 'import { TodoStore } from '"'"'../store/TodoStore'"'"';\n'; } >> src/ui/TodoList.ts; }
+
+git add tools/check.cfg tools/stacks/counted.sh
+out="$(git_q commit -qm "a counted stack" 2>&1)"; status=$?
+expect_status "pre-commit: a commit that stages tools/check.cfg passes" 0 "$status" "$out"
+expect_output "it runs the full tier, and says why: a path on the framework's list is staged" "^pre-commit: running the project check, full tier: tools/check\.cfg changed$" "$out"
+pc_suites
+[ "$pc_last" = "full pre-commit" ] && ok "the full suite runs, as pre-commit" || bad "the full suite runs, as pre-commit" "$pc_last"
+
+printf '\n// staged\n' >> src/ui/TodoList.ts && git add src/ui/TodoList.ts && printf '// not staged\n' >> src/ui/TodoList.ts
+out="$(git_q commit -qm "a fast commit" 2>&1)"; status=$?
+expect_status "a commit when the full tier isn't due passes" 0 "$status" "$out"
+expect_output "it runs the fast tier, and says why" \
+  "^pre-commit: running the project check, fast tier: the full tier isn't due \(1 commit since the last full pass \([0-9a-f]{7}, [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\), \[tests\] full-every = 3\)$" "$out"
+expect_output "a staged source file with unstaged changes gets a note" \
+  "^pre-commit: note: src/ui/TodoList\.ts has unstaged changes too\. The check covers the working tree, not exactly what this commit records\.$" "$out"
+pc_suites
+[ "$pc_last" = "fast pre-commit" ] && ok "the fast suite runs, as pre-commit" || bad "the fast suite runs, as pre-commit" "$pc_last"
+git checkout -- src/ui/TodoList.ts
+
+# The builder's change adds a file: staging it leaves the fingerprint as it was (the list is sorted, tracked or not).
+printf '\n// a builder change\n' >> src/ui/TodoList.ts; printf 'export const banner = "hi";\n' > src/ui/Banner.ts
+out="$(bash tools/check.sh --fast 2>&1)"; expect_status "a builder's fast pass, with a new untracked file" 0 $? "$out"
+pc_suites; _pc_n="$pc_n"
+git add src/ui/TodoList.ts src/ui/Banner.ts
+out="$(bash tools/check.sh --fast --if-changed 2>&1)"
+expect_output "once the new file is staged, --fast --if-changed reuses that pass" "^check: PASS \(reused the fast pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+out="$(git_q commit -qm "a builder's commit" 2>&1)"; status=$?
+expect_status "the commit after it passes" 0 "$status" "$out"
+expect_output "and reuses the builder's fast pass on the same files" "^check: PASS \(reused the fast pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+out="$(CHECK_CALLER=stop-hook bash tools/check.sh --fast --if-changed 2>&1)"
+expect_output "after the commit, --fast --if-changed (the Stop hook's, the next item's) still reuses that pass" \
+  "^check: PASS \(reused the fast pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+pc_suites
+[ "$pc_n" -eq "$_pc_n" ] && ok "with no second suite" || bad "with no second suite" "$pc_last"
+
+printf '\n// the third commit\n' >> src/ui/TodoList.ts && git add src/ui/TodoList.ts
+out="$(git_q commit -qm "the third since the full pass" 2>&1)"; status=$?
+expect_status "the third commit since the full pass passes" 0 "$status" "$out"
+expect_output "and runs the full tier, saying why: [tests] full-every commits since the last full pass" \
+  "^pre-commit: running the project check, full tier: 3 commits since the last full pass \([0-9a-f]{7}, [^)]*\), \[tests\] full-every = 3$" "$out"
+pc_suites
+[ "$pc_last" = "full pre-commit" ] && ok "the full suite runs" || bad "the full suite runs" "$pc_last"
+
+mkdir -p db && printf '{ "seed": 1 }\n' > db/seed.json && git add db/seed.json
+out="$(git_q commit -qm "a seed" 2>&1)"; status=$?
+expect_status "a commit that stages a path under [tests] full-when passes" 0 "$status" "$out"
+expect_output "and runs the full tier, saying why" "^pre-commit: running the project check, full tier: db/seed\.json changed$" "$out"
+
+# A path that makes the full tier due starts the check though it isn't a source path and nothing else is staged: a
+# migration under [tests] full-when, and requirements.txt on the framework's list. The pass before it doesn't stand.
+printf 'create table t (id int);\n' > db/001.sql && git add db/001.sql
+pc_suites; _pc_n="$pc_n"
+out="$(git_q commit -qm "a migration" 2>&1)"; status=$?
+expect_status "a commit that stages only a migration under [tests] full-when passes" 0 "$status" "$out"
+expect_output "and runs the full tier, saying why" "^pre-commit: running the project check, full tier: db/001\.sql changed$" "$out"
+pc_suites
+[ "$pc_n" -eq $((_pc_n + 1)) ] && [ "$pc_last" = "full pre-commit" ] && ok "the full suite runs: the pass before it doesn't stand for a new migration" \
+  || bad "the full suite runs: the pass before it doesn't stand for a new migration" "$pc_n suites, the last: $pc_last"
+printf 'pytest==8.0\n' > requirements.txt && git add requirements.txt
+out="$(git_q commit -qm "a dependency" 2>&1)"; status=$?
+expect_status "a commit that stages only requirements.txt passes" 0 "$status" "$out"
+expect_output "and runs the full tier, saying why" "^pre-commit: running the project check, full tier: requirements\.txt changed$" "$out"
+pc_suites
+[ "$pc_n" -eq $((_pc_n + 2)) ] && [ "$pc_last" = "full pre-commit" ] && ok "and the full suite runs for it too" \
+  || bad "and the full suite runs for it too" "$pc_n suites, the last: $pc_last"
+# Before a commit, `bash tools/check.sh --due` says whether the full tier is due; run first, its pass is the one the
+# commit's hook reuses, so the full run never sits inside the commit (rules.md, Running the check).
+printf 'alter table t add n int;\n' >> db/001.sql && git add db/001.sql
+out="$(bash tools/check.sh --due 2>&1)"
+expect_output "--due before a commit says the full tier is due, and why" "^check: full tier due: db/001\.sql changed$" "$out"
+out="$(bash tools/check.sh --if-changed 2>&1)"; expect_status "the full tier, run before the commit" 0 $? "$out"
+pc_suites; _pc_n="$pc_n"
+out="$(git_q commit -qm "a migration, checked first" 2>&1)"; status=$?
+expect_status "the commit after it passes" 0 "$status" "$out"
+expect_output "and its hook reuses that full pass" "^check: PASS \(reused the full pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+pc_suites
+[ "$pc_n" -eq "$_pc_n" ] && ok "with no suite inside the commit" || bad "with no suite inside the commit" "$pc_last"
+
+mkdir -p marketing && printf '{ "title": "Buy" }\n' > marketing/page.json && git add marketing/page.json
+pc_suites; _pc_n="$pc_n"
+out="$(git_q commit -qm "a marketing page" 2>&1)"; status=$?
+expect_status "a commit that stages only a path under [tests] ignore passes" 0 "$status" "$out"
+expect_no_output "and runs no check: the path doesn't count as source" "running the project check" "$out"
+expect_output "the staged secrets scan still runs on it" "^pre-commit: scanning staged changes for secrets$" "$out"
+pc_suites
+[ "$pc_n" -eq "$_pc_n" ] && ok "and no suite starts" || bad "and no suite starts" "$pc_last"
+
+_pc_old="$work/fake-gl-pc-old"; mkdir -p "$_pc_old"
+printf '#!/bin/bash\n[ "$1" = version ] && echo v8.0.0\nexit 0\n' > "$_pc_old/gitleaks"; chmod +x "$_pc_old/gitleaks"
+printf '\n// not committed\n' >> src/ui/TodoList.ts && git add src/ui/TodoList.ts
+_pc_head="$(git rev-parse HEAD)"
+out="$(export PATH="$_pc_old:$PATH"; git_q commit -qm "a check that can't run" 2>&1)"; status=$?
+expect_status "pre-commit blocks a commit whose check couldn't run" 1 "$status" "$out"
+expect_output "and says nothing was committed and the staged changes are as they were" \
+  "^pre-commit: the check couldn't run \(the reason is above\), so nothing was committed; the staged changes are as they were\.$" "$out"
+expect_output "and how to go on: the tier's run in the background with a longer limit, whose pass the commit reuses" \
+  "^            'CHECK_TIMEOUT=<seconds> bash tools/check\.sh --(fast|full)', and commit again once it passes \(the commit reuses$" "$out"
+[ "$(git rev-parse HEAD)" = "$_pc_head" ] && [ "$(git diff --cached --name-only)" = "src/ui/TodoList.ts" ] \
+  && ok "nothing is committed, and the change is still staged" || bad "nothing is committed, and the change is still staged" "$(git status --short)"
+git reset -q -- src/ui/TodoList.ts && git checkout -- src/ui/TodoList.ts
+
+# pre-push: the full tier, blocking on a failure; a full pass of the same files is reused; a push that only deletes a ref
+# runs no check.
+_pc_origin="$work/commit-origin.git"
+git init -q --bare "$_pc_origin" && git remote add origin "$_pc_origin"
+_pc_violation
+out="$(git_q push -q origin HEAD:refs/heads/main 2>&1)"; status=$?
+[ "$status" -ne 0 ] && [ -z "$(git --git-dir="$_pc_origin" for-each-ref)" ] && ok "pre-push blocks a push while the full check fails" \
+  || bad "pre-push blocks a push while the full check fails (exit $status)" "$out"
+expect_output "it runs the full tier, and says so" "^pre-push: running the project check, full tier: a push gets the full check$" "$out"
+expect_output "and says nothing was pushed, and how to go on" "^pre-push: the full check fails, so nothing was pushed\. Fix what it names" "$out"
+pc_suites
+[ "$pc_last" = "full pre-push" ] && ok "the full suite runs, as pre-push" || bad "the full suite runs, as pre-push" "$pc_last"
+[ ! -e "$_pst/stdin-seen" ] && ok "and reads nothing from git's ref list" || bad "and reads nothing from git's ref list" "$(cat "$_pst/stdin-seen")"
+git checkout -- src/ui/TodoList.ts
+out="$(bash tools/check.sh 2>&1)"; expect_status "a full pass before the push" 0 $? "$out"
+pc_suites; _pc_n="$pc_n"
+out="$(git_q push -q origin HEAD:refs/heads/main HEAD:refs/heads/gone 2>&1)"; status=$?
+expect_status "pre-push lets the push through once a full pass of these files stands" 0 "$status" "$out"
+expect_output "and reuses that pass" "^check: PASS \(reused the full pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+pc_suites
+[ "$pc_n" -eq "$_pc_n" ] && ok "with no second suite" || bad "with no second suite" "$pc_last"
+_pc_violation
+out="$(git_q push -q origin :refs/heads/gone 2>&1)"; status=$?
+expect_status "a push that only deletes a ref goes through, though the check would fail" 0 "$status" "$out"
+expect_no_output "and runs no check" "running the project check" "$out"
+[ "$(git --git-dir="$_pc_origin" for-each-ref --format='%(refname)')" = "refs/heads/main" ] && ok "the remote has main, and not the deleted branch" \
+  || bad "the remote has main, and not the deleted branch" "$(git --git-dir="$_pc_origin" for-each-ref)"
+git checkout -- src/ui/TodoList.ts
 }
 
 # --- prototypes -----------------------------------------------------------------------------------
@@ -5256,14 +6111,16 @@ fi
 # its root) skips the check: the pre-commit hook still blocks a staged secret there and a commit without gitleaks,
 # and runs the check everywhere else, the Stop hook likewise, and the pre-push hook refuses a proto/ branch.
 # harvest prints what the harvest reads and changes nothing; remove never forces and keeps the branch. The stub
-# check always fails, so a commit that goes through shows the check was skipped. A token is assembled at run
-# time, never kept in a tracked file.
+# check always fails, so a commit of a source file that goes through shows the check was skipped; asked which staged
+# paths are source (--unignored), it answers with the framework's check, as a working one does, so a commit of no
+# source file starts no check. A token is assembled at run time, never kept in a tracked file.
 _proto_repo() { # _proto_repo <folder> <origin>: an app with the prototype tools, a failing stub check and an origin
   new_repo "$1" >/dev/null 2>&1
   mkdir -p "$1/tools" "$1/.githooks"
   cp "$src/framework/tools/prototype.sh" "$src/framework/tools/setup-clone.sh" "$1/tools/"
   cp "$src/framework/.githooks/pre-commit" "$src/framework/.githooks/pre-push" "$1/.githooks/"
-  printf '#!/usr/bin/env bash\necho "stub check: fails"\nexit 1\n' > "$1/tools/check.sh"
+  printf '#!/usr/bin/env bash\n[ "$1" != --unignored ] || exec bash "%s" --unignored\necho "stub check: fails"\nexit 1\n' \
+    "$src/framework/tools/check.sh" > "$1/tools/check.sh"
   printf '# Tasks\n\n**Next IDs:** T1 · B1 · R1\n' > "$1/TASKS.md"
   printf '.app-director/state/\n' > "$1/.gitignore"
   git init -q --bare "$2"
@@ -5478,8 +6335,16 @@ _push_refused "proto/quick-add~0 under another name" "$_pa" "proto/quick-add~0:r
 git -C "$_pa" branch from-proto proto/quick-add >/dev/null 2>&1
 _push_refused "a branch made from a prototype's commit" "$_pa" from-proto "carries a prototype's commits"
 (cd "$_pa" && printf '# app\n\nA note.\n' > README.md && git add README.md && PATH="$_stop_path" git commit -qm "docs: a note") >/dev/null 2>&1
-out="$(cd "$_pa" && PATH="$_stop_path" git push -q origin main 2>&1)"
-expect_status "pre-push lets main through" 0 $? "$out"
+# The refusal lets main through. Outside a prototype the push then runs the project check, whose stub fails here; in a
+# prototype it doesn't.
+out="$(cd "$_pa" && PATH="$_stop_path" git push -q origin main 2>&1)"; status=$?
+[ "$status" -ne 0 ] && ok "pre-push runs the check for main outside a prototype, and blocks the push when it fails" \
+  || bad "pre-push runs the check for main outside a prototype, and blocks the push when it fails (exit $status)" "$out"
+expect_output "with the check's own output" "^stub check: fails$" "$out"
+expect_output "and says the full check fails" "^pre-push: the full check fails, so nothing was pushed\." "$out"
+out="$(cd "$_pw" && PATH="$_stop_path" git push -q origin main 2>&1)"
+expect_status "pre-push lets main through from a prototype, where the check doesn't run" 0 $? "$out"
+expect_no_output "and doesn't run the check there" "running the project check|stub check" "$out"
 [ "$(git --git-dir="$_po" for-each-ref --format='%(refname)')" = "refs/heads/main" ] \
   && ok "the origin has main and nothing else" || bad "a refused push reached the origin" "$(git --git-dir="$_po" for-each-ref)"
 
@@ -5936,6 +6801,7 @@ part orphans 1c-orphans
 gitleaks_setup
 part installer 2b-installer
 part snapshot 2b-snapshot
+part check_ts 2g-check-ts
 part security 6-security
 part stories 6b-stories
 part session 4b-session
@@ -5945,13 +6811,13 @@ part main 2-installer
 wait
 passed=0; failed=0
 stopped=""
-for name in framework release orphans main installer snapshot check1 check2 check3 guard hooks session commit ui_design security stories prototype protospace; do
+for name in framework release orphans main installer snapshot check1 check2 check3 check4 check5 check_ts guard hooks session commit ui_design security stories prototype protospace; do
   if [ -f "$seg/count-$name" ]; then read -r p f status < "$seg/count-$name"; else p=0; f=1; status="no count"; fi
   passed=$((passed + p)); failed=$((failed + f))
   [ "$status" = 0 ] || { failed=$((failed + 1)); stopped="$stopped$nl  FAIL  the $name part stopped early ($status)"; }
 done
 cat "$seg"/1-framework "$seg"/1b-release "$seg"/1c-orphans "$seg"/2-installer "$seg"/2b-installer "$seg"/2b-snapshot \
-  "$seg"/2c-check1 "$seg"/2d-check2 "$seg"/2e-check3 "$seg"/3-guard "$seg"/4a-hooks "$seg"/4b-session "$seg"/4b-precommit \
+  "$seg"/2c-check1 "$seg"/2d-check2 "$seg"/2e-check3 "$seg"/2f-check4 "$seg"/2f2-check5 "$seg"/2g-check-ts "$seg"/3-guard "$seg"/4a-hooks "$seg"/4b-session "$seg"/4b-precommit \
   "$seg"/5-ui-design "$seg"/6-security "$seg"/6b-stories "$seg"/7-prototype "$seg"/7b-protospace
 [ -z "$stopped" ] || printf '%s\n' "${stopped#"$nl"}"
 finish

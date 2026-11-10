@@ -23,7 +23,7 @@
 #                                           human runs that
 #   bash tools/prototype.sh here            whether this checkout is a prototype: a linked worktree on a proto/
 #                                           branch with PROTOTYPE.md at its root (exit 0), or not (exit 1). The
-#                                           pre-commit and Stop hooks skip the check only when it is
+#                                           pre-commit, pre-push and Stop hooks skip the check only when it is
 # A name is lowercase letters, digits and dashes, such as quick-add. start, harvest and remove run in the main
 # session's checkout, not in a prototype. This never pushes, merges or deletes a branch.
 # Exit codes: 0 = done · 1 = refused or failed (the reason is printed) · 4 = started, but setup-clone or the
