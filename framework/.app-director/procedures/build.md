@@ -21,7 +21,9 @@ Shell commands follow `.app-director/rules.md` › Shell commands. Write files w
    - Run `bash tools/ui_capture.sh <id> --verify`. Look at the capture and its `.lint.txt` (or `.elements.json`, if you can't view images), then read the table it prints. The layout lint runs here, not in the check.
    - Fix the deviations that are in scope; report the rest in the `Screen:` line.
    - If it exits 3, the `(check)` outcome about the capture stays unverified: say so plainly in the report, as for the check's exit 3.
-6. **Verify** with `bash tools/check.sh` (foreground, long timeout), until it exits 0.
+6. **Verify** with `bash tools/check.sh --fast` (foreground, long timeout), until it exits 0. The fast tier runs UI purity, the secrets scan and the stack check on what the change needs: in a TypeScript app, tsc, eslint on the changed files and the tests related to the change, your new tests included.
+   - Never run the full tier. An outcome that names the check is met here by the fast tier; the commit hook brings the full tier when it's due, and so do the end of a run and a push (`rules.md` › Running the check).
+   - Never start a check beside a running one: the second waits for the first, and reuses its result when the files and the tier match.
    - After two failed attempts at the same problem, stop and report.
    - A failure in files the item doesn't touch, which was there before you started, isn't yours: report `failed: pre-existing` with its lines.
    - Exit 3 means the check couldn't run; report that.

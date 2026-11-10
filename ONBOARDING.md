@@ -24,7 +24,7 @@ The human makes every design and ownership decision; you gather, propose and wri
    Then:
    1. Read the entries in `$ADIR/CHANGELOG.md` newer than the old version. Carry out each **Upgrade steps** section in order.
    2. If full, carry out steps 3-8 below.
-   3. Run step 2 only if `bash tools/check.sh` exits 3 (fast) or run it again now (full).
+   3. Run step 2 only if `bash tools/check.sh` exits 3 (a fast upgrade) or run it again now (a full upgrade).
    4. **Screens.** If the app has a web UI, ask for the address of its dev server on this machine and write it to `tools/ui_capture.cfg` › `[web] base_url` (and `start_command`, if capture should start it). With Node available, run `bash tools/ui_capture.sh --missing` (the Screens checks of `.app-director/procedures/align.md`) and tell the human which screens the catalog doesn't cover yet. It lists them; it never fails the upgrade. Offer to add the entries now or leave them for the next item that touches a screen. An upgrade keeps the app's own `AGENTS.md` and `tools/check.cfg`; the layout lint never runs in the check.
    5. Summarise what changed. Go to step 9.
 

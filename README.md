@@ -102,7 +102,7 @@ you use the app, or have an idea
 design session ── options + a recommendation ── you decide ──► brief + decisions.md + user stories + TASKS.md items
         │
         ▼
-next task ── builds the next ready item ── tests ── bash tools/check.sh ──► commit (you approve)
+next task ── builds the next ready item ── tests ── bash tools/check.sh --fast ──► commit (you approve)
         │
         ▼
 acceptance check (does each built rule work in the running app?)
@@ -134,7 +134,7 @@ your-app/
 ├── product/user-stories.md     the roles the app serves, and why each feature is built: their stories, confirmed by you; each feature item names the ones it serves
 ├── product/research/           dated research notes, one per topic; the decision line links to its note
 ├── product/security/           dated security assessment reports, one per assessment
-├── tools/check.cfg             check settings: stack, UI and data folders, test time limit, security assessment and stories validation cadence
+├── tools/check.cfg             check settings: stack, UI and data folders, the tiers and their time limits, security assessment and stories validation cadence
 ├── tools/ui/screens.mjs        the screen catalog: every screen, its route, and how to seed each state
 ├── tools/ui_capture.cfg        capture sizes and seed, the app to open, lint thresholds, verify tolerance
 ├── product/ui/                 one spec per screen (and a gitignored captures/ folder); README.md says how to draw
@@ -147,20 +147,20 @@ your-app/
 ├── .app-director/procedures/     next-task · build · design · prototype · research · ui-design · review · security · align · drift-reset · prune · release · acceptance · refresh-model-sizing
 ├── .app-director/research-domain.md  what the researcher adds for apps: stacks and libraries, licences, app-store and platform requirements
 ├── .app-director/reference/owasp.md  the OWASP checklist the security assessment reads, check by check
-├── tools/check.sh              the check (UI purity, secrets, stack, custom)
+├── tools/check.sh              the check (UI purity, secrets, stack, custom), in a fast and a full tier
 ├── tools/security.sh           the security assessment's tools: dependency audit, secrets scan, Semgrep; and whether one is due
 ├── tools/stories.sh            whether the user stories are due for validation
 ├── tools/prototype.sh          a prototype's git steps: its worktree, branch and notes; list, harvest, remove
 ├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit and pre-push hooks
 ├── tools/stacks/               typescript.sh · flutter.sh · python.sh · none.sh
 ├── tools/ui_capture.sh, tools/ui/  screen capture, element map, layout lint, drawing reader, compare and verify (Node and Playwright)
-├── .githooks/pre-commit        runs the check before commits that touch code (not in a prototype), and the secrets scan on every commit (no gitleaks, no commit)
-├── .githooks/pre-push          refuses to push a prototype's proto/ branch, or its commits under another name
+├── .githooks/pre-commit        runs the check before commits that touch code (the full tier when it's due, else the fast one; not in a prototype), and the secrets scan on every commit (no gitleaks, no commit)
+├── .githooks/pre-push          runs the full tier before a push; refuses to push a prototype's proto/ branch, or its commits under another name
 │
 │  App Director's, Claude Code adapter: updated on upgrade
 ├── .claude/skills/             /next-task and the rest: each points to its procedure
 ├── .claude/agents/             builder (builds each item in a fresh context) · reviewer and researcher (read-only)
-├── .claude/hooks/              runs the check before a turn ends, for a session that changed code;
+├── .claude/hooks/              runs the fast tier before a turn ends, for a session that changed code;
 │                               blocks risky git commands; says at session start when the
 │                               project is behind the latest release, and lists the processes
 │                               an ended session left behind
@@ -201,9 +201,13 @@ Model sizing (recommended on): each item size maps to its own build model in AGE
 3. **Stack check:** runs the appropriate `tools/stacks/<stack>.sh` (type check, lint, tests).
 4. **Custom:** runs `tools/check.local.sh`, if the app has one.
 
+It has two tiers:
+- **Full** (`bash tools/check.sh`): every step over the whole project. It runs on request, before a push (the pre-push hook), for a release, at the end of a run of items, and on a commit once 10 commits have passed since the last full one (`[tests] full-every`) or when a dependency, a toolchain setting or a tool changed.
+- **Fast** (`bash tools/check.sh --fast`): the same steps on what the change needs; for a TypeScript app, tsc, eslint on the changed files and the tests related to the change. It runs for a build, a commit and the end of a turn.
+
 The pre-commit hook also runs `gitleaks protect --staged --redact` on staged changes, so secrets are caught before they enter git history.
 
-It exits 0 on pass, 1 on fail, and 3 when it can't run. It caches the last passing state so hooks don't re-run it when nothing has changed.
+It exits 0 on pass, 1 on fail, and 3 when it can't run. It records each result with its tier and its files, so a hook repeats a pass of the same files at once (a fast pass never stands for a full one), and when it can't reuse one, it says what changed. One check runs at a time in a checkout: a second waits and reuses its result. Every run is a line in `.app-director/state/check-runs.log`.
 
 ### This repository
 | Path | |

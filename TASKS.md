@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T55 · B8 · R1
+**Next IDs:** T56 · B8 · R1
 
 ## Queue
+
+### T55 · The check has a fast tier for every commit, a cache that says why it missed, and one check at a time · done · XL · agent
+- Touches: framework/tools/check.sh, framework/tools/stacks/typescript.sh, framework/.githooks/pre-commit, framework/.githooks/pre-push, framework/.claude/hooks/stop-check.sh, framework/.app-director/rules.md, framework/.app-director/procedures/build.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/release.md, project/tools/check.cfg, README.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: `bash tools/check.sh --fast` runs UI purity, the secrets scan, tsc (incremental), eslint on the changed files and the tests related to the change (`vitest related`, `jest --findRelatedTests`, `[tests] fast-map`), and `bash tools/check.sh` is still the full tier (test) · `--due` says the full tier is due with no full pass, after `[tests] full-every` commits, or when a framework or `[tests] full-when` path changed (test) · a recorded result carries its tier and a list of its files, a fast pass never stands for a full one, and every miss and reuse names the result it compared with (test) · each tier has its own time limit (`timeout-fast` 300, `timeout-full` 3600, the old `timeout` as the full tier's), and a run past it exits 3 and says how to go on (test) · one check at a time per checkout: a second waits and reuses a matching result, a stale lock is removed and `CHECK_WAIT` caps the wait (test) · the pre-commit hook runs the tier `--due` names and reuses a builder's pass, the pre-push hook runs the full tier, and the Stop hook runs only the fast tier and ends the turn quietly while another check runs (test) · every run is a line in `check-runs.log` and ends with a summary (test) · `build.md`, `next-task.md`, `release.md` and `rules.md` name the tier each step runs, the full-every rule lives only in `rules.md`, and the `check.cfg` seed has the new `[tests]` keys with comments (check) · the entry sits under Unreleased, with upgrade steps, and `bash selftest.sh` passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T325
 
 ### T54 · The guard reads a quoted or backslash path to git or a shell as it reads the bare name · done · M · agent
 - Touches: framework/.claude/hooks/guard-commands.sh, selftest.sh, CHANGELOG.md, TASKS.md
