@@ -2,9 +2,14 @@
 # App Director Stop hook · Claude Code · framework-owned: replaced on upgrade.
 #
 # When Claude is about to finish a turn and this session wrote or edited a source file since its last passing
-# check, and source files differ from the last commit, run the project check. The check itself skips work when
-# nothing changed since its last pass. If the check fails, block once and hand the output back to Claude. The same
-# failing state isn't reported twice, so a turn can still end after Claude has explained a failure it can't fix.
+# check, and source files differ from the last commit, run the project check's fast tier (bash tools/check.sh --fast
+# --if-changed; the commit and the push run the full tier when it's due). The check itself skips work when nothing
+# changed since its last pass. If the check fails, block once and hand the output back to Claude. The same failing
+# state isn't reported twice, so a turn can still end after Claude has explained a failure it can't fix.
+# While another check runs in this checkout, this one waits for it no longer than the fast tier's own time limit
+# (CHECK_WAIT=fast: CHECK_TIMEOUT, else [tests] timeout-fast, else 300 s, as check.sh reads it). Past that the turn ends
+# quietly and nothing is recorded as reported: the running check gates the commit. A check that couldn't run for another
+# reason blocks once, and asks Claude to report the work as unverified, not failed.
 #
 # Whether this session wrote a source file is session-touched.sh's record,
 # .app-director/state/sessions/<session_id>.touched (the session_id is in the hook input). A session that edited
@@ -60,24 +65,42 @@ if [ -n "$fingerprint" ] && [ "$(cat "$state/last-reported" 2>/dev/null)" = "$fi
   exit 0
 fi
 
-output="$(bash tools/check.sh --if-changed 2>&1)"
+output="$(CHECK_CALLER=stop-hook CHECK_WAIT=fast bash tools/check.sh --fast --if-changed 2>&1)"
 status=$?
 if [ "$status" -eq 0 ]; then
   rm -f "$state/last-reported"
   [ -n "$sid" ] && rm -f "$sessions/$sid.touched" "$sessions/$sid.before"
   exit 0
 fi
+nl='
+'
+# Another check still running past the wait: it gates the commit, so the turn ends, and the next one checks again.
+if [ "$status" -eq 3 ]; then
+  case "$nl$output" in *"${nl}check: busy: "*) exit 0 ;; esac
+fi
 [ -n "$fingerprint" ] && printf '%s' "$fingerprint" > "$state/last-reported"
 
 if [ "$status" -eq 3 ]; then
+  # The reason: the last line that says the check couldn't run, can't find something or failed a step, and the lines
+  # after it (the hints that go with it). The last five lines when no line says so.
+  reason=""
+  while IFS= read -r line; do
+    case "$line" in
+      "check: "*"couldn't"*|"check: "*"can't"*|"check: "*FAIL*) reason="$line" ;;
+      *) [ -z "$reason" ] || reason="$reason$nl$line" ;;
+    esac
+  done <<< "$output"
+  [ -n "$reason" ] || reason="$(printf '%s\n' "$output" | tail -n 5)"
   {
-    echo "App Director: the project check couldn't run, so this work is unverified:"
-    printf '%s\n' "$output" | tail -n 5
-    echo "Tell the human; 'bash tools/setup-clone.sh' sets up the toolchain for this clone. Don't call the work done."
+    echo "App Director: the project check couldn't verify this work:"
+    printf '%s\n' "$reason"
+    echo "Report this work as unverified, not failed: the check couldn't run, for the reason above, so it neither passed"
+    echo "nor failed. Tell the human. 'bash tools/setup-clone.sh' sets up a missing tool for this clone, and a run past its"
+    echo "time limit can run again in the background ('bash tools/check.sh --fast')."
   } >&2
 else
   {
-    echo "App Director: bash tools/check.sh fails on the current files:"
+    echo "App Director: bash tools/check.sh fails on the current files (fast tier):"
     printf '%s\n' "$output" | tail -n 60
     echo "Fix it before finishing. If you're stopping to ask the human something, or the failure comes"
     echo "from changes outside your work, say that the check fails and why, then stop."

@@ -2,8 +2,10 @@
 # App Director pre-commit hook · framework-owned: replaced on upgrade.
 # `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
 #
-# When a commit touches source files:
-#   1. Runs the project check (working tree) with --if-changed caching. Not in a prototype (a linked
+# When a commit touches source files (the paths source_staged names, less those under [tests] ignore in tools/check.cfg):
+#   1. Runs the project check (working tree) with --if-changed caching, in the tier `bash tools/check.sh --due` names:
+#      the full tier when it's due, the fast tier otherwise, and says which and why. A pass of the same files, a
+#      builder's for one, is reused, so no second run starts. Not in a prototype (a linked
 #      worktree on a proto/ branch with PROTOTYPE.md at its root, `bash tools/prototype.sh here`;
 #      .app-director/procedures/prototype.md), which is tried outside the loop.
 # On every commit, whatever is staged and wherever it is made:
@@ -28,19 +30,53 @@ prototype=0
 
 [ -f tools/check.sh ] || [ "$prototype" -eq 1 ] || exit 0
 
+nl='
+'
+# The staged source files, one per line, in staged_src: the code extensions and the check's own files. Outside a
+# prototype, those under [tests] ignore don't count (tools/check.sh --unignored reads the setting); a check.sh that can't
+# answer leaves them all counted. A commit that stages none of these starts nothing.
+staged_src=""
 source_staged() {
-  git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD \
+  local kept
+  staged_src="$(git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD \
     | tr '\0' '\n' \
-    | grep -qE '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^\.gitleaks(\.toml|ignore)$'
+    | grep -E '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^\.gitleaks(\.toml|ignore)$')"
+  [ -n "$staged_src" ] || return 1
+  [ "$prototype" -eq 1 ] && return 0
+  if kept="$(printf '%s\n' "$staged_src" | bash tools/check.sh --unignored 2>/dev/null)"; then staged_src="$kept"; fi
+  [ -n "$staged_src" ]
 }
 
 run_check() {
-  echo "pre-commit: running the project check"
-  bash tools/check.sh --if-changed
+  local due tier why flag="" status unstaged p first="" more=0
+  due="$(bash tools/check.sh --due 2>/dev/null)"
+  case "$due" in
+    "check: full tier not due: "*) tier=fast; flag=" --fast"; why="the full tier isn't due (${due#check: full tier not due: })" ;;
+    "check: full tier due: "*) tier=full; why="${due#check: full tier due: }" ;;
+    *) tier=full; why="'bash tools/check.sh --due' gave no answer" ;;
+  esac
+  echo "pre-commit: running the project check, $tier tier: $why"
+  # The check reads the working tree, so a staged source file with unstaged changes isn't checked as this commit
+  # records it.
+  unstaged="$(git -c core.quotePath=false diff --name-only 2>/dev/null)"
+  if [ -n "$unstaged" ]; then
+    while IFS= read -r p; do
+      case "$nl$unstaged$nl" in
+        *"$nl$p$nl"*) if [ -z "$first" ]; then first="$p"; else more=$((more + 1)); fi ;;
+      esac
+    done <<< "$staged_src"
+    if [ -n "$first" ]; then
+      if [ "$more" -eq 0 ]; then p="$first has"; else p="$first and $more more have"; fi
+      echo "pre-commit: note: $p unstaged changes too. The check covers the working tree, not exactly what this commit records."
+    fi
+  fi
+  CHECK_CALLER=pre-commit bash tools/check.sh --"$tier" --if-changed
   status=$?
   if [ "$status" -eq 3 ]; then
-    echo "pre-commit: the check couldn't run. Run 'bash tools/setup-clone.sh', or, if you accept an"
-    echo "            unverified commit, commit with --no-verify yourself."
+    echo "pre-commit: the check couldn't run (the reason is above), so nothing was committed; the staged changes are as they were."
+    echo "            To go on: when it ran out of time, run 'bash tools/check.sh$flag' in the background and commit again"
+    echo "            once it passes (the commit reuses its pass); when a tool is missing, run 'bash tools/setup-clone.sh'."
+    echo "            If you accept an unverified commit, commit with --no-verify yourself."
     exit 1
   elif [ "$status" -ne 0 ]; then
     echo "pre-commit: the check fails; commit blocked."

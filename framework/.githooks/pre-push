@@ -7,6 +7,11 @@
 # proto/ branch has and main doesn't, whatever the ref is called: HEAD:x, a hash, proto/x~0:x, or a branch
 # made from a prototype's commit. Deleting a ref on the remote is allowed. Git gives one line per ref on
 # stdin: <local ref> <local sha> <remote ref> <remote sha>.
+#
+# Then a push gets the full tier of the project check (bash tools/check.sh --full --if-changed, so a full pass
+# of these files is reused), unless every ref it sends is a deletion, the checkout is a prototype or there's
+# no tools/check.sh. A failure, or a check that can't run, blocks the push. The check reads the working tree,
+# and its stdin is /dev/null: git's ref list is this hook's, read below.
 
 # The prototypes' own commits, once per push: reachable from a proto/ branch and not from main.
 proto_only=""
@@ -15,9 +20,11 @@ if git show-ref --verify --quiet refs/heads/main; then
 fi
 
 refused=""
+sends=0   # 1 when a ref sends commits, not only a deletion
 while read -r local_ref local_sha remote_ref _remote_sha; do
   [ -n "${local_ref:-}" ] || continue
   [ -z "${local_sha#"${local_sha%%[!0]*}"}" ] && continue   # a deletion: the local hash is all zeros
+  sends=1
   case "$local_ref $remote_ref" in
     refs/heads/proto/*|*" refs/heads/proto/"*) refused="$refused$local_ref -> $remote_ref (a proto/ branch)"$'\n'; continue ;;
   esac
@@ -36,4 +43,24 @@ if [ -n "$refused" ]; then
   echo "          Its work reaches main through the harvest (.app-director/procedures/prototype.md)."
   exit 1
 fi
-exit 0
+
+# --- the full check ---------------------------------------------------------------------------------
+[ "$sends" -eq 1 ] || exit 0
+[ -f tools/check.sh ] || exit 0
+# A prototype is tried outside the loop: the check gates nothing there. tools/prototype.sh says what one is.
+[ -f tools/prototype.sh ] && bash tools/prototype.sh here >/dev/null 2>&1 && exit 0
+
+echo "pre-push: running the project check, full tier: a push gets the full check"
+CHECK_CALLER=pre-push bash tools/check.sh --full --if-changed </dev/null
+status=$?
+[ "$status" -eq 0 ] && exit 0
+if [ "$status" -eq 3 ]; then
+  echo "pre-push: the check couldn't run (the reason is above), so nothing was pushed."
+  echo "          To go on: when it ran out of time, run 'bash tools/check.sh' in the background (the full tier can"
+  echo "          take a while) and push again once it passes: the push reuses its pass. When a tool is missing,"
+  echo "          run 'bash tools/setup-clone.sh'."
+else
+  echo "pre-push: the full check fails, so nothing was pushed. Fix what it names ('bash tools/check.sh' runs it"
+  echo "          again), then push again."
+fi
+exit 1

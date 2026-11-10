@@ -1481,7 +1481,7 @@ EOF
 # The parts that change the app each get a copy of it as the installer left it (with the rule above). The example app itself
 # stays with /ui-design, which needs its path.
 _cp_pids=""
-for _lane_app in check1 check2 check3 check4 guard hooks commit; do
+for _lane_app in check1 check2 check3 check4 check5 guard hooks commit; do
   ( rm -rf "$work/$_lane_app-app"; cp -R "$app" "$work/$_lane_app-app" ) &
   _cp_pids="$_cp_pids $!"
 done
@@ -1490,6 +1490,7 @@ part check1 2c-check1
 part check2 2d-check2
 part check3 2e-check3
 part check4 2f-check4
+part check5 2f2-check5
 part guard 3-guard
 part hooks 4a-hooks
 part commit 4b-precommit
@@ -1938,6 +1939,127 @@ out="$(cd "$_nh" && PATH="$_t_gl:$PATH" bash tools/check.sh --fast 2>&1)"; statu
 expect_status "the fast tier passes in a repository with no commit" 0 "$status" "$out"
 expect_output "and says it runs as the full tier, and why" "^check: note: there's no commit yet, so the fast tier runs as the full tier$" "$out"
 expect_output "and reports the full tier" "^check: PASS \(full tier\)$" "$out"
+}
+
+part_check5() {
+  cd "$work/check5-app" || exit 3
+echo "check, single flight"
+# One run at a time per checkout. A stand-in stack counts its starts (a line each, with the tier, in suites), sleeps
+# $SLOW_SECS seconds (3 by default) and exits $SLOW_EXIT, so two runs side by side show whether a second suite started. A
+# stand-in gitleaks finds nothing, and the settings name no UI folders, so a run starts few processes. The stale and busy
+# cases plant a lock: a pid that has ended, or this selftest's own, which is running.
+_f_gl="$work/fake-gl-flight"; mkdir -p "$_f_gl"
+printf '#!/bin/bash\n[ "$1" = version ] && echo v8.30.1\nexit 0\n' > "$_f_gl/gitleaks"; chmod +x "$_f_gl/gitleaks"
+printf '#!/usr/bin/env bash\necho "$CHECK_TIER" >> "$CHECK_STATE/suites"\nsleep "${SLOW_SECS:-3}"\nexit "${SLOW_EXIT:-0}"\n' > tools/stacks/slow.sh
+printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n' > tools/check.cfg
+_st=.app-director/state; _lock="$_st/check.lock"
+c5() { PATH="$_f_gl:$PATH" bash tools/check.sh "$@" 2>&1; }
+c5_bg() { # c5_bg <name> <flag>...: a check in the background, its output in $work/c5-<name>.out and its status in .rc
+  local name="$1"; shift
+  ( PATH="$_f_gl:$PATH" bash tools/check.sh "$@" > "$work/c5-$name.out" 2>&1; echo "$?" > "$work/c5-$name.rc" ) &
+}
+c5_read() { c5_out=""; c5_rc=""; IFS= read -r -d '' c5_out < "$work/c5-$1.out"; read -r c5_rc < "$work/c5-$1.rc"; }  # c5_read <name>
+c5_suites() { # the suites started since the file was last removed: how many in c5_n, their tiers in c5_list
+  local l
+  c5_n=0; c5_list=""
+  [ -f "$_st/suites" ] || return 0
+  while IFS= read -r l; do c5_n=$((c5_n + 1)); c5_list="$c5_list$l "; done < "$_st/suites"
+}
+c5_lock_gone() { # c5_lock_gone <after what>
+  if [ ! -e "$_lock" ]; then ok "the lock is gone after $1"; else bad "the lock is gone after $1" "$(cat "$_lock")"; fi
+}
+
+# 1. Two runs started at once: one suite starts, and the other waits for it and reuses its pass.
+rm -f "$_st/suites"
+c5_bg a --fast; c5_bg b --fast; wait
+c5_read a; _oa="$c5_out"; _ra="$c5_rc"; c5_read b; _ob="$c5_out"; _rb="$c5_rc"
+c5_suites
+[ "$c5_n" -eq 1 ] && ok "two runs started at once start one suite" || bad "two runs started at once start one suite ($c5_n started)" "$_oa$nl$_ob"
+[ "$_ra" = 0 ] && [ "$_rb" = 0 ] && ok "and both pass" || bad "and both pass (exit $_ra and $_rb)" "$_oa$nl$_ob"
+expect_output "the second says what it waits for: the start, the caller, the tier and the pid" \
+  "^check: waiting for the check started [0-9]{2}:[0-9]{2} by manual \(fast tier, pid [0-9]+\)$" "$_oa$nl$_ob"
+expect_output "and reuses the first one's pass, recorded while it waited" \
+  "^check: PASS \(reused the fast pass at [0-9]{2}:[0-9]{2}, commit [0-9a-f]{7}, by manual, recorded while this check waited; nothing changed\)$" "$_oa$nl$_ob"
+c5_lock_gone "a pass"
+_log=""; IFS= read -r -d '' _log < "$_st/check-runs.log"
+expect_output "the run log has the reuse, with the seconds it waited" " tier=fast result=reused-pass secs=[0-9]+ caller=manual " "$_log"
+
+# 2. The same with a failing suite: the second repeats the first one's failure.
+rm -f "$_st/suites"
+export SLOW_EXIT=1
+c5_bg a --fast; c5_bg b --fast; wait
+unset SLOW_EXIT
+c5_read a; _oa="$c5_out"; _ra="$c5_rc"; c5_read b; _ob="$c5_out"; _rb="$c5_rc"
+c5_suites
+[ "$c5_n" -eq 1 ] && ok "two failing runs started at once start one suite" || bad "two failing runs started at once start one suite ($c5_n started)" "$_oa$nl$_ob"
+[ "$_ra" = 1 ] && [ "$_rb" = 1 ] && ok "and both fail" || bad "and both fail (exit $_ra and $_rb)" "$_oa$nl$_ob"
+expect_output "the second reuses the first one's failure, and says so" \
+  "^check: FAIL \(reused the fast failure at [0-9:]{5}, commit [0-9a-f]{7}, by manual, recorded while this check waited; nothing changed; run 'bash tools/check\.sh --fast' to see why\)$" "$_oa$nl$_ob"
+c5_lock_gone "a failure"
+
+# 3. A full request waits for a fast run, then runs its own full suite: a fast pass doesn't stand for a full request.
+rm -f "$_st/suites"
+c5_bg a --fast
+_i=0; while [ ! -s "$_lock" ] && [ "$_i" -lt 100 ]; do sleep 0.1; _i=$((_i + 1)); done
+_held=""; [ -f "$_lock" ] && IFS= read -r _held < "$_lock"
+out="$(c5 --full --if-changed)"; status=$?
+wait
+expect_output "the lock names the run that holds it: its pid, start, time, caller and tier" \
+  "^pid=[0-9]+ started=[0-9]+ at=[0-9]{2}:[0-9]{2} caller=manual tier=fast$" "$_held"
+expect_output "a full request waits for a fast run" "^check: waiting for the check started [0-9:]{5} by manual \(fast tier, pid [0-9]+\)$" "$out"
+expect_output "then says why the fast run's pass doesn't stand for it" "^check: running the full tier after the wait: the last pass was the fast tier, at " "$out"
+expect_status "and runs its own full suite, which passes" 0 "$status" "$out"
+c5_suites
+[ "$c5_list" = "fast full " ] && ok "the full suite starts once the fast one has ended" || bad "the full suite starts once the fast one has ended" "$c5_list"
+
+# 4. A stale lock, whose process is gone or which is older than twice the full tier's limit plus 600 s, is removed with a
+# note, and the run goes on.
+export SLOW_SECS=0
+true & _dead=$!; wait "$_dead"
+_now="${EPOCHSECONDS:-$(date +%s)}"
+printf 'pid=%s started=%s at=09:15 caller=pre-commit tier=full\n' "$_dead" "$_now" > "$_lock"
+out="$(c5 --fast)"; status=$?
+expect_status "a run that finds a stale lock goes on, and passes" 0 "$status" "$out"
+expect_output "it removes a lock whose process is gone, with a note naming its pid and start" \
+  "^check: note: removed a stale lock \(pid $_dead, started 09:15 by pre-commit\): its process is gone$" "$out"
+printf 'pid=%s started=1000 at=01:00 caller=stop-hook tier=fast\n' "$$" > "$_lock"
+out="$(c5 --fast)"; status=$?
+expect_status "and a run goes on past a lock that is too old" 0 "$status" "$out"
+expect_output "older than twice the full tier's limit plus 600 s, though its process runs" \
+  "^check: note: removed a stale lock \(pid $$, started 01:00 by stop-hook\): it is older than 7800 s, " "$out"
+c5_lock_gone "a run that removed a stale lock"
+
+# 5. CHECK_WAIT caps the wait: past it nothing starts, the check says it is busy and exits 3, and the other's lock stays.
+printf 'pid=%s started=%s at=12:41 caller=pre-commit tier=full\n' "$$" "$_now" > "$_lock"
+c5_suites; _n0="$c5_n"
+out="$(CHECK_WAIT=1 c5 --fast)"; status=$?
+expect_status "CHECK_WAIT past its limit exits 3" 3 "$status" "$out"
+expect_output "with the busy line" "^check: busy: the check started 12:41 by pre-commit \(full tier\) is still running after [0-9]+ s; no second check started$" "$out"
+c5_suites
+[ "$c5_n" -eq "$_n0" ] && ok "and starts nothing" || bad "and starts nothing" "$c5_list"
+_held=""; IFS= read -r _held < "$_lock"
+[ "$_held" = "pid=$$ started=$_now at=12:41 caller=pre-commit tier=full" ] && ok "and leaves the other check's lock alone" || bad "and leaves the other check's lock alone" "$_held"
+IFS= read -r -d '' _log < "$_st/check-runs.log"
+expect_output "the run log says it was busy" " tier=fast result=busy secs=[0-9]+ caller=manual " "$_log"
+rm -f "$_lock"
+
+# 6. The lock is gone after a run that couldn't run (exit 3), and after one past its time limit (GNU timeout only).
+out="$(PATH="$_no_gl_path" bash tools/check.sh --fast 2>&1)"; status=$?
+expect_status "a run without gitleaks exits 3" 3 "$status" "$out"
+c5_lock_gone "a run that couldn't run"
+_c5_timeout=""
+for _c in timeout gtimeout; do
+  if "$_c" --version 2>/dev/null | grep -qi coreutils; then _c5_timeout="$_c"; break; fi
+done
+if [ -n "$_c5_timeout" ]; then
+  export SLOW_SECS=5
+  out="$(CHECK_TIMEOUT=1 c5 --fast)"; status=$?
+  expect_status "a run past its time limit exits 3" 3 "$status" "$out"
+  c5_lock_gone "a run past its time limit, with the ticker stopped"
+else
+  echo "  skip: no GNU timeout, so the lock after a run past its time limit isn't tested"
+fi
+unset SLOW_SECS
 }
 
 part_check_ts() {
@@ -5206,8 +5328,8 @@ expect_status "blocks a failing change" 2 "$status" "$out"
 expect_output "gives Claude the check output" "check.sh fails" "$out"
 out="$(stop_hook)"; expect_status "reports the same failing state only once" 0 $? "$out"
 
-out="$(bash tools/check.sh --if-changed 2>&1)"; status=$?
-expect_status "--if-changed repeats a failure without rerunning" 1 "$status" "$out"
+out="$(bash tools/check.sh --fast --if-changed 2>&1)"; status=$?
+expect_status "--fast --if-changed repeats the Stop hook's failure without rerunning" 1 "$status" "$out"
 expect_output "says the failing state is unchanged" "nothing changed" "$out"
 
 rm -f .app-director/state/last-reported
@@ -5218,6 +5340,30 @@ rm -f .app-director/state/building
 out="$(stop_hook)"; expect_status "blocks again once the builder is done" 2 $? "$out"
 cp "$work/stop-passing" src/ui/TodoList.ts
 out="$(stop_hook)"; expect_status "lets the fixed state through" 0 $? "$out"
+
+# The Stop hook runs the fast tier only, as stop-hook. While another check holds the lock it waits no longer than the fast
+# tier's limit (CHECK_TIMEOUT=1 here), then ends the turn quietly and records nothing as reported. A check that couldn't
+# run for another reason (a stand-in gitleaks below the minimum) blocks once, and asks for the work to be reported as
+# unverified.
+_hl=""; IFS= read -r -d '' _hl < .app-director/state/check-runs.log
+expect_output "the Stop hook runs the fast tier, as stop-hook" " tier=fast result=pass secs=[0-9]+ caller=stop-hook " "$_hl"
+expect_no_output "and never the full tier" " tier=full .* caller=stop-hook " "$_hl"
+printf '// one more harmless change\n' >> src/services/TodoService.ts
+printf 'pid=%s started=%s at=12:41 caller=pre-commit tier=full\n' "$$" "${EPOCHSECONDS:-$(date +%s)}" > .app-director/state/check.lock
+rm -f .app-director/state/last-reported
+out="$(CHECK_TIMEOUT=1 stop_hook)"; status=$?
+expect_status "while another check holds the lock past the fast tier's limit, the Stop hook ends the turn" 0 "$status" "$out"
+[ -z "$out" ] && ok "quietly" || bad "quietly" "$out"
+[ ! -e .app-director/state/last-reported ] && ok "and records nothing as reported" || bad "and records nothing as reported"
+rm -f .app-director/state/check.lock
+_old_gl="$work/fake-gl-old"; mkdir -p "$_old_gl"
+printf '#!/bin/bash\n[ "$1" = version ] && echo v8.0.0\nexit 0\n' > "$_old_gl/gitleaks"; chmod +x "$_old_gl/gitleaks"
+out="$(printf '{}' | CLAUDE_PROJECT_DIR="$app" PATH="$_old_gl:$_stop_path" bash .claude/hooks/stop-check.sh 2>&1)"; status=$?
+expect_status "a check that couldn't run for another reason blocks the turn once" 2 "$status" "$out"
+expect_output "and says it couldn't verify this work" "^App Director: the project check couldn't verify this work:$" "$out"
+expect_output "quoting the reason" "^check: secrets FAIL: gitleaks 8\.0\.0 is below minimum 8\.18\.0\.$" "$out"
+expect_output "and asks for the work to be reported as unverified, not failed" "^Report this work as unverified, not failed" "$out"
+expect_no_output "without telling Claude to stop, or that the work isn't done" "Don't call the work done|[Ss]top" "$out"
 }
 
 part_session() {
@@ -5580,6 +5726,115 @@ else
   echo "  skip  real gitleaks Markdown staged-secret tests (gitleaks not found or below $_gl_min_req)"
 fi
 
+# --- pre-commit and pre-push: the tiers -----------------------------------------------------------
+# The pre-commit hook asks `bash tools/check.sh --due` for the tier: full when it's due, fast otherwise, and says which and
+# why; the pre-push hook runs the full tier. A stand-in stack counts the suites that start (a line each, with the tier and
+# the caller, in suites), so a reused pass adds none, and keeps a line it could read from its stdin (stdin-seen: there
+# should be none). The settings bring the full tier every 3 commits and for anything under db/, and leave marketing/ out.
+echo "pre-commit and pre-push, the tiers"
+_pst=.app-director/state
+printf '#!/usr/bin/env bash\nread -r -t 5 _line && echo "$_line" >> "$CHECK_STATE/stdin-seen"\necho "$CHECK_TIER ${CHECK_CALLER:-manual}" >> "$CHECK_STATE/suites"\nexit 0\n' > tools/stacks/counted.sh
+printf '[project]\nstack = counted\n\n[ui]\ndirs = src/ui\n\n[data]\ndirs = store\n\n[gitleaks]\nmin-version = 8.18.0\n\n[tests]\nfull-every = 3\nfull-when = db/\nignore = marketing/\n' > tools/check.cfg
+pc_suites() { # the suites started: how many in pc_n, the last one's tier and caller in pc_last
+  local l
+  pc_n=0; pc_last=""
+  [ -f "$_pst/suites" ] || return 0
+  while IFS= read -r l; do pc_n=$((pc_n + 1)); pc_last="$l"; done < "$_pst/suites"
+}
+_pc_violation() { { printf '\n'; printf 'import { TodoStore } from '"'"'../store/TodoStore'"'"';\n'; } >> src/ui/TodoList.ts; }
+
+git add tools/check.cfg tools/stacks/counted.sh
+out="$(git_q commit -qm "a counted stack" 2>&1)"; status=$?
+expect_status "pre-commit: a commit that stages tools/check.cfg passes" 0 "$status" "$out"
+expect_output "it runs the full tier, and says why: a path on the framework's list is staged" "^pre-commit: running the project check, full tier: tools/check\.cfg changed$" "$out"
+pc_suites
+[ "$pc_last" = "full pre-commit" ] && ok "the full suite runs, as pre-commit" || bad "the full suite runs, as pre-commit" "$pc_last"
+
+printf '\n// staged\n' >> src/ui/TodoList.ts && git add src/ui/TodoList.ts && printf '// not staged\n' >> src/ui/TodoList.ts
+out="$(git_q commit -qm "a fast commit" 2>&1)"; status=$?
+expect_status "a commit when the full tier isn't due passes" 0 "$status" "$out"
+expect_output "it runs the fast tier, and says why" \
+  "^pre-commit: running the project check, fast tier: the full tier isn't due \(1 commit since the last full pass \([0-9a-f]{7}, [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\), \[tests\] full-every = 3\)$" "$out"
+expect_output "a staged source file with unstaged changes gets a note" \
+  "^pre-commit: note: src/ui/TodoList\.ts has unstaged changes too\. The check covers the working tree, not exactly what this commit records\.$" "$out"
+pc_suites
+[ "$pc_last" = "fast pre-commit" ] && ok "the fast suite runs, as pre-commit" || bad "the fast suite runs, as pre-commit" "$pc_last"
+git checkout -- src/ui/TodoList.ts
+
+printf '\n// a builder change\n' >> src/ui/TodoList.ts
+out="$(bash tools/check.sh --fast 2>&1)"; expect_status "a builder's fast pass" 0 $? "$out"
+pc_suites; _pc_n="$pc_n"
+git add src/ui/TodoList.ts
+out="$(git_q commit -qm "a builder's commit" 2>&1)"; status=$?
+expect_status "the commit after it passes" 0 "$status" "$out"
+expect_output "and reuses the builder's fast pass on the same files" "^check: PASS \(reused the fast pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+pc_suites
+[ "$pc_n" -eq "$_pc_n" ] && ok "with no second suite" || bad "with no second suite" "$pc_last"
+
+printf '\n// the third commit\n' >> src/ui/TodoList.ts && git add src/ui/TodoList.ts
+out="$(git_q commit -qm "the third since the full pass" 2>&1)"; status=$?
+expect_status "the third commit since the full pass passes" 0 "$status" "$out"
+expect_output "and runs the full tier, saying why: [tests] full-every commits since the last full pass" \
+  "^pre-commit: running the project check, full tier: 3 commits since the last full pass \([0-9a-f]{7}, [^)]*\), \[tests\] full-every = 3$" "$out"
+pc_suites
+[ "$pc_last" = "full pre-commit" ] && ok "the full suite runs" || bad "the full suite runs" "$pc_last"
+
+mkdir -p db && printf '{ "seed": 1 }\n' > db/seed.json && git add db/seed.json
+out="$(git_q commit -qm "a seed" 2>&1)"; status=$?
+expect_status "a commit that stages a path under [tests] full-when passes" 0 "$status" "$out"
+expect_output "and runs the full tier, saying why" "^pre-commit: running the project check, full tier: db/seed\.json changed$" "$out"
+
+mkdir -p marketing && printf '{ "title": "Buy" }\n' > marketing/page.json && git add marketing/page.json
+pc_suites; _pc_n="$pc_n"
+out="$(git_q commit -qm "a marketing page" 2>&1)"; status=$?
+expect_status "a commit that stages only a path under [tests] ignore passes" 0 "$status" "$out"
+expect_no_output "and runs no check: the path doesn't count as source" "running the project check" "$out"
+expect_output "the staged secrets scan still runs on it" "^pre-commit: scanning staged changes for secrets$" "$out"
+pc_suites
+[ "$pc_n" -eq "$_pc_n" ] && ok "and no suite starts" || bad "and no suite starts" "$pc_last"
+
+_pc_old="$work/fake-gl-pc-old"; mkdir -p "$_pc_old"
+printf '#!/bin/bash\n[ "$1" = version ] && echo v8.0.0\nexit 0\n' > "$_pc_old/gitleaks"; chmod +x "$_pc_old/gitleaks"
+printf '\n// not committed\n' >> src/ui/TodoList.ts && git add src/ui/TodoList.ts
+_pc_head="$(git rev-parse HEAD)"
+out="$(export PATH="$_pc_old:$PATH"; git_q commit -qm "a check that can't run" 2>&1)"; status=$?
+expect_status "pre-commit blocks a commit whose check couldn't run" 1 "$status" "$out"
+expect_output "and says nothing was committed and the staged changes are as they were" \
+  "^pre-commit: the check couldn't run \(the reason is above\), so nothing was committed; the staged changes are as they were\.$" "$out"
+expect_output "and how to go on: the tier's run in the background, whose pass the commit reuses" \
+  "run 'bash tools/check\.sh( --fast)?' in the background and commit again" "$out"
+[ "$(git rev-parse HEAD)" = "$_pc_head" ] && [ "$(git diff --cached --name-only)" = "src/ui/TodoList.ts" ] \
+  && ok "nothing is committed, and the change is still staged" || bad "nothing is committed, and the change is still staged" "$(git status --short)"
+git reset -q -- src/ui/TodoList.ts && git checkout -- src/ui/TodoList.ts
+
+# pre-push: the full tier, blocking on a failure; a full pass of the same files is reused; a push that only deletes a ref
+# runs no check.
+_pc_origin="$work/commit-origin.git"
+git init -q --bare "$_pc_origin" && git remote add origin "$_pc_origin"
+_pc_violation
+out="$(git_q push -q origin HEAD:refs/heads/main 2>&1)"; status=$?
+[ "$status" -ne 0 ] && [ -z "$(git --git-dir="$_pc_origin" for-each-ref)" ] && ok "pre-push blocks a push while the full check fails" \
+  || bad "pre-push blocks a push while the full check fails (exit $status)" "$out"
+expect_output "it runs the full tier, and says so" "^pre-push: running the project check, full tier: a push gets the full check$" "$out"
+expect_output "and says nothing was pushed, and how to go on" "^pre-push: the full check fails, so nothing was pushed\. Fix what it names" "$out"
+pc_suites
+[ "$pc_last" = "full pre-push" ] && ok "the full suite runs, as pre-push" || bad "the full suite runs, as pre-push" "$pc_last"
+[ ! -e "$_pst/stdin-seen" ] && ok "and reads nothing from git's ref list" || bad "and reads nothing from git's ref list" "$(cat "$_pst/stdin-seen")"
+git checkout -- src/ui/TodoList.ts
+out="$(bash tools/check.sh 2>&1)"; expect_status "a full pass before the push" 0 $? "$out"
+pc_suites; _pc_n="$pc_n"
+out="$(git_q push -q origin HEAD:refs/heads/main HEAD:refs/heads/gone 2>&1)"; status=$?
+expect_status "pre-push lets the push through once a full pass of these files stands" 0 "$status" "$out"
+expect_output "and reuses that pass" "^check: PASS \(reused the full pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+pc_suites
+[ "$pc_n" -eq "$_pc_n" ] && ok "with no second suite" || bad "with no second suite" "$pc_last"
+_pc_violation
+out="$(git_q push -q origin :refs/heads/gone 2>&1)"; status=$?
+expect_status "a push that only deletes a ref goes through, though the check would fail" 0 "$status" "$out"
+expect_no_output "and runs no check" "running the project check" "$out"
+[ "$(git --git-dir="$_pc_origin" for-each-ref --format='%(refname)')" = "refs/heads/main" ] && ok "the remote has main, and not the deleted branch" \
+  || bad "the remote has main, and not the deleted branch" "$(git --git-dir="$_pc_origin" for-each-ref)"
+git checkout -- src/ui/TodoList.ts
 }
 
 # --- prototypes -----------------------------------------------------------------------------------
@@ -5811,8 +6066,16 @@ _push_refused "proto/quick-add~0 under another name" "$_pa" "proto/quick-add~0:r
 git -C "$_pa" branch from-proto proto/quick-add >/dev/null 2>&1
 _push_refused "a branch made from a prototype's commit" "$_pa" from-proto "carries a prototype's commits"
 (cd "$_pa" && printf '# app\n\nA note.\n' > README.md && git add README.md && PATH="$_stop_path" git commit -qm "docs: a note") >/dev/null 2>&1
-out="$(cd "$_pa" && PATH="$_stop_path" git push -q origin main 2>&1)"
-expect_status "pre-push lets main through" 0 $? "$out"
+# The refusal lets main through. Outside a prototype the push then runs the project check, whose stub fails here; in a
+# prototype it doesn't.
+out="$(cd "$_pa" && PATH="$_stop_path" git push -q origin main 2>&1)"; status=$?
+[ "$status" -ne 0 ] && ok "pre-push runs the check for main outside a prototype, and blocks the push when it fails" \
+  || bad "pre-push runs the check for main outside a prototype, and blocks the push when it fails (exit $status)" "$out"
+expect_output "with the check's own output" "^stub check: fails$" "$out"
+expect_output "and says the full check fails" "^pre-push: the full check fails, so nothing was pushed\." "$out"
+out="$(cd "$_pw" && PATH="$_stop_path" git push -q origin main 2>&1)"
+expect_status "pre-push lets main through from a prototype, where the check doesn't run" 0 $? "$out"
+expect_no_output "and doesn't run the check there" "running the project check|stub check" "$out"
 [ "$(git --git-dir="$_po" for-each-ref --format='%(refname)')" = "refs/heads/main" ] \
   && ok "the origin has main and nothing else" || bad "a refused push reached the origin" "$(git --git-dir="$_po" for-each-ref)"
 
@@ -6279,13 +6542,13 @@ part main 2-installer
 wait
 passed=0; failed=0
 stopped=""
-for name in framework release orphans main installer snapshot check1 check2 check3 check4 check_ts guard hooks session commit ui_design security stories prototype protospace; do
+for name in framework release orphans main installer snapshot check1 check2 check3 check4 check5 check_ts guard hooks session commit ui_design security stories prototype protospace; do
   if [ -f "$seg/count-$name" ]; then read -r p f status < "$seg/count-$name"; else p=0; f=1; status="no count"; fi
   passed=$((passed + p)); failed=$((failed + f))
   [ "$status" = 0 ] || { failed=$((failed + 1)); stopped="$stopped$nl  FAIL  the $name part stopped early ($status)"; }
 done
 cat "$seg"/1-framework "$seg"/1b-release "$seg"/1c-orphans "$seg"/2-installer "$seg"/2b-installer "$seg"/2b-snapshot \
-  "$seg"/2c-check1 "$seg"/2d-check2 "$seg"/2e-check3 "$seg"/2f-check4 "$seg"/2g-check-ts "$seg"/3-guard "$seg"/4a-hooks "$seg"/4b-session "$seg"/4b-precommit \
+  "$seg"/2c-check1 "$seg"/2d-check2 "$seg"/2e-check3 "$seg"/2f-check4 "$seg"/2f2-check5 "$seg"/2g-check-ts "$seg"/3-guard "$seg"/4a-hooks "$seg"/4b-session "$seg"/4b-precommit \
   "$seg"/5-ui-design "$seg"/6-security "$seg"/6b-stories "$seg"/7-prototype "$seg"/7b-protospace
 [ -z "$stopped" ] || printf '%s\n' "${stopped#"$nl"}"
 finish
