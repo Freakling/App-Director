@@ -2,8 +2,9 @@
 # App Director pre-commit hook · framework-owned: replaced on upgrade.
 # `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
 #
-# When a commit touches source files (the staged paths that tools/check.sh --unignored keeps: its source-path rule, less
-# [tests] ignore in tools/check.cfg):
+# When a commit touches files the check counts (the staged paths that tools/check.sh --unignored keeps: its source paths
+# and the paths that make the full tier due, such as a migration or requirements.txt, less [tests] ignore in
+# tools/check.cfg):
 #   1. Runs the project check (working tree) with --if-changed caching, in the tier `bash tools/check.sh --due` names:
 #      the full tier when it's due, the fast tier otherwise, and says which and why. A pass of the same files, a
 #      builder's for one, is reused, so no second run starts. Not in a prototype (a linked
@@ -33,10 +34,10 @@ prototype=0
 
 nl='
 '
-# The staged source files, one per line, in staged_src. Which paths count as source, and which [tests] ignore leaves out,
-# is tools/check.sh's to say (--unignored: its source-path rule is the one definition, so this hook keeps no copy). A
-# check.sh that can't answer leaves every staged path counted, so the check runs and says what's wrong. A commit that
-# stages none starts nothing.
+# The staged files the check counts, one per line, in staged_src. Which paths count (source paths, and the ones that make
+# the full tier due), and which [tests] ignore leaves out, is tools/check.sh's to say (--unignored: its rule is the one
+# definition, so this hook keeps no copy). A check.sh that can't answer leaves every staged path counted, so the check
+# runs and says what's wrong. A commit that stages none starts nothing.
 staged_src=""
 source_staged() {
   local staged
@@ -55,7 +56,7 @@ run_check() {
     *) tier=full; why="'bash tools/check.sh --due' gave no answer" ;;
   esac
   echo "pre-commit: running the project check, $tier tier: $why"
-  # The check reads the working tree, so a staged source file with unstaged changes isn't checked as this commit
+  # The check reads the working tree, so a staged file it counts with unstaged changes isn't checked as this commit
   # records it.
   unstaged="$(git -c core.quotePath=false diff --name-only 2>/dev/null)"
   if [ -n "$unstaged" ]; then

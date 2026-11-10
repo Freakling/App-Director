@@ -1742,15 +1742,19 @@ expect_status "passes again once the UI violation is removed" 0 $? "$out"
 part_check4() {
   cd "$work/check4-app" || exit 3
 echo "check tiers, the cache and the run log"
-# The two tiers on the example app (the none stack): what a fast and a full result record and stand for, the line each
-# miss prints, when the full tier is due, the summary, the run log, what tools/check.local.sh is given, the per-tier time
-# limits and the progress line. A stand-in gitleaks reports $FAKE_GL_VERSION (8.30.1 by default) and finds nothing, so a
-# run is quick and the version can change.
+# The two tiers on the example app: what a fast and a full result record and stand for, the line each miss prints, when
+# the full tier is due, the summary, the run log, what tools/check.local.sh is given, the per-tier time limits, the
+# progress line, a stack with no fast mode and the paths that count. A stand-in gitleaks reports $FAKE_GL_VERSION
+# (8.30.1 by default) and finds nothing, so a run is quick and the version can change. The example's stack (none) has no
+# fast mode, so a fast request there runs as the full tier (the cases near the end): a stand-in stack that reads the
+# tier, as tools/stacks/typescript.sh does, keeps the two tiers apart for the others.
 _t_gl="$work/fake-gl-tiers"; mkdir -p "$_t_gl"
 printf '#!/bin/bash\n[ "$1" = version ] && echo "v${FAKE_GL_VERSION:-8.30.1}"\nexit 0\n' > "$_t_gl/gitleaks"
 chmod +x "$_t_gl/gitleaks"
 c4() { PATH="$_t_gl:$PATH" bash tools/check.sh "$@" 2>&1; }
 _st=.app-director/state
+printf '#!/usr/bin/env bash\n: "${CHECK_TIER:-full}"\nexit 0\n' > tools/stacks/tiers.sh
+sed 's/^stack = .*/stack = tiers/' tools/check.cfg > "$work/c4-cfg-tiers" && cp "$work/c4-cfg-tiers" tools/check.cfg
 rm -f "$_st/last-pass" "$_st/last-fail" "$_st/last-full" "$_st/check-runs.log"
 git add -A >/dev/null 2>&1 && git_q commit -qm "the tiers' start" >/dev/null 2>&1
 
@@ -1931,7 +1935,7 @@ for _c in timeout gtimeout; do
 done
 if [ -n "$_c4_timeout" ]; then
   rm -f tools/check.local.sh
-  printf '#!/usr/bin/env bash\nsleep 10\n' > tools/stacks/slow.sh
+  printf '#!/usr/bin/env bash\n: "${CHECK_TIER:-full}"\nsleep 10\n' > tools/stacks/slow.sh
   printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-fast = 1\ntimeout = 30\n' > tools/check.cfg
   out="$(c4 --fast)"; status=$?
   expect_status "the fast tier exits 3 past [tests] timeout-fast" 3 "$status" "$out"
@@ -1949,6 +1953,10 @@ if [ -n "$_c4_timeout" ]; then
   expect_status "CHECK_TIMEOUT overrides the tier's limit" 3 "$status" "$out"
   expect_output "and is named as the limit" "timed out after 1 s \(the fast tier's limit, CHECK_TIMEOUT\)$" "$out"
   printf '#!/usr/bin/env bash\nsleep 3\n' > tools/stacks/slow.sh
+  # That stand-in has no fast mode, so a fast request runs under the full tier's limit: [tests] timeout-fast doesn't end it.
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-fast = 1\n' > tools/check.cfg
+  out="$(c4 --fast)"; status=$?
+  expect_status "a fast request on a stack with no fast mode runs under the full tier's limit, past [tests] timeout-fast" 0 "$status" "$out"
   printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n' > tools/check.cfg
   _t0=$SECONDS
   out="$(CHECK_PROGRESS_EVERY=1 PATH="$_t_gl:$PATH" "$_c4_timeout" 60 bash tools/check.sh 2>&1)"; status=$?
@@ -1961,6 +1969,62 @@ else
   echo "  skip: no GNU timeout, so the per-tier time limits and the progress line aren't tested"
 fi
 cp "$work/c4-cfg" tools/check.cfg; rm -rf marketing notes.draft.json tools/check.local.sh
+
+# A stack with no fast mode: neither the stack check nor tools/check.local.sh names CHECK_TIER outside a comment, so there
+# is one suite. A fast request runs as the full tier and says why, its pass is a full pass, and a full request (a
+# push's) reuses it: the suite runs once for both.
+sed 's/^stack = .*/stack = none/' "$work/c4-cfg" > tools/check.cfg
+printf '#!/usr/bin/env bash\n# No fast mode: this comment names CHECK_TIER, and no command does.\necho ran >> "$CHECK_STATE/suite-runs"\n' > tools/check.local.sh
+rm -f "$_st/suite-runs"
+out="$(c4 --fast)"; status=$?
+expect_status "a fast request passes on a stack with no fast mode" 0 "$status" "$out"
+expect_output "it runs as the full tier, and says why" \
+  "^check: note: neither the stack check nor tools/check\.local\.sh has a fast mode \(reads CHECK_TIER\), so the fast tier runs as the full tier$" "$out"
+expect_output "and reports a full pass" "^check: PASS \(full tier\)$" "$out"
+{ IFS= read -r _l1; IFS= read -r _l2; } < "$_st/last-pass"
+expect_output "which it records as one" "^tier=full " "$_l2"
+out="$(CHECK_CALLER=pre-push c4 --full --if-changed)"
+expect_output "a full request, a push's, reuses that pass" "^check: PASS \(reused the full pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+_n="$(wc -l < "$_st/suite-runs" | tr -d ' ')"
+[ "$_n" -eq 1 ] && ok "so the suite ran once for both" || bad "so the suite ran once for both" "$_n runs"
+printf '#!/usr/bin/env bash\n[ "$CHECK_TIER" = fast ] || echo ran >> "$CHECK_STATE/suite-runs"\n' > tools/check.local.sh
+out="$(c4 --fast)"
+expect_output "a tools/check.local.sh that reads CHECK_TIER is a fast mode: the fast tier stays" "^check: PASS \(fast tier" "$out"
+expect_no_output "with no note" "so the fast tier runs as the full tier" "$out"
+rm -f tools/check.local.sh "$_st/suite-runs"
+
+# The paths that make the full tier due count like source paths: a change to one changes the fingerprint, so a recorded
+# pass doesn't stand, and --unignored keeps it (the pre-commit hook's question). [tests] ignore still wins, and a path
+# that is neither source nor due counts for nothing.
+printf '\n[tests]\nfull-when = db/migrations/\nignore = db/migrations/old/\n' >> tools/check.cfg
+mkdir -p db/migrations/old && printf 'create table t (id int);\n' > db/migrations/001.sql
+out="$(c4)"; expect_status "a full pass with a migration in the tree" 0 $? "$out"
+fp1="$(c4 --fingerprint)"
+printf 'alter table t add n int;\n' >> db/migrations/001.sql
+[ "$(c4 --fingerprint)" != "$fp1" ] && ok "a change under [tests] full-when changes the fingerprint" \
+  || bad "a change under [tests] full-when changes the fingerprint"
+out="$(c4 --if-changed)"
+expect_output "so the recorded pass doesn't stand, and the miss names the path" \
+  "^check: running the full tier: db/migrations/001\.sql changed since the full pass at " "$out"
+fp1="$(c4 --fingerprint)"
+printf 'pytest==8.0\n' > requirements.txt
+[ "$(c4 --fingerprint)" != "$fp1" ] && ok "and so does a path on the framework's own list (requirements.txt)" \
+  || bad "and so does a path on the framework's own list (requirements.txt)"
+fp1="$(c4 --fingerprint)"
+printf 'drop table t;\n' > db/migrations/old/000.sql; printf 'notes\n' > notes.txt
+[ "$(c4 --fingerprint)" = "$fp1" ] && ok "a path under [tests] ignore, or one that is neither source nor due, leaves it as it was" \
+  || bad "a path under [tests] ignore, or one that is neither source nor due, leaves it as it was"
+out="$(printf '%s\n' db/migrations/001.sql requirements.txt db/migrations/old/000.sql notes.txt src/ui/TodoList.ts | c4 --unignored)"
+[ "$out" = "db/migrations/001.sql${nl}requirements.txt${nl}src/ui/TodoList.ts" ] \
+  && ok "--unignored keeps the paths that make the full tier due, less [tests] ignore" \
+  || bad "--unignored keeps the paths that make the full tier due, less [tests] ignore" "$out"
+# The settings read the same from a file checked out with CRLF line endings: a value has no carriage return, nor the
+# comment after it.
+printf '[project]\r\nstack = none\r\n[gitleaks]\r\nmin-version = 8.18.0\r\n[tests]\r\nfull-when = db/migrations/   ; a comment after the value\r\nignore = marketing/\r\n' > tools/check.cfg
+out="$(printf '%s\n' db/migrations/001.sql marketing/page.json notes.txt | c4 --unignored)"
+[ "$out" = "db/migrations/001.sql" ] && ok "settings with CRLF line endings, and a comment after a value, read as the same settings" \
+  || bad "settings with CRLF line endings, and a comment after a value, read as the same settings" "$out"
+cp "$work/c4-cfg" tools/check.cfg; rm -rf db requirements.txt notes.txt
 
 # With no commit yet, the fast tier runs as the full tier and says why.
 _nh="$work/no-head"; mkdir -p "$_nh/tools/stacks" && git init -q "$_nh"
@@ -5956,6 +6020,36 @@ mkdir -p db && printf '{ "seed": 1 }\n' > db/seed.json && git add db/seed.json
 out="$(git_q commit -qm "a seed" 2>&1)"; status=$?
 expect_status "a commit that stages a path under [tests] full-when passes" 0 "$status" "$out"
 expect_output "and runs the full tier, saying why" "^pre-commit: running the project check, full tier: db/seed\.json changed$" "$out"
+
+# A path that makes the full tier due starts the check though it isn't a source path and nothing else is staged: a
+# migration under [tests] full-when, and requirements.txt on the framework's list. The pass before it doesn't stand.
+printf 'create table t (id int);\n' > db/001.sql && git add db/001.sql
+pc_suites; _pc_n="$pc_n"
+out="$(git_q commit -qm "a migration" 2>&1)"; status=$?
+expect_status "a commit that stages only a migration under [tests] full-when passes" 0 "$status" "$out"
+expect_output "and runs the full tier, saying why" "^pre-commit: running the project check, full tier: db/001\.sql changed$" "$out"
+pc_suites
+[ "$pc_n" -eq $((_pc_n + 1)) ] && [ "$pc_last" = "full pre-commit" ] && ok "the full suite runs: the pass before it doesn't stand for a new migration" \
+  || bad "the full suite runs: the pass before it doesn't stand for a new migration" "$pc_n suites, the last: $pc_last"
+printf 'pytest==8.0\n' > requirements.txt && git add requirements.txt
+out="$(git_q commit -qm "a dependency" 2>&1)"; status=$?
+expect_status "a commit that stages only requirements.txt passes" 0 "$status" "$out"
+expect_output "and runs the full tier, saying why" "^pre-commit: running the project check, full tier: requirements\.txt changed$" "$out"
+pc_suites
+[ "$pc_n" -eq $((_pc_n + 2)) ] && [ "$pc_last" = "full pre-commit" ] && ok "and the full suite runs for it too" \
+  || bad "and the full suite runs for it too" "$pc_n suites, the last: $pc_last"
+# Before a commit, `bash tools/check.sh --due` says whether the full tier is due; run first, its pass is the one the
+# commit's hook reuses, so the full run never sits inside the commit (rules.md, Running the check).
+printf 'alter table t add n int;\n' >> db/001.sql && git add db/001.sql
+out="$(bash tools/check.sh --due 2>&1)"
+expect_output "--due before a commit says the full tier is due, and why" "^check: full tier due: db/001\.sql changed$" "$out"
+out="$(bash tools/check.sh --if-changed 2>&1)"; expect_status "the full tier, run before the commit" 0 $? "$out"
+pc_suites; _pc_n="$pc_n"
+out="$(git_q commit -qm "a migration, checked first" 2>&1)"; status=$?
+expect_status "the commit after it passes" 0 "$status" "$out"
+expect_output "and its hook reuses that full pass" "^check: PASS \(reused the full pass at [0-9:]{5}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+pc_suites
+[ "$pc_n" -eq "$_pc_n" ] && ok "with no suite inside the commit" || bad "with no suite inside the commit" "$pc_last"
 
 mkdir -p marketing && printf '{ "title": "Buy" }\n' > marketing/page.json && git add marketing/page.json
 pc_suites; _pc_n="$pc_n"

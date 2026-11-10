@@ -14,9 +14,10 @@
 #   bash tools/check.sh --due              say whether the full tier is due (below), and run nothing else
 #   bash tools/check.sh --fingerprint      print the fingerprint of the current files (for hooks)
 #   bash tools/check.sh --architecture     run only the UI purity and secrets checks (fast, no build)
-#   bash tools/check.sh --unignored        print the paths read from stdin, one per line, that count as source (source_re,
-#                                          below) and that [tests] ignore doesn't cover (the pre-commit hook asks it which
-#                                          staged files count as source)
+#   bash tools/check.sh --unignored        print the paths read from stdin, one per line, that the check counts (source
+#                                          paths, source_re below, and the paths that make the full tier due) and that
+#                                          [tests] ignore doesn't cover (the pre-commit hook asks it which staged files
+#                                          start a check)
 # Flags combine in any order. Exit codes: 0 = pass · 1 = fail · 3 = couldn't run (gitleaks missing, old or unable to scan,
 # stack tool missing, a test run hit its time limit, another check still running past CHECK_WAIT, or an unknown flag)
 #
@@ -31,15 +32,20 @@
 #      root). Lines it writes to $CHECK_STATE/stack-summary are printed in the summary at the end of the run.
 #   4. Custom: run tools/check.local.sh, if the project has one, with the same environment, so it can leave its own slow
 #      parts (a production build, say) to the full tier.
-# A fast request runs as the full tier, with its limit and its record, and says why, when there's no commit yet, and when
-# more than 100 source paths or 6,000 characters (each path and one) differ from HEAD: the stack check's file lists must
-# fit on one command line (cmd.exe, which runs npx on Windows, takes 8,191 characters).
+# A fast request runs as the full tier, with its limit and its record, and says why:
+#   - when there's no commit yet;
+#   - when neither the stack script nor tools/check.local.sh names CHECK_TIER outside a comment, so the fast tier would
+#     run what the full tier runs (the python, flutter and none stacks run their whole check in either tier). The pass
+#     then stands for a commit and a push alike, and the whole suite runs once;
+#   - when more than 100 source paths or 6,000 characters (each path and one) differ from HEAD: the stack check's file
+#     lists must fit on one command line (cmd.exe, which runs npx on Windows, takes 8,191 characters).
 #
 # The full tier is due (--due, and the result line of a fast pass) when no full pass is recorded
 # (.app-director/state/last-full), when [tests] full-every commits (default 10; 0 = never by count) were made since it, or
-# when a changed path matches [tests] full-when or the framework's own list (full_when_framework below). Patterns, there
-# and in [tests] ignore and fast-map, are bash case patterns against the path from the repository root; one that ends in
-# / is a folder and matches everything under it.
+# when a changed path matches [tests] full-when or the framework's own list (full_when_framework below). Those paths count
+# like source paths (counted_path below): one that changes is a cache miss, and the pre-commit hook starts the check for
+# a commit that stages nothing else. Patterns, there and in [tests] ignore and fast-map, are bash case patterns against
+# the path from the repository root; one that ends in / is a folder and matches everything under it.
 #
 # Settings are in tools/check.cfg. State is kept in .app-director/state/:
 #   last-pass, last-fail  line 1 the key (the fingerprint and gitleaks's version), line 2 the tier, time, commit, caller
@@ -94,7 +100,8 @@ tier="${tier:-full}"
 requested="$tier"
 
 # Read an ini-style check.cfg value into cfg_value: cfg_get <section> <key>
-# The first call reads the file into cfg_text, without comments and carriage returns; the others read cfg_text.
+# The first call reads the file into cfg_text, without comments and the carriage returns of CRLF line endings; the others
+# read cfg_text.
 cfg_text=""; cfg_read=0
 cfg_get() {
   local section="$1" key="$2" in_section=0 line k v cr=$'\r'
@@ -103,11 +110,12 @@ cfg_get() {
     cfg_read=1
     [ -f tools/check.cfg ] || return 0
     while IFS= read -r line; do
-      # The pipeline starts four processes and the file has about sixty lines, so only a line with a comment after its
-      # value, or a carriage return, goes through it, and a line that is all comment is left out.
+      # No process per line: a file checked out with CRLF line endings has a carriage return on every one. A line that
+      # is all comment is left out, and a comment after a value is cut off with the spaces before it.
+      line="${line%"$cr"}"
       case "$line" in
         \;*) continue ;;
-        *\;*|*"$cr"*) line="$(printf '%s' "$line" | tr -d '\r' | sed 's/[[:space:]]*;.*//')" ;;
+        *\;*) line="${line%%;*}"; line="${line%"${line##*[![:space:]]}"}" ;;
       esac
       cfg_text="$cfg_text$line$nl"
     done < tools/check.cfg
@@ -180,41 +188,51 @@ tier_limit() {
 }
 
 cfg_get tests ignore; ignore="$cfg_value"
+# The paths that make the full tier due whenever they change: the framework's list and [tests] full-when.
+cfg_get tests full-when; full_when="$full_when_framework $cfg_value"
 
 # The source-path rule, the one definition of the paths that count as source: the extensions ts tsx js jsx mjs cjs mts
 # cts dart py json yaml yml, and the check's own files (tools/check.cfg, tools/check.sh, tools/check.local.sh, a script
 # directly in tools/stacks/, .gitleaks.toml and .gitleaksignore), outside the dependency and build folders. The
-# fingerprint reads source_re with grep, over the whole tree; source_path tests one path, for --unignored and so for the
-# pre-commit hook. tools/stacks/typescript.sh hands the related tests the changed files with these extensions.
+# fingerprint reads source_re with grep, over the whole tree; source_path tests one path. tools/stacks/typescript.sh hands
+# the related tests the changed files with these extensions.
 source_re='\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^tools/stacks/[^/]+\.sh$|^\.gitleaks(\.toml|ignore)$'
 source_path() { # source_path <path from the repository root>: 0 when it counts as source
   case "$1" in node_modules/*|dist/*|build/*|.dart_tool/*|__pycache__/*) return 1 ;; esac
   [[ $1 =~ $source_re ]]
 }
+# counted_path <path from the repository root>: 0 when the check counts it: a source path, or one that makes the full
+# tier due (full_when: a migration, a lockfile, requirements.txt). The fingerprint and --unignored read this, so a change
+# that --due answers with "due" is never one the cache calls unchanged, nor one a commit starts no check for.
+counted_path() { source_path "$1" || path_in "$1" "$full_when"; }
 
-# --unignored: the paths on stdin that count as source and that [tests] ignore doesn't cover, as they came. The pre-commit
-# hook gives it the staged files, so a commit that stages no source file, or only ignored ones, starts no check.
+# --unignored: the paths on stdin that the check counts and that [tests] ignore doesn't cover, as they came. The pre-commit
+# hook gives it the staged files, so a commit that stages none of them, or only ignored ones, starts no check.
 if [ "$mode" = "--unignored" ]; then
   while IFS= read -r p || [ -n "$p" ]; do
-    [ -n "$p" ] && source_path "$p" || continue
+    [ -n "$p" ] && counted_path "$p" || continue
     if [ -n "$ignore" ] && path_in "$p" "$ignore"; then continue; fi
     printf '%s\n' "$p"
   done
   exit 0
 fi
 
-# The files that can change the result: the tracked and untracked source files (source_re), less the paths under
-# [tests] ignore. The list is sorted, so a file counts the same whether git tracks it or not: staging a new file leaves
-# the fingerprint as it was. fingerprint sets fp_paths (one per line), fp_hashes (each one's blob hash, in the same order,
-# from one git call) and fp_value, the hash of both. Outside a git repository there are no paths, and all three are empty.
+# The files that can change the result: the tracked and untracked files the check counts (counted_path), less the paths
+# under [tests] ignore. grep keeps the source paths of the whole tree, and git lists the few others that match full_when
+# (as pathspecs, which read a pattern as bash's case does, and a folder's name as the folder), so the loop tests each
+# path that reaches it and no more. The list is sorted, so a file counts the same whether git tracks it or not: staging
+# a new file leaves the fingerprint as it was. fingerprint sets fp_paths (one per line), fp_hashes (each one's blob hash,
+# in the same order, from one git call) and fp_value, the hash of both. Outside a git repository there are no paths, and
+# all three are empty.
 fingerprint() {
   fp_hashes=""; fp_value=""
-  fp_paths="$(git -c core.quotePath=false ls-files -z -c -o --exclude-standard 2>/dev/null \
-    | tr '\0' '\n' \
-    | grep -E "$source_re" \
+  fp_paths="$( { git -c core.quotePath=false ls-files -z -c -o --exclude-standard 2>/dev/null | tr '\0' '\n' | grep -E "$source_re"
+                 set -f
+                 git -c core.quotePath=false ls-files -z -c -o --exclude-standard -- $full_when 2>/dev/null | tr '\0' '\n'
+                 set +f; } \
     | LC_ALL=C "$SORT" -u \
     | while IFS= read -r p; do
-        source_path "$p" || continue
+        counted_path "$p" || continue
         if [ -n "$ignore" ] && path_in "$p" "$ignore"; then continue; fi
         [ -f "$p" ] && printf '%s\n' "$p"
       done)"
@@ -258,11 +276,10 @@ changed_paths() {
 # full pass; lf_desc, its short commit and time; due_in, the commits until [tests] full-every brings it (empty when that
 # is 0); and every, the setting. Reads changed_list.
 due_check() {
-  local lf_commit="" lf_at="" lf_time p when word
+  local lf_commit="" lf_at="" lf_time p word
   due_now=1; due_why=""; due_count=0; due_in=""; lf_desc=""
   cfg_get tests full-every; every="$cfg_value"
   case "$every" in ''|*[!0-9]*) every=10 ;; esac
-  cfg_get tests full-when; when="$full_when_framework $cfg_value"
   [ -f "$state_dir/last-full" ] && read -r lf_commit lf_at < "$state_dir/last-full"
   if [ -z "$lf_commit" ]; then due_why="no full pass recorded yet"; return 0; fi
   lf_time="${lf_at#*T}"; lf_desc="${lf_commit:0:7}, ${lf_at%%T*} ${lf_time%:*}"
@@ -271,7 +288,7 @@ due_check() {
   fi
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    if path_in "$p" "$when"; then due_why="$p changed"; return 0; fi
+    if path_in "$p" "$full_when"; then due_why="$p changed"; return 0; fi
   done <<< "$changed_list"
   due_count="$(git rev-list --count "$lf_commit..$head_full" 2>/dev/null)"
   case "$due_count" in ''|*[!0-9]*) due_count=0 ;; esac
@@ -460,16 +477,29 @@ failed=0
 arch_only=0
 [ "$mode" = "--architecture" ] && arch_only=1
 
+# has_fast_mode: 0 when the stack script or tools/check.local.sh names CHECK_TIER outside a comment, so the fast tier has
+# something of its own to run. tools/stacks/typescript.sh does; python, flutter and none run their whole check in either
+# tier, and so does a check.local.sh written before the tiers.
+has_fast_mode() {
+  local f
+  cfg_get project stack
+  for f in "tools/stacks/$cfg_value.sh" tools/check.local.sh; do
+    [ -f "$f" ] && grep -qE '^[^#]*CHECK_TIER' "$f" && return 0
+  done
+  return 1
+}
 # pick_tier: the tier this run goes in (tier), its time limit (limit) and the setting that gives it (limit_where). A fast
-# request runs as the full tier with no commit yet, and when more than 100 source paths or 6,000 characters (each path
-# and one) differ from HEAD, since the stack check's file lists must fit on one command line. Each reason is said once, though a
-# wait picks again.
+# request runs as the full tier with no commit yet; when nothing it would run has a fast mode (has_fast_mode); and when
+# more than 100 source paths or 6,000 characters (each path and one) differ from HEAD, since the stack check's file lists
+# must fit on one command line. Each reason is said once, though a wait picks again.
 tier_why=""
 pick_tier() {
   local why=""
   tier="$requested"
   if [ "$tier" = fast ]; then
     if [ -z "$head_full" ]; then why="there's no commit yet, so the fast tier runs as the full tier"
+    elif ! has_fast_mode; then
+      why="neither the stack check nor tools/check.local.sh has a fast mode (reads CHECK_TIER), so the fast tier runs as the full tier"
     else
       [ "$changed_ready" -eq 1 ] || changed_paths
       if [ "$changed_n" -gt 100 ] || [ "$changed_chars" -gt 6000 ]; then
