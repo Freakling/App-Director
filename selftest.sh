@@ -1481,7 +1481,7 @@ EOF
 # The parts that change the app each get a copy of it as the installer left it (with the rule above). The example app itself
 # stays with /ui-design, which needs its path.
 _cp_pids=""
-for _lane_app in check1 check2 check3 guard hooks commit; do
+for _lane_app in check1 check2 check3 check4 guard hooks commit; do
   ( rm -rf "$work/$_lane_app-app"; cp -R "$app" "$work/$_lane_app-app" ) &
   _cp_pids="$_cp_pids $!"
 done
@@ -1489,6 +1489,7 @@ for _cp_pid in $_cp_pids; do wait "$_cp_pid" || exit 3; done
 part check1 2c-check1
 part check2 2d-check2
 part check3 2e-check3
+part check4 2f-check4
 part guard 3-guard
 part hooks 4a-hooks
 part commit 4b-precommit
@@ -1723,6 +1724,338 @@ cp "$work/saved-ui-cache" src/ui/TodoList.ts
 out="$(bash tools/check.sh 2>&1)"
 expect_status "passes again once the UI violation is removed" 0 $? "$out"
 
+}
+
+part_check4() {
+  cd "$work/check4-app" || exit 3
+echo "check tiers, the cache and the run log"
+# The two tiers on the example app (the none stack): what a fast and a full result record and stand for, the line each
+# miss prints, when the full tier is due, the summary, the run log, what tools/check.local.sh is given, the per-tier time
+# limits and the progress line. A stand-in gitleaks reports $FAKE_GL_VERSION (8.30.1 by default) and finds nothing, so a
+# run is quick and the version can change.
+_t_gl="$work/fake-gl-tiers"; mkdir -p "$_t_gl"
+printf '#!/bin/bash\n[ "$1" = version ] && echo "v${FAKE_GL_VERSION:-8.30.1}"\nexit 0\n' > "$_t_gl/gitleaks"
+chmod +x "$_t_gl/gitleaks"
+c4() { PATH="$_t_gl:$PATH" bash tools/check.sh "$@" 2>&1; }
+_st=.app-director/state
+rm -f "$_st/last-pass" "$_st/last-fail" "$_st/last-full" "$_st/check-runs.log"
+git add -A >/dev/null 2>&1 && git_q commit -qm "the tiers' start" >/dev/null 2>&1
+
+out="$(c4 --due)"; status=$?
+expect_status "--due exits 0" 0 "$status" "$out"
+expect_output "--due with no full pass recorded says the full tier is due" "^check: full tier due: no full pass recorded yet$" "$out"
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "--fast --if-changed passes on the example" 0 "$status" "$out"
+expect_output "a miss with nothing recorded says so before the run" "^check: running the fast tier: no result recorded yet$" "$out"
+expect_output "a fast pass is reported as fast, with when the full tier is due" "^check: PASS \(fast tier; full tier due now: no full pass recorded yet\)$" "$out"
+expect_output "the summary names the tier, the result and the time" "^check: summary: fast tier, PASS in [0-9]+ s$" "$out"
+expect_output "and each step's time" "^check:   steps: UI purity [0-9]+ s, secrets [0-9]+ s, stack [0-9]+ s$" "$out"
+expect_output "and what the cache found" "^check:   cache: no result recorded yet$" "$out"
+rec="$(cat "$_st/last-pass" 2>/dev/null)"
+expect_output "a pass's line 1 is the key: the fingerprint and gitleaks's version" "^[0-9a-f]{40} gitleaks=8\.30\.1$" "$rec"
+expect_output "line 2 the tier, time, commit, caller and run" "^tier=fast at=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} commit=[0-9a-f]{7} caller=manual run=[0-9T]+-[0-9]+$" "$rec"
+grep -qxF "$(git hash-object --no-filters src/ui/TodoList.ts) src/ui/TodoList.ts" "$_st/last-pass.files" \
+  && ok "beside it, the files it checked, each with its blob hash" || bad "beside it, the files it checked, each with its blob hash" "$(cat "$_st/last-pass.files" 2>&1)"
+expect_output "the run log has a line for the run" \
+  "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8} tier=fast result=pass secs=[0-9]+ caller=manual commit=[0-9a-f]{7} tests=\?/\?$" "$(cat "$_st/check-runs.log" 2>&1)"
+
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "--fast --if-changed reuses a fast pass" 0 "$status" "$out"
+expect_output "and says which pass it reused" "^check: PASS \(reused the fast pass at [0-9]{2}:[0-9]{2}, commit [0-9a-f]{7}, by manual; nothing changed\)$" "$out"
+expect_no_output "a reuse prints no summary" "summary" "$out"
+out="$(CHECK_CALLER=pre-commit c4 --if-changed --full)"; status=$?
+expect_status "--if-changed --full runs the full tier after a fast pass" 0 "$status" "$out"
+expect_output "a fast pass never satisfies a full request, and the miss says so" "^check: running the full tier: the last pass was the fast tier, at [0-9]{2}:[0-9]{2} \(commit [0-9a-f]{7}, manual\)$" "$out"
+expect_output "a full pass is reported as the full tier" "^check: PASS \(full tier\)$" "$out"
+lf="$(cat "$_st/last-full" 2>/dev/null)"
+[ "${lf%% *}" = "$(git rev-parse HEAD)" ] && ok "a full pass writes last-full: HEAD's commit and the time" || bad "a full pass writes last-full: HEAD's commit and the time" "$lf"
+out="$(c4 --fast --if-changed)"
+expect_output "a full pass satisfies --fast --if-changed, and the reuse names its caller" "^check: PASS \(reused the full pass at [0-9:]+, commit [0-9a-f]{7}, by pre-commit; nothing changed\)$" "$out"
+out="$(c4 --fast)"; status=$?
+expect_status "--fast without --if-changed runs" 0 "$status" "$out"
+expect_output "and its summary says the cache wasn't asked" "^check:   cache: not used \(run without --if-changed\)$" "$out"
+{ IFS= read -r _l1; IFS= read -r _l2; } < "$_st/last-pass"
+expect_output "a fast pass leaves a full pass of the same files recorded" "^tier=full .* caller=pre-commit " "$_l2"
+log="$(cat "$_st/check-runs.log")"
+expect_output "the log names the caller from CHECK_CALLER" " tier=full result=pass secs=[0-9]+ caller=pre-commit commit=[0-9a-f]{7} " "$log"
+expect_output "and logs a reuse" " tier=fast result=reused-pass secs=0 caller=manual commit=[0-9a-f]{7} tests=0/\?$" "$log"
+out="$(c4 --due)"
+expect_output "--due right after a full pass: not due, with the count, the pass and the setting" \
+  "^check: full tier not due: 0 commits since the last full pass \([0-9a-f]{7}, [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\), \[tests\] full-every = 10$" "$out"
+
+# Each miss names what changed since the result it compared with, in one line before the run.
+cp src/ui/TodoList.ts "$work/c4-ui"; cp src/services/TodoService.ts "$work/c4-svc"; cp src/store/TodoStore.ts "$work/c4-store"
+printf '\n// changed\n' >> src/ui/TodoList.ts
+out="$(c4 --if-changed)"
+expect_output "a miss names a changed file and the pass it compared with" "^check: running the full tier: src/ui/TodoList\.ts changed since the full pass at [0-9]{2}:[0-9]{2} \(commit [0-9a-f]{7}, pre-commit\)$" "$out"
+printf '\n// changed\n' >> src/services/TodoService.ts; printf '\n// changed\n' >> src/store/TodoStore.ts
+printf '{}\n' > a.json; printf '{}\n' > b.json; rm src/ui/TodoList.ts
+out="$(c4 --if-changed)"
+expect_output "a miss names the first changed file and how many more" "src/services/TodoService\.ts and 1 more changed, " "$out"
+expect_output "new files" ", a\.json and 1 more are new, " "$out"
+expect_output "and a removed one" ", src/ui/TodoList\.ts was removed since the full pass at " "$out"
+cp "$work/c4-ui" src/ui/TodoList.ts; cp "$work/c4-svc" src/services/TodoService.ts; cp "$work/c4-store" src/store/TodoStore.ts; rm a.json b.json
+out="$(c4 --if-changed)"
+expect_output "a new file, and removed files" ", src/ui/TodoList\.ts is new, a\.json and 1 more were removed since " "$out"
+out="$(FAKE_GL_VERSION=8.29.0 c4 --if-changed)"
+expect_output "a miss names a changed gitleaks, with both versions" "^check: running the full tier: gitleaks changed from 8\.30\.1 to 8\.29\.0 since the full pass at " "$out"
+printf '%s gitleaks=8.30.1' "$(c4 --fingerprint)" > "$_st/last-pass"
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "a record in the older one-line format is a miss, and the run goes on" 0 "$status" "$out"
+expect_output "which says the last result was recorded by an older check" "^check: running the fast tier: the last result was recorded by an older check$" "$out"
+
+# A failure: exit 1, recorded with its tier. A fast failure doesn't stand for a full request; a full one covers a fast request.
+{ printf '\n'; printf 'import { TodoStore } from '"'"'../store/TodoStore'"'"';\n'; } >> src/ui/TodoList.ts
+out="$(c4 --fast)"; status=$?
+expect_status "the fast tier fails on a UI purity violation, with exit 1" 1 "$status" "$out"
+expect_output "and says FAIL with its tier" "^check: FAIL \(fast tier; logs above\)$" "$out"
+expect_output "its summary says FAIL" "^check: summary: fast tier, FAIL in [0-9]+ s$" "$out"
+out="$(c4 --full --if-changed)"; status=$?
+expect_status "a fast failure doesn't stand for a full request: the full tier runs, and fails" 1 "$status" "$out"
+expect_output "the miss says the last failure was the fast tier" "^check: running the full tier: the last failure was the fast tier, at " "$out"
+out="$(c4 --fast --if-changed)"; status=$?
+expect_status "a full failure stands for a fast request on the same files" 1 "$status" "$out"
+expect_output "and says which failure it repeated" "^check: FAIL \(reused the full failure at [0-9:]+, commit [0-9a-f]{7}, by manual; nothing changed; run 'bash tools/check\.sh' to see why\)$" "$out"
+cp "$work/c4-ui" src/ui/TodoList.ts
+
+out="$(c4 --bogus)"; status=$?
+expect_status "an unknown flag exits 3" 3 "$status" "$out"
+expect_output "with a usage line" "^usage: bash tools/check\.sh \[--full \| --fast\] \[--if-changed\]" "$out"
+out="$(c4 --fast --full)"; expect_status "--fast with --full exits 3" 3 $? "$out"
+out="$(PATH="$_no_gl_path" bash tools/check.sh --fast 2>&1)"; expect_status "the fast tier exits 3 without gitleaks" 3 $? "$out"
+expect_output "and the log says it couldn't run" " tier=fast result=couldnt-run " "$(tail -n 1 "$_st/check-runs.log")"
+
+# When the full tier is due: [tests] full-every commits after the last full pass, a [tests] full-when path, a path on the
+# framework's own list, or a last full pass that isn't in this history.
+cp tools/check.cfg "$work/c4-cfg"
+printf '\n[tests]\nfull-every = 2\nfull-when = db/migrations/\n' >> tools/check.cfg
+git add -A >/dev/null 2>&1 && git_q commit -qm "full-every 2" >/dev/null 2>&1
+out="$(c4)"; expect_status "the full tier passes after the settings change" 0 $? "$out"
+git_q commit -q --allow-empty -m "one" >/dev/null 2>&1
+out="$(c4 --due)"
+expect_output "--due one commit after the full pass, with full-every = 2: not due" "^check: full tier not due: 1 commit since the last full pass \([0-9a-f]{7}, .*\), \[tests\] full-every = 2$" "$out"
+out="$(c4 --fast)"
+expect_output "a fast pass says in how many commits the full tier is due" "^check: PASS \(fast tier; full tier due in 1 commit\)$" "$out"
+git_q commit -q --allow-empty -m "two" >/dev/null 2>&1
+out="$(c4 --due)"
+expect_output "--due when full-every is reached" "^check: full tier due: 2 commits since the last full pass \([0-9a-f]{7}, [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\), \[tests\] full-every = 2$" "$out"
+mkdir -p db/migrations && printf 'create table t (id int);\n' > db/migrations/001.sql
+out="$(c4 --due)"
+expect_output "--due for a changed path under [tests] full-when" "^check: full tier due: db/migrations/001\.sql changed$" "$out"
+rm -rf db; printf '{}\n' > package.json
+out="$(c4 --due)"
+expect_output "--due for a path on the framework's own list" "^check: full tier due: package\.json changed$" "$out"
+out="$(c4 --fast)"
+expect_output "a fast pass says the full tier is due now, and why" "^check: PASS \(fast tier; full tier due now: package\.json changed\)$" "$out"
+rm package.json
+cp "$_st/last-full" "$work/c4-last-full"
+printf '0123456789012345678901234567890123456789 2026-01-01T00:00:00\n' > "$_st/last-full"
+out="$(c4 --due)"
+expect_output "--due when the last full pass isn't in this history" "^check: full tier due: the last full pass \(0123456, 2026-01-01 00:00\) isn't in this history$" "$out"
+cp "$work/c4-last-full" "$_st/last-full"
+
+# [tests] ignore: a change only under it leaves the fingerprint, so a recorded pass stands, and isn't a changed path.
+# tools/check.local.sh gets the tier, the state folder and, in the fast tier, the list of changed paths, and what it
+# writes to stack-summary is printed in the summary.
+printf 'ignore = marketing/ *.draft.json\n' >> tools/check.cfg
+cat > tools/check.local.sh << 'EOF'
+#!/usr/bin/env bash
+{ echo "tier=$CHECK_TIER"; echo "state=$CHECK_STATE"; echo "changed=${CHECK_CHANGED:-}"; [ -z "${CHECK_CHANGED:-}" ] || cat "$CHECK_CHANGED"; } > "$CHECK_STATE/local-env"
+echo "local: ran in the $CHECK_TIER tier" >> "$CHECK_STATE/stack-summary"
+EOF
+out="$(c4 --fast)"; expect_status "passes with a tools/check.local.sh" 0 $? "$out"
+fp1="$(c4 --fingerprint)"
+mkdir -p marketing && printf '{ "title": "x" }\n' > marketing/page.json && printf '{}\n' > notes.draft.json
+[ "$(c4 --fingerprint)" = "$fp1" ] && ok "a change only under [tests] ignore leaves the fingerprint as it was" \
+  || bad "a change only under [tests] ignore leaves the fingerprint as it was"
+out="$(c4 --fast --if-changed)"
+expect_output "so the recorded pass stands" "^check: PASS \(reused the fast pass at " "$out"
+printf '\n// changed\n' >> src/ui/TodoList.ts
+out="$(c4 --fast)"
+env_seen="$(cat "$_st/local-env" 2>&1)"
+expect_output "tools/check.local.sh gets CHECK_TIER" "^tier=fast$" "$env_seen"
+expect_output "and CHECK_STATE, an absolute path" "^state=/.*\.app-director/state$" "$env_seen"
+expect_output "and CHECK_CHANGED, an absolute path, in the fast tier" "^changed=/.*\.app-director/state/changed$" "$env_seen"
+expect_output "which lists a changed file" "^src/ui/TodoList\.ts$" "$env_seen"
+expect_output "and an untracked one" "^tools/check\.local\.sh$" "$env_seen"
+expect_no_output "but not a path under [tests] ignore, nor the check's state" "marketing|draft|\.app-director/state/" "$(printf '%s\n' "$env_seen" | sed 1,3d)"
+expect_output "what it writes to stack-summary is in the summary" "^check:   local: ran in the fast tier$" "$out"
+out="$(c4)"
+env_seen="$(cat "$_st/local-env" 2>&1)"
+expect_output "the full tier gives CHECK_TIER=full" "^tier=full$" "$env_seen"
+expect_output "and no CHECK_CHANGED" "^changed=$" "$env_seen"
+
+# The run log keeps its last 500 lines once it passes 1000.
+_i=0; while [ "$_i" -lt 1000 ]; do echo "an earlier run $_i"; _i=$((_i + 1)); done > "$_st/check-runs.log"
+out="$(c4 --fast)"
+_n="$(wc -l < "$_st/check-runs.log" | tr -d ' ')"; _first="$(head -n 1 "$_st/check-runs.log")"
+if [ "$_n" -eq 500 ] && [ "$_first" = "an earlier run 501" ]; then ok "the run log is trimmed to its last 500 lines past 1000"
+else bad "the run log is trimmed to its last 500 lines past 1000" "$_n lines, the first: $_first"; fi
+cp "$work/c4-ui" src/ui/TodoList.ts
+
+# Per-tier time limits and the progress line. GNU timeout only, as in the check's own limit; skipped without.
+_c4_timeout=""
+for _c in timeout gtimeout; do
+  if "$_c" --version 2>/dev/null | grep -qi coreutils; then _c4_timeout="$_c"; break; fi
+done
+if [ -n "$_c4_timeout" ]; then
+  rm -f tools/check.local.sh
+  printf '#!/usr/bin/env bash\nsleep 10\n' > tools/stacks/slow.sh
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-fast = 1\ntimeout = 30\n' > tools/check.cfg
+  out="$(c4 --fast)"; status=$?
+  expect_status "the fast tier exits 3 past [tests] timeout-fast" 3 "$status" "$out"
+  expect_output "and says which run timed out, after how long, and the setting" "^check: couldn't run to the end: the stack check timed out after 1 s \(the fast tier's limit, \[tests\] timeout-fast in tools/check\.cfg\)$" "$out"
+  expect_output "and how to go on" "^check: to go on, raise \[tests\] timeout-fast, or run 'bash tools/check\.sh --fast' again in the background: a commit then reuses its pass\.$" "$out"
+  [ ! -f "$_st/last-pass" ] && ok "a run past its limit records no pass" || bad "a run past its limit records no pass" "$(cat "$_st/last-pass")"
+  expect_output "and the log says it couldn't run" " tier=fast result=couldnt-run " "$(tail -n 1 "$_st/check-runs.log")"
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-full = 1\ntimeout = 30\n' > tools/check.cfg
+  out="$(c4)"; status=$?
+  expect_status "the full tier exits 3 past [tests] timeout-full, which wins over timeout" 3 "$status" "$out"
+  expect_output "and names timeout-full and the full tier" "timed out after 1 s \(the full tier's limit, \[tests\] timeout-full in tools/check\.cfg\)$" "$out"
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n[tests]\ntimeout-fast = 30\n' > tools/check.cfg
+  out="$(CHECK_TIMEOUT=1 c4 --fast)"; status=$?
+  expect_status "CHECK_TIMEOUT overrides the tier's limit" 3 "$status" "$out"
+  expect_output "and is named as the limit" "timed out after 1 s \(the fast tier's limit, CHECK_TIMEOUT\)$" "$out"
+  printf '#!/usr/bin/env bash\nsleep 3\n' > tools/stacks/slow.sh
+  printf '[project]\nstack = slow\n[gitleaks]\nmin-version = 8.18.0\n' > tools/check.cfg
+  _t0=$SECONDS
+  out="$(CHECK_PROGRESS_EVERY=1 PATH="$_t_gl:$PATH" "$_c4_timeout" 60 bash tools/check.sh 2>&1)"; status=$?
+  _took=$((SECONDS - _t0))
+  expect_status "a run with the progress line passes" 0 "$status" "$out"
+  expect_output "a long stack check prints that it is still running, with the tier and the minutes" "^check: still running the stack check \(full tier\), 0 min$" "$out"
+  [ "$_took" -lt 30 ] && ok "the progress line ends with the check, and holds nothing open" || bad "the progress line ends with the check, and holds nothing open" "took $_took s"
+  rm -f tools/stacks/slow.sh
+else
+  echo "  skip: no GNU timeout, so the per-tier time limits and the progress line aren't tested"
+fi
+cp "$work/c4-cfg" tools/check.cfg; rm -rf marketing notes.draft.json tools/check.local.sh
+
+# With no commit yet, the fast tier runs as the full tier and says why.
+_nh="$work/no-head"; mkdir -p "$_nh/tools/stacks" && git init -q "$_nh"
+cp "$src/framework/tools/check.sh" "$_nh/tools/" && cp "$src/framework/tools/stacks/none.sh" "$_nh/tools/stacks/"
+printf '[project]\nstack = none\n' > "$_nh/tools/check.cfg"; printf '.app-director/state/\n' > "$_nh/.gitignore"; printf 'export const x = 1;\n' > "$_nh/x.ts"
+out="$(cd "$_nh" && PATH="$_t_gl:$PATH" bash tools/check.sh --fast 2>&1)"; status=$?
+expect_status "the fast tier passes in a repository with no commit" 0 "$status" "$out"
+expect_output "and says it runs as the full tier, and why" "^check: note: there's no commit yet, so the fast tier runs as the full tier$" "$out"
+expect_output "and reports the full tier" "^check: PASS \(full tier\)$" "$out"
+}
+
+part_check_ts() {
+echo "check, TypeScript tiers"
+# The TypeScript stack in both tiers, with a stand-in npx that logs each command and plays tsc, eslint and vitest (or
+# jest): vitest writes a json report of $FAKE_VITEST_TESTS tests (3 by default) in two files, and $FAKE_<TOOL>_EXIT is
+# each tool's exit status. The fixture has a package.json, a vitest config, an eslint config and a node_modules folder,
+# so nothing installs, and a [tests] fast-map rule for its translations. A stand-in gitleaks finds nothing.
+ts="$work/ts-app"; new_repo "$ts" >/dev/null 2>&1
+mkdir -p "$ts/tools/stacks" "$ts/src/i18n" "$ts/tests" "$ts/node_modules"
+cp "$src/framework/tools/check.sh" "$ts/tools/" && cp "$src/framework/tools/stacks/typescript.sh" "$ts/tools/stacks/"
+ts_cfg='[project]\nstack = typescript\n\n[gitleaks]\nmin-version = 8.18.0\n\n[tests]\nfast-map = src/i18n/*.json:tests/i18n.test.ts\n'
+printf '%b' "$ts_cfg" > "$ts/tools/check.cfg"
+printf '{ "name": "ts-app", "private": true }\n' > "$ts/package.json"
+printf 'export default {};\n' > "$ts/vitest.config.ts"
+printf '{ "root": true }\n' > "$ts/.eslintrc.json"
+printf 'export const a = 1;\n' > "$ts/src/a.ts"
+printf 'import { a } from "./a";\n' > "$ts/src/a.test.ts"
+printf '{ "hello": "Hello" }\n' > "$ts/src/i18n/en.json"
+printf 'import en from "../src/i18n/en.json";\n' > "$ts/tests/i18n.test.ts"
+printf '/node_modules/\n.app-director/state/\n' > "$ts/.gitignore"
+(cd "$ts" && git add -A && git_q commit -qm "a TypeScript app") >/dev/null 2>&1
+cd "$ts" || exit 3
+_ts_bin="$work/fake-ts-bin"; mkdir -p "$_ts_bin"
+printf '#!/bin/bash\n[ "$1" = version ] && echo v8.30.1\nexit 0\n' > "$_ts_bin/gitleaks"
+cat > "$_ts_bin/npx" << 'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_NPX_LOG"
+case "$1" in
+  tsc) exit "${FAKE_TSC_EXIT:-0}" ;;
+  eslint) exit "${FAKE_ESLINT_EXIT:-0}" ;;
+  vitest)
+    out=""
+    for a in "$@"; do case "$a" in --outputFile.json=*) out="${a#--outputFile.json=}" ;; esac; done
+    root="$(pwd -W 2>/dev/null || pwd -P)"
+    [ -z "$out" ] || printf '{"numTotalTests":%s,"testResults":[{"startTime":1000,"endTime":1500,"name":"%s/src/a.test.ts"},{"startTime":1000,"endTime":4200,"name":"%s/tests/i18n.test.ts"}]}' \
+      "${FAKE_VITEST_TESTS:-3}" "$root" "$root" > "$out"
+    exit "${FAKE_VITEST_EXIT:-0}" ;;
+  jest) exit "${FAKE_JEST_EXIT:-0}" ;;
+esac
+exit 0
+FAKE
+chmod +x "$_ts_bin/gitleaks" "$_ts_bin/npx"
+_npx_log="$work/fake-npx.log"
+ts_check() { : > "$_npx_log"; FAKE_NPX_LOG="$_npx_log" PATH="$_ts_bin:$PATH" bash tools/check.sh "$@" 2>&1; }
+_have_node=0; command -v node >/dev/null 2>&1 && _have_node=1
+
+out="$(ts_check)"; status=$?; log="$(cat "$_npx_log")"
+expect_status "TypeScript: no argument runs the full tier, and passes" 0 "$status" "$out"
+expect_output "the full tier type-checks with no build info of the fast tier's" "^tsc --noEmit$" "$log"
+expect_output "lints the whole project" "^eslint \. --max-warnings 0$" "$log"
+expect_output "and runs the whole suite, with the dot reporter (the output isn't a terminal) and the json report" \
+  "^vitest run --reporter=dot --reporter=json --outputFile\.json=/.*/\.app-director/state/vitest\.json$" "$log"
+expect_output "and says PASS (full tier)" "^check: PASS \(full tier\)$" "$out"
+if [ "$_have_node" -eq 1 ]; then
+  expect_output "after a full run, the slowest test files, under their heading" "^check: slowest test files \(full tier\):$" "$out"
+  expect_output "the slowest first, with its path from the repository root" "^ +3\.2 s  tests/i18n\.test\.ts$" "$out"
+  expect_output "the summary counts the tests" "^check:   tests: 3 run, the whole suite$" "$out"
+else
+  echo "  skip  the slowest test files and the test count (no node to read vitest's report)"
+fi
+out="$(FAKE_TSC_EXIT=2 ts_check)"; expect_status "the full tier fails when tsc fails" 1 $? "$out"
+out="$(FAKE_VITEST_EXIT=1 ts_check)"; expect_status "and when a test fails" 1 $? "$out"
+
+printf 'export const a = 2;\n' > src/a.ts
+out="$(FAKE_VITEST_TESTS=1 ts_check --fast)"; status=$?; log="$(cat "$_npx_log")"
+expect_status "--fast passes after a change to a source file" 0 "$status" "$out"
+expect_output "the fast tier type-checks the whole project, incrementally, with its build info in the state folder" \
+  "^tsc --noEmit --incremental --tsBuildInfoFile /.*/\.app-director/state/tsc-fast\.tsbuildinfo$" "$log"
+expect_output "lints only the changed file" "^eslint --max-warnings 0 src/a\.ts$" "$log"
+expect_output "and runs only the tests related to it" "^vitest related --run --passWithNoTests --reporter=dot --reporter=json --outputFile\.json=[^ ]*/vitest\.json src/a\.ts$" "$log"
+expect_output "a fast pass says when the full tier is due" "^check: PASS \(fast tier; full tier due in 10 commits\)$" "$out"
+expect_output "and what the fast tier left to the full tier" "^check:   left to the full tier: the tests not related to the change, eslint on unchanged files$" "$out"
+expect_no_output "a fast run prints no slowest test files" "slowest test files" "$out"
+if [ "$_have_node" -eq 1 ]; then
+  expect_output "the summary counts the tests run against the last full run's" "^check:   tests: 1 of 3 run, 2 not related to the change$" "$out"
+  expect_output "and the run log has both" " tier=fast result=pass .* tests=1/3$" "$(tail -n 1 .app-director/state/check-runs.log)"
+fi
+printf 'export const a = 1;\n' > src/a.ts
+
+printf '{ "hello": "Hej" }\n' > src/i18n/en.json
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "a change matching [tests] fast-map runs the test it maps to" "^vitest related --run --passWithNoTests .* tests/i18n\.test\.ts$" "$log"
+expect_no_output "instead of the tests related to the changed file" "^vitest .*src/i18n/en\.json" "$log"
+expect_output "with no changed file to lint, eslint is skipped, and says so" "^check: eslint skipped: no changed file to lint$" "$out"
+expect_no_output "and doesn't run" "^eslint" "$log"
+printf '{ "hello": "Hello" }\n' > src/i18n/en.json
+
+printf '%bignore = marketing/\n' "$ts_cfg" > tools/check.cfg
+git add tools/check.cfg >/dev/null 2>&1 && git_q commit -qm "ignore marketing" >/dev/null 2>&1
+fp1="$(bash tools/check.sh --fingerprint)"
+mkdir -p marketing && printf '{ "title": "Buy" }\n' > marketing/page.json
+[ "$(bash tools/check.sh --fingerprint)" = "$fp1" ] && ok "a change only under [tests] ignore doesn't change the fingerprint" \
+  || bad "a change only under [tests] ignore doesn't change the fingerprint"
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_no_output "nor start a test" "^vitest" "$log"
+expect_output "the fast tier says no tests are related to the change" "^check: no tests related to the change$" "$out"
+
+printf '%bignore = marketing/\nworkers = 2\n' "$ts_cfg" > tools/check.cfg
+printf 'export default [];\n' > eslint.config.js; printf 'export const a = 3;\n' > src/a.ts
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "[tests] workers sets vitest's --maxWorkers" "^vitest related .* --maxWorkers=2 src/a\.ts" "$log"
+expect_output "a flat eslint config adds --no-warn-ignored" "^eslint --max-warnings 0 --no-warn-ignored src/a\.ts eslint\.config\.js$" "$log"
+expect_output "a changed tools file makes the full tier due now" "^check: PASS \(fast tier; full tier due now: tools/check\.cfg changed\)$" "$out"
+printf '%bignore = marketing/\nfast = none\n' "$ts_cfg" > tools/check.cfg
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_no_output "[tests] fast = none runs no test" "^vitest" "$log"
+expect_output "and leaves every test to the full tier" "^check:   left to the full tier: every test, eslint on unchanged files$" "$out"
+printf '%bignore = marketing/\nfast = all\n' "$ts_cfg" > tools/check.cfg
+out="$(ts_check --fast)"; log="$(cat "$_npx_log")"
+expect_output "[tests] fast = all runs the whole suite" "^vitest run --reporter=dot " "$log"
+expect_output "and leaves only eslint on the unchanged files" "^check:   left to the full tier: eslint on unchanged files$" "$out"
+printf '%bignore = marketing/\n' "$ts_cfg" > tools/check.cfg
+rm vitest.config.ts; printf 'module.exports = {};\n' > jest.config.js
+out="$(ts_check --fast)"; status=$?; log="$(cat "$_npx_log")"
+expect_status "the fast tier passes with jest" 0 "$status" "$out"
+expect_output "jest runs the tests related to the changed files" "^jest --findRelatedTests src/a\.ts .*--passWithNoTests$" "$log"
+out="$(FAKE_JEST_EXIT=1 ts_check --fast)"; expect_status "and fails when they fail" 1 $? "$out"
 }
 
 part_guard() {
@@ -5936,6 +6269,7 @@ part orphans 1c-orphans
 gitleaks_setup
 part installer 2b-installer
 part snapshot 2b-snapshot
+part check_ts 2g-check-ts
 part security 6-security
 part stories 6b-stories
 part session 4b-session
@@ -5945,13 +6279,13 @@ part main 2-installer
 wait
 passed=0; failed=0
 stopped=""
-for name in framework release orphans main installer snapshot check1 check2 check3 guard hooks session commit ui_design security stories prototype protospace; do
+for name in framework release orphans main installer snapshot check1 check2 check3 check4 check_ts guard hooks session commit ui_design security stories prototype protospace; do
   if [ -f "$seg/count-$name" ]; then read -r p f status < "$seg/count-$name"; else p=0; f=1; status="no count"; fi
   passed=$((passed + p)); failed=$((failed + f))
   [ "$status" = 0 ] || { failed=$((failed + 1)); stopped="$stopped$nl  FAIL  the $name part stopped early ($status)"; }
 done
 cat "$seg"/1-framework "$seg"/1b-release "$seg"/1c-orphans "$seg"/2-installer "$seg"/2b-installer "$seg"/2b-snapshot \
-  "$seg"/2c-check1 "$seg"/2d-check2 "$seg"/2e-check3 "$seg"/3-guard "$seg"/4a-hooks "$seg"/4b-session "$seg"/4b-precommit \
+  "$seg"/2c-check1 "$seg"/2d-check2 "$seg"/2e-check3 "$seg"/2f-check4 "$seg"/2g-check-ts "$seg"/3-guard "$seg"/4a-hooks "$seg"/4b-session "$seg"/4b-precommit \
   "$seg"/5-ui-design "$seg"/6-security "$seg"/6b-stories "$seg"/7-prototype "$seg"/7b-protospace
 [ -z "$stopped" ] || printf '%s\n' "${stopped#"$nl"}"
 finish
