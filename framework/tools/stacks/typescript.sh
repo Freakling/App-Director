@@ -4,8 +4,10 @@
 #
 # tools/check.sh runs it from the repository root with:
 #   CHECK_TIER     full: tsc, eslint and the tests over the whole project. fast: tsc over the whole project
-#                  (incremental), eslint on the changed files, and the tests by [tests] fast: related (the default: the
-#                  tests related to the change, by vitest related or jest --findRelatedTests), all, or none
+#                  (incremental), eslint on the changed files (on the whole project with a legacy .eslintrc config), and
+#                  the tests by [tests] fast: related (the default: the tests related to the change, by vitest related or
+#                  jest --findRelatedTests, with coverage off), all, or none. A changed list too long for one command line
+#                  (over 100 files or 6,000 characters) runs that step over the whole project instead, and says so
 #   CHECK_CHANGED  in the fast tier, a file listing the changed paths from the repository root, one per line
 #   CHECK_STATE    .app-director/state, an absolute path: tsc's build info and vitest's json report are kept there, and
 #                  the lines this script writes to $CHECK_STATE/stack-summary are printed in the check's summary
@@ -46,8 +48,18 @@ matches() {
   return 1
 }
 
+# too_long <path>...: 0 when the paths are too many for one command line, over 100 or over 6,000 characters (cmd.exe,
+# which runs npx on Windows, takes 8,191 at most).
+too_long() {
+  local n=0 chars=0 f
+  for f in "$@"; do n=$((n + 1)); chars=$((chars + ${#f} + 1)); done
+  [ "$n" -gt 100 ] || [ "$chars" -gt 6000 ]
+}
+
 # The fast tier's files: lint, the changed files eslint reads that still exist; related, the changed source files whose
-# related tests run, less those a fast-map rule matches; mapped, the tests those rules name instead.
+# related tests run, less those a fast-map rule matches; mapped, the tests those rules name instead. The source files
+# are those of tools/check.sh's fingerprint and the pre-commit hook's source_staged (the three lists must match); eslint
+# reads ts tsx js jsx mjs cjs mts cts.
 lint=(); related=(); mapped=()
 if [ "$tier" = fast ]; then
   set -f; rules=(${CHECK_TESTS_FAST_MAP:-}); set +f
@@ -57,9 +69,7 @@ if [ "$tier" = fast ]; then
       case "$p" in "$prefix"*) p="${p#"$prefix"}" ;; *) continue ;; esac
     fi
     case "$p" in ''|node_modules/*) continue ;; esac
-    # A removed file has no tests of its own left; tsc over the project finds what still imports it.
-    [ -f "$p" ] || continue
-    case "$p" in *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs) lint+=("$p") ;; esac
+    # The fast-map rules come before the test that the file still exists, so removing a mapped file runs its test.
     hit=0
     for rule in "${rules[@]}"; do
       case "$rule" in *?:?*) ;; *) continue ;; esac
@@ -73,8 +83,14 @@ if [ "$tier" = fast ]; then
         if [ ! -f "$test_path" ]; then echo "check: note: [tests] fast-map names $test_path, which doesn't exist"; fi
       fi
     done
+    # A removed file has nothing to lint and no tests of its own left; tsc over the project finds what still imports it.
+    [ -f "$p" ] || continue
+    case "$p" in *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts) lint+=("$p") ;; esac
     if [ "$hit" -eq 1 ]; then continue; fi
-    case "$p" in *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.json|*.dart|*.py|*.yaml|*.yml) related+=("$p") ;; esac
+    case "$p" in
+      *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.dart|*.py|*.json|*.yaml|*.yml) related+=("$p") ;;
+      tools/check.cfg|tools/check.sh|tools/check.local.sh|tools/stacks/*.sh|.gitleaks.toml|.gitleaksignore) related+=("$p") ;;
+    esac
   done < "${CHECK_CHANGED:-/dev/null}"
 fi
 
@@ -85,20 +101,30 @@ else
   npx tsc --noEmit
 fi
 
-# Lint (fail on any warning). The fast tier lints the changed files; an ignored file named on the command line is a
-# warning under a flat config, unless --no-warn-ignored says otherwise.
+# Lint (fail on any warning). With a flat config (eslint.config.*) the fast tier lints the changed files, with
+# --no-warn-ignored, since an ignored file named on the command line is otherwise a warning. A legacy config (.eslintrc*)
+# has no such flag, so the fast tier lints the whole project with it, as the full tier does.
 left=""
 if [ -f .eslintrc.json ] || [ -f .eslintrc.js ] || [ -f .eslintrc.cjs ] || [ -f eslint.config.js ] || [ -f eslint.config.mjs ]; then
+  flat=0
+  for f in eslint.config.*; do if [ -f "$f" ]; then flat=1; fi; done
   if [ "$tier" != fast ]; then
+    npx eslint . --max-warnings 0
+  elif [ "$flat" -eq 0 ]; then
+    echo "check: eslint on the whole project: a legacy config (.eslintrc*) can't lint only the changed files"
+    fact "lint: eslint on the whole project, as the config is a legacy one (.eslintrc*)"
     npx eslint . --max-warnings 0
   elif [ "${#lint[@]}" -eq 0 ]; then
     echo "check: eslint skipped: no changed file to lint"
+    left="eslint on unchanged files"
+  elif too_long "${lint[@]}"; then
+    echo "check: eslint on the whole project: the ${#lint[@]} changed files are too many for one command line"
+    fact "lint: eslint on the whole project, as the ${#lint[@]} changed files are too many for one command line"
+    npx eslint . --max-warnings 0
   else
-    flat=()
-    for f in eslint.config.*; do if [ -f "$f" ]; then flat=(--no-warn-ignored); fi; done
-    npx eslint --max-warnings 0 "${flat[@]}" "${lint[@]}"
+    npx eslint --max-warnings 0 --no-warn-ignored "${lint[@]}"
+    left="eslint on unchanged files"
   fi
-  left="eslint on unchanged files"
 fi
 
 # The test count and, after a full run, the ten slowest test files, from vitest's json report. The first line printed is
@@ -150,6 +176,12 @@ if [ "$tier" = fast ]; then
 fi
 status=0
 if [ "$vitest" -eq 1 ] || [ "$jest" -eq 1 ]; then
+  if [ "$run" = related ] && too_long "${related[@]}" "${mapped[@]}"; then
+    n=$((${#related[@]} + ${#mapped[@]}))
+    echo "check: running the whole suite: the $n changed files are too many for one command line"
+    fact "tests: the whole suite instead of the related tests, as the $n changed files are too many for one command line"
+    run=all
+  fi
   if [ "$run" = none ]; then
     echo "check: tests skipped: [tests] fast = none"
     fact "tests: none run ([tests] fast = none)"
@@ -170,7 +202,8 @@ if [ "$vitest" -eq 1 ] || [ "$jest" -eq 1 ]; then
     esac
     if [ -f "$state/vitest.json" ]; then rm -f "$state/vitest.json"; fi
     if [ "$run" = related ]; then
-      npx vitest related --run --passWithNoTests "${options[@]}" "${related[@]}" "${mapped[@]}" || status=$?
+      # Coverage is the full tier's: a related run covers part of the code, so a coverage threshold would fail it.
+      npx vitest related --run --passWithNoTests --coverage.enabled=false "${options[@]}" "${related[@]}" "${mapped[@]}" || status=$?
       vitest_report 0
       left="the tests not related to the change${left:+, $left}"
     else
@@ -178,7 +211,7 @@ if [ "$vitest" -eq 1 ] || [ "$jest" -eq 1 ]; then
       vitest_report 1
     fi
   elif [ "$run" = related ]; then
-    npx jest --findRelatedTests "${related[@]}" "${mapped[@]}" --passWithNoTests || status=$?
+    npx jest --findRelatedTests "${related[@]}" "${mapped[@]}" --passWithNoTests --coverage=false || status=$?
     fact "tests: jest, the tests related to the change"
     left="the tests not related to the change${left:+, $left}"
   else

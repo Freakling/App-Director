@@ -202,8 +202,10 @@ Model sizing (recommended on): each item size maps to its own build model in AGE
 4. **Custom:** runs `tools/check.local.sh`, if the app has one.
 
 It has two tiers:
-- **Full** (`bash tools/check.sh`): every step over the whole project. It runs on request, before a push (the pre-push hook), for a release, at the end of a run of items, and on a commit once 10 commits have passed since the last full one (`[tests] full-every`) or when a dependency, a toolchain setting or a tool changed.
-- **Fast** (`bash tools/check.sh --fast`): the same steps on what the change needs; for a TypeScript app, tsc, eslint on the changed files and the tests related to the change. It runs for a build, a commit and the end of a turn.
+- **Full** (`bash tools/check.sh`): every step over the whole project.
+- **Fast** (`bash tools/check.sh --fast`): the same steps on what the change needs; for a TypeScript app, tsc, eslint on the changed files and the tests related to the change.
+
+Where each tier runs, and when a commit runs the full tier, is in [`rules.md` › Running the check](framework/.app-director/rules.md).
 
 The pre-commit hook also runs `gitleaks protect --staged --redact` on staged changes, so secrets are caught before they enter git history.
 

@@ -19,7 +19,7 @@
 # no session_id in the input (an older Claude Code), the hook decides from git alone: source files differing from
 # the last commit run the check.
 # Turn it off per machine with APP_DIRECTOR_STOP_CHECK=0 (e.g. .claude/settings.local.json › env).
-# It never runs in a prototype (bash tools/prototype.sh here).
+# It never runs in a prototype (bash tools/prototype.sh here), nor in a repository with no commit yet.
 
 IFS= read -r -d '' _input || true
 [ "${APP_DIRECTOR_STOP_CHECK:-1}" = "0" ] && exit 0
@@ -40,7 +40,9 @@ if [[ $_input =~ $sid_re ]]; then
   [ -n "$first" ] || exit 0
 fi
 
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+# Outside a git repository, or with no commit yet, nothing: the first commit's pre-commit hook gates the work, so the
+# turn never waits for a check (which, with no HEAD to compare with, would be the full tier).
+git rev-parse -q --verify HEAD >/dev/null 2>&1 || exit 0
 
 # Check if any source files differ from the last commit. If none do, this session's work is committed.
 git -c core.quotePath=false status --porcelain --untracked-files=all 2>/dev/null \
@@ -95,8 +97,10 @@ if [ "$status" -eq 3 ]; then
     echo "App Director: the project check couldn't verify this work:"
     printf '%s\n' "$reason"
     echo "Report this work as unverified, not failed: the check couldn't run, for the reason above, so it neither passed"
-    echo "nor failed. Tell the human. 'bash tools/setup-clone.sh' sets up a missing tool for this clone, and a run past its"
-    echo "time limit can run again in the background ('bash tools/check.sh --fast')."
+    echo "nor failed. Tell the human. 'bash tools/setup-clone.sh' sets up a missing tool for this clone. A run past its time"
+    echo "limit can run again in the background with a longer limit, 'CHECK_TIMEOUT=<seconds> bash tools/check.sh --fast'"
+    echo "(the commit then reuses its pass, since the limit isn't part of it), or [tests] timeout-fast in tools/check.cfg"
+    echo "can be raised."
   } >&2
 else
   {

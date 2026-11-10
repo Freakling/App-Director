@@ -56,9 +56,10 @@ status=$?
 [ "$status" -eq 0 ] && exit 0
 if [ "$status" -eq 3 ]; then
   echo "pre-push: the check couldn't run (the reason is above), so nothing was pushed."
-  echo "          To go on: when it ran out of time, run 'bash tools/check.sh' in the background (the full tier can"
-  echo "          take a while) and push again once it passes: the push reuses its pass. When a tool is missing,"
-  echo "          run 'bash tools/setup-clone.sh'."
+  echo "          To go on: when it ran out of time, run it again in the background with a longer limit (the full tier"
+  echo "          can take a while), 'CHECK_TIMEOUT=<seconds> bash tools/check.sh --full', and push again once it passes:"
+  echo "          the push reuses its pass, since the limit isn't part of it. Or raise [tests] timeout-full in"
+  echo "          tools/check.cfg. When a tool is missing, run 'bash tools/setup-clone.sh'."
 else
   echo "pre-push: the full check fails, so nothing was pushed. Fix what it names ('bash tools/check.sh' runs it"
   echo "          again), then push again."

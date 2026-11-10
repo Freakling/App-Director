@@ -7,7 +7,8 @@
 #                                          (TypeScript: tsc over the project, eslint on the changed files, the related tests)
 #   bash tools/check.sh --if-changed       with either tier: repeat the recorded result at once when these exact files were
 #                                          checked with this gitleaks by a tier that covers the request (a full result covers
-#                                          a fast request; a fast result never covers a full one); a miss says what changed
+#                                          a fast request; a fast result covers only a fast request on the commit it checked
+#                                          the changes from, and never a full one); a miss says what changed
 #   bash tools/check.sh --due              say whether the full tier is due (below), and run nothing else
 #   bash tools/check.sh --fingerprint      print the fingerprint of the current files (for hooks)
 #   bash tools/check.sh --architecture     run only the UI purity and secrets checks (fast, no build)
@@ -46,13 +47,14 @@
 # was already seen (then it exits 1). While either runs, a line every 60 s (CHECK_PROGRESS_EVERY seconds) says so.
 # gitleaks minimum version is read from check.cfg [gitleaks] min-version (default 8.18.0).
 #
-# One run at a time per checkout (single flight): a run of either tier holds .app-director/state/check.lock. Another run
-# that finds it waits, says for what, and polls every 2 s; once that run is done, it reuses the result that run recorded
-# (pass or fail) when it was recorded after the wait began, its key matches the files as they are now and its tier covers
-# the request, and runs itself otherwise. The wait doesn't count against its own time limits. A lock whose process is
-# gone, or older than twice the full tier's limit plus 600 s, is stale: it is removed with a note. CHECK_WAIT caps the
-# wait in seconds (fast or full: that tier's limit, as above); past it the check runs nothing, prints a check: busy: line
-# and exits 3.
+# One run at a time per checkout (single flight): a run of either tier holds .app-director/state/check.lock, and touches
+# it every 60 s while it holds it (the heartbeat). Another run that finds it waits, says for what, and polls every 2 s;
+# once that run is done, it reuses the result that run recorded (pass or fail) when it was recorded after this run
+# started, its key matches the files as they are now and its tier covers the request, and runs itself otherwise. The wait
+# doesn't count against its own time limits. A lock whose process is gone, that hasn't been touched for 5 minutes (its
+# pid is another process's now), or that is older than twice the full tier's limit plus 600 s, is stale: it is removed
+# with a note. CHECK_WAIT caps the wait in seconds (fast or full: that tier's limit, as above); past it the check runs
+# nothing, prints a check: busy: line and exits 3.
 
 set -u
 cd "$(dirname "$0")/.." || exit 3
@@ -60,6 +62,8 @@ state_dir=".app-director/state"
 GITLEAKS_MIN_DEFAULT="8.18.0"
 nl='
 '
+SORT=sort; [ -x /usr/bin/sort ] && SORT=/usr/bin/sort
+FIND=find; [ -x /usr/bin/find ] && FIND=/usr/bin/find
 # Paths that make the full tier due whenever they change: dependencies, toolchain settings and the tools themselves.
 full_when_framework="package.json package-lock.json pnpm-lock.yaml yarn.lock tools/* tsconfig*.json vitest.config.* vite.config.* jest.config.* eslint.config.* .eslintrc* pyproject.toml requirements*.txt pubspec.yaml pubspec.lock analysis_options.yaml"
 usage="usage: bash tools/check.sh [--full | --fast] [--if-changed] | --due | --fingerprint | --architecture | --unignored"
@@ -181,14 +185,19 @@ if [ "$mode" = "--unignored" ]; then
 fi
 
 # The files that can change the result: the tracked and untracked files with the code extensions and the check's own
-# files, less the dependency and build folders and the paths under [tests] ignore. fingerprint sets fp_paths (one per
-# line), fp_hashes (each one's blob hash, in the same order, from one git call) and fp_value, the hash of both. Outside a
-# git repository there are no paths, and all three are empty.
+# files, less the dependency and build folders and the paths under [tests] ignore. The list is sorted, so a file counts
+# the same whether git tracks it or not: staging a new file leaves the fingerprint as it was. fingerprint sets fp_paths
+# (one per line), fp_hashes (each one's blob hash, in the same order, from one git call) and fp_value, the hash of both.
+# Outside a git repository there are no paths, and all three are empty.
+# The source files are the extensions ts tsx js jsx mjs cjs mts cts dart py json yaml yml, and tools/check.cfg,
+# tools/check.sh, tools/check.local.sh, tools/stacks/*.sh, .gitleaks.toml and .gitleaksignore. The pre-commit hook's
+# source_staged and tools/stacks/typescript.sh name the same list: the three must match.
 fingerprint() {
   fp_hashes=""; fp_value=""
   fp_paths="$(git -c core.quotePath=false ls-files -z -c -o --exclude-standard 2>/dev/null \
     | tr '\0' '\n' \
-    | grep -E '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^\.gitleaks(\.toml|ignore)$' \
+    | grep -E '\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^tools/stacks/[^/]+\.sh$|^\.gitleaks(\.toml|ignore)$' \
+    | LC_ALL=C "$SORT" -u \
     | while IFS= read -r p; do
         case "$p" in node_modules/*|dist/*|build/*|.dart_tool/*|__pycache__/*) continue ;; esac
         if [ -n "$ignore" ] && path_in "$p" "$ignore"; then continue; fi
@@ -321,6 +330,10 @@ write_record() {
   printf '%s\ntier=%s at=%s commit=%s caller=%s run=%s\n' "$key" "$tier" "$now_iso" "$head_short" "$caller" "$run_id" > "$f"
 }
 remove_record() { remove "$state_dir/last-$1"; remove "$state_dir/last-$1.files"; }
+# covers: 0 when the record read_record has read covers this request's tier. A full result covers either tier. A fast one
+# covers only a fast request on the commit it was recorded on: the fast tier checks the changes from HEAD, so the same
+# files on another commit (a commit made elsewhere, a reset) are other changes.
+covers() { [ "$rec_tier" = full ] || { [ "$rec_tier" = "$requested" ] && [ "$rec_commit" = "$head_short" ]; }; }
 
 # reuse <pass|fail> [seconds waited]: repeat the recorded result (read_record has read it), log it, and exit with its
 # status. After a wait for another run, the line says the result was recorded while this one waited.
@@ -379,7 +392,12 @@ explain_miss() {
   fi
   if [ -z "$rec_tier" ]; then cache_note="the last result was recorded by an older check"; return 0; fi
   if [ "$rec_key" = "$key" ]; then
-    cache_note="the last $kind was the $rec_tier tier, at $rec_hhmm (commit $rec_commit, $rec_caller)"; return 0
+    if [ "$rec_tier" = fast ] && [ "$requested" = fast ]; then
+      cache_note="the fast $kind at $rec_hhmm ($rec_caller) checked the changes from commit $rec_commit; HEAD is now $head_short"
+    else
+      cache_note="the last $kind was the $rec_tier tier, at $rec_hhmm (commit $rec_commit, $rec_caller)"
+    fi
+    return 0
   fi
   if [ "${rec_key%% *}" != "$fp_value" ]; then files_differ "$file"; parts="$miss_files"; fi
   rec_gl="${rec_key##* gitleaks=}"
@@ -392,15 +410,18 @@ arch_only=0
 [ "$mode" = "--architecture" ] && arch_only=1
 
 # --- the recorded result --------------------------------------------------------------------------
-# A recorded result stands for this request when its key is this one and its tier covers the request: a full result
-# covers both tiers, a fast one only the fast tier. Every miss says why before the run starts.
+# A recorded result stands for this request when its key is this one and it covers the request's tier (covers). Every
+# miss says why before the run starts. The runs recorded now are noted first (pass_before, fail_before): a result that
+# another run records from here on, while this one looks or waits, is new to this run, and may stand for it after a wait.
 cache_note="not used (run without --if-changed)"
+pass_before=""; fail_before=""
 if [ "$arch_only" -eq 0 ]; then
+  read_record "$state_dir/last-pass"; pass_before="$rec_run"
+  read_record "$state_dir/last-fail"; fail_before="$rec_run"
   if [ "$if_changed" -eq 1 ]; then
     if [ -n "$fp_value" ]; then
       for kind in pass fail; do
-        if read_record "$state_dir/last-$kind" && [ -n "$rec_tier" ] && [ "$rec_key" = "$key" ] \
-            && { [ "$rec_tier" = full ] || [ "$rec_tier" = "$requested" ]; }; then
+        if read_record "$state_dir/last-$kind" && [ -n "$rec_tier" ] && [ "$rec_key" = "$key" ] && covers; then
           reuse "$kind"
         fi
       done
@@ -425,32 +446,55 @@ couldnt_run() {
   exit 3
 }
 
-# The progress line: while the stack check or tools/check.local.sh runs, one line every 60 s (CHECK_PROGRESS_EVERY). The
-# ticker runs from / with its sleep's output closed, so nothing holds the caller's output or the project folder, and
-# it is stopped on every way out of the check.
-ticker_pid=""
+# The run's background loop, from the moment it holds the lock until it lets it go: every 60 s it touches the lock (the
+# heartbeat: a waiter takes a lock untouched for 5 minutes for stale), and while the stack check or tools/check.local.sh
+# runs (step_begin names it in .app-director/state/check.step) it prints the progress line every 60 s
+# (CHECK_PROGRESS_EVERY seconds; the heartbeat comes as often when that is shorter). When the output isn't a terminal
+# the line starts with a line break, since a test reporter's dots leave the cursor mid-line. The loop runs from / with its
+# sleep's output closed, so nothing holds the caller's output or the project folder. The check stops it on every way out,
+# and it ends by itself within a tick once the check's process is gone (a check killed with SIGKILL, say), so it never
+# writes to the caller's output after the check.
+loop_pid=""
 tick_every="${CHECK_PROGRESS_EVERY:-60}"
 case "$tick_every" in ''|*[!0-9]*|0) tick_every=60 ;; esac
-start_ticker() { # start_ticker <what is running>
-  local what="$1" started=$SECONDS
+step_file="$state_dir/check.step"
+step_begin() { printf '%s %s\n' "$SECONDS" "$1" > "$step_file"; }  # step_begin <what is running>
+step_end() { : > "$step_file"; }
+start_loop() {
+  local abs_lock="$PWD/$lock" abs_step="$PWD/$step_file" nap="$tick_every" lead=""
+  [ "$nap" -le 60 ] || nap=60
+  [ -t 1 ] || lead="$nl"
+  step_end
   (
-    s=""
+    s=""; parent=$$; shown=""; next=0; d="$nap"
     trap '[ -z "$s" ] || kill "$s" 2>/dev/null; exit 0' TERM
     cd / || exit 0
     while :; do
-      sleep "$tick_every" </dev/null >/dev/null 2>&1 &
+      sleep "$d" </dev/null >/dev/null 2>&1 &
       s=$!
-      wait "$s"
-      echo "check: still running $what ($tier tier), $(( (SECONDS - started) / 60 )) min"
+      wait "$s"; s=""
+      kill -0 "$parent" 2>/dev/null || exit 0
+      touch -c "$abs_lock" 2>/dev/null
+      line=""; { IFS= read -r line < "$abs_step"; } 2>/dev/null
+      d="$nap"
+      if [ -z "$line" ]; then shown=""; continue; fi
+      # A step it hasn't seen yet: its first line is due tick_every seconds after the step began.
+      if [ "$line" != "$shown" ]; then shown="$line"; next=$((${line%% *} + tick_every)); fi
+      if [ "$SECONDS" -ge "$next" ]; then
+        printf '%scheck: still running %s (%s tier), %s min\n' "$lead" "${line#* }" "$tier" "$(( (SECONDS - ${line%% *}) / 60 ))"
+        next=$((next + tick_every))
+      fi
+      [ $((next - SECONDS)) -ge "$d" ] || d=$((next - SECONDS))
+      [ "$d" -ge 1 ] || d=1
     done
   ) &
-  ticker_pid=$!
+  loop_pid=$!
 }
-stop_ticker() {
-  [ -n "$ticker_pid" ] || return 0
-  kill "$ticker_pid" 2>/dev/null
-  wait "$ticker_pid" 2>/dev/null
-  ticker_pid=""
+stop_loop() {
+  [ -n "$loop_pid" ] || return 0
+  kill "$loop_pid" 2>/dev/null
+  wait "$loop_pid" 2>/dev/null
+  loop_pid=""
 }
 
 # --- single flight --------------------------------------------------------------------------------
@@ -458,9 +502,10 @@ stop_ticker() {
 # none. The lock is per checkout: each git worktree has its own .app-director/state, so checks in two worktrees never wait
 # for each other. It is created atomically (with noclobber the shell opens it with O_EXCL, so of two runs one gets it),
 # and holds pid=<$$> started=<seconds since 1970> at=<HH:MM> caller=<c> tier=<t>. In Git Bash $$ is the MSYS pid, which
-# kill -0 reads from any other Git Bash process, as on macOS and Linux. Only its owner removes it, on every way out of the
-# check (the EXIT trap, which stops the ticker too; a run past its time limit ends through it as well), and a run that
-# finds a stale lock removes that one, after reading it again.
+# kill -0 reads from any other Git Bash process, as on macOS and Linux. The run's background loop touches it every 60 s
+# (start_loop), so a lock whose pid now belongs to another process is found out by its age on disk. Only its owner
+# removes it, on every way out of the check (the EXIT trap, which stops the loop first; a run past its time limit ends
+# through it as well), and a run that finds a stale lock removes that one (drop_stale).
 lock="$state_dir/check.lock"
 lock_line=""; lock_held=0
 take_lock() { # take_lock: 0 when this run now holds the lock
@@ -479,12 +524,16 @@ release_lock() { # release_lock: remove the lock when this run holds it, and it 
   if [ "$line" = "$lock_line" ]; then rm -f "$lock"; fi
 }
 # read_lock: the holder's line in h_line, and its pid, start, time, caller and tier in h_pid, h_started, h_at, h_caller
-# and h_tier. h_pid or h_started is empty while the line isn't whole. Returns 1 when there is no lock.
+# and h_tier (parse_lock). h_pid or h_started is empty while the line isn't whole. Returns 1 when there is no lock.
 read_lock() {
+  h_line=""
+  [ -e "$lock" ] || { parse_lock ""; return 1; }
+  { IFS= read -r h_line < "$lock"; } 2>/dev/null || [ -e "$lock" ] || { parse_lock ""; return 1; }
+  parse_lock "$h_line"
+}
+parse_lock() { # parse_lock <line>: a lock's line in h_line, h_pid, h_started, h_at, h_caller and h_tier
   local w
-  h_line=""; h_pid=""; h_started=""; h_at=""; h_caller=""; h_tier=""
-  [ -e "$lock" ] || return 1
-  { IFS= read -r h_line < "$lock"; } 2>/dev/null || [ -e "$lock" ] || return 1
+  h_line="$1"; h_pid=""; h_started=""; h_at=""; h_caller=""; h_tier=""
   set -f
   for w in $h_line; do
     case "$w" in
@@ -500,27 +549,35 @@ read_lock() {
   case "$h_started" in *[!0-9]*) h_started="" ;; esac
   return 0
 }
-drop_stale() { # drop_stale <line read>: remove a stale lock, unless another run has taken the lock since it was read
-  local line=""
-  { IFS= read -r line < "$lock"; } 2>/dev/null
-  if [ "$line" = "$1" ]; then rm -f "$lock"; fi
+# drop_stale <line read>: remove the stale lock this run read as that line. It is moved to a name of this run's own first,
+# so nothing can remove a lock another run took after the read: when the moved file isn't the stale one, another run had
+# taken the lock in between. Then nothing is put back (that could replace a lock a third run has taken since), and
+# taken_line holds that run's line, so this run waits for it as for the lock.
+drop_stale() {
+  local moved="$lock.stale-$$-$RANDOM" line=""
+  taken_line=""
+  mv -f "$lock" "$moved" 2>/dev/null || return 0
+  { IFS= read -r line < "$moved"; } 2>/dev/null
+  rm -f "$moved"
+  [ "$line" = "$1" ] || taken_line="$line"
 }
-# reuse_after_wait <seconds waited>: a result recorded since the wait began (its run isn't the one recorded then) stands
-# for this request when its key is the key of the files as they are now and its tier covers the request; reuse exits.
+# reuse_after_wait <seconds waited>: a result recorded since this run started (its run isn't the one recorded then)
+# stands for this request when its key is the key of the files as they are now and it covers the request; reuse exits.
 reuse_after_wait() {
   local kind before
   for kind in pass fail; do
     if [ "$kind" = pass ]; then before="$pass_before"; else before="$fail_before"; fi
     read_record "$state_dir/last-$kind" && [ -n "$rec_tier" ] && [ "$rec_run" != "$before" ] || continue
-    [ "$rec_tier" = full ] || [ "$rec_tier" = "$requested" ] || continue
+    covers || continue
     if [ "$fp_fresh" -eq 0 ]; then fingerprint; key="$fp_value gitleaks=$gl_ver"; fp_fresh=1; fi
     [ -n "$fp_value" ] && [ "$rec_key" = "$key" ] && reuse "$kind" "$1"
   done
 }
-# acquire_lock: take the lock, waiting while another run holds it, and remove a stale one with a note.
+# acquire_lock: take the lock, waiting while another run holds it, and remove a stale one with a note. A poll costs one
+# kill -0 and, at most every 30 s, one look at the lock's age on disk (the heartbeat).
 acquire_lock() {
-  local waiting=0 wait_start=0 waited=0 announced="" empty_seen=0 missing=0 why cap="" stale_after note_at=0
-  pass_before=""; fail_before=""; fp_fresh=1
+  local waiting=0 wait_start=0 waited=0 announced="" empty_seen=0 missing=0 why cap="" stale_after note_at=0 mtime_at=0
+  fp_fresh=1; taken_line=""
   case "${CHECK_WAIT:-}" in
     '') ;;
     fast|full) tier_limit "$CHECK_WAIT"; cap="$t_limit" ;;
@@ -532,42 +589,51 @@ acquire_lock() {
   tier_limit full cfg; stale_after="$t_limit"
   case "${CHECK_TIMEOUT:-}" in ''|*[!0-9]*) ;; *) [ "$CHECK_TIMEOUT" -le "$stale_after" ] || stale_after="$CHECK_TIMEOUT" ;; esac
   stale_after=$((2 * stale_after + 600))
-  while ! take_lock; do
-    # No lock, yet none could be made: once is a race with a run that just ended, three times is a state folder that
-    # can't be written.
-    if ! read_lock; then
-      missing=$((missing + 1))
-      [ "$missing" -lt 3 ] || { echo "check: can't create $lock"; couldnt_run; }
-      continue
-    fi
-    missing=0
-    if [ -z "$h_pid" ] || [ -z "$h_started" ]; then
-      # The shell creates the file, then writes its line: a lock seen twice without a whole line, 2 s apart, was never
-      # written.
-      if [ "$empty_seen" -eq 1 ]; then
-        echo "check: note: removed a stale lock that names no run"
-        drop_stale "$h_line"; empty_seen=0
-      else
-        empty_seen=1; sleep 2 </dev/null >/dev/null 2>&1
+  while :; do
+    if [ -n "$taken_line" ]; then
+      # This run moved away a lock another run had just taken (drop_stale): it waits for that run as for the lock.
+      parse_lock "$taken_line"
+      if [ -z "$h_pid" ] || [ -z "$h_started" ]; then taken_line=""; continue; fi
+    else
+      take_lock && break
+      # No lock, yet none could be made: once is a race with a run that just ended, three times is a state folder that
+      # can't be written.
+      if ! read_lock; then
+        missing=$((missing + 1))
+        [ "$missing" -lt 3 ] || { echo "check: can't create $lock"; couldnt_run; }
+        continue
       fi
-      continue
+      missing=0
+      if [ -z "$h_pid" ] || [ -z "$h_started" ]; then
+        # The shell creates the file, then writes its line: a lock seen twice without a whole line, 2 s apart, was never
+        # written.
+        if [ "$empty_seen" -eq 1 ]; then
+          echo "check: note: removed a stale lock that names no run"
+          drop_stale "$h_line"; empty_seen=0
+        else
+          empty_seen=1; sleep 2 </dev/null >/dev/null 2>&1
+        fi
+        continue
+      fi
+      empty_seen=0
+      why=""
+      epoch
+      # A lock that names this run's own pid is an earlier run's, whose pid this one now has. One whose pid runs but
+      # whose file no heartbeat has touched for 5 minutes names a pid that another process has taken since.
+      if [ "$h_pid" = "$$" ] || ! kill -0 "$h_pid" 2>/dev/null; then why="its process is gone"
+      elif [ $((now_epoch - h_started)) -gt "$stale_after" ]; then why="it is older than $stale_after s, twice the full tier's limit and 600 s"
+      elif [ "$SECONDS" -ge "$mtime_at" ]; then
+        mtime_at=$((SECONDS + 30))
+        if [ -n "$("$FIND" "$lock" -mmin +5 2>/dev/null)" ]; then
+          why="it hasn't been touched for 5 minutes, though a running check touches it every minute"
+        fi
+      fi
+      if [ -n "$why" ]; then
+        echo "check: note: removed a stale lock (pid $h_pid, started $h_at by $h_caller): $why"
+        drop_stale "$h_line"; continue
+      fi
     fi
-    empty_seen=0
-    why=""
-    epoch
-    # A lock that names this run's own pid is an earlier run's, whose pid this one now has.
-    if [ "$h_pid" = "$$" ] || ! kill -0 "$h_pid" 2>/dev/null; then why="its process is gone"
-    elif [ $((now_epoch - h_started)) -gt "$stale_after" ]; then why="it is older than $stale_after s, twice the full tier's limit and 600 s"
-    fi
-    if [ -n "$why" ]; then
-      echo "check: note: removed a stale lock (pid $h_pid, started $h_at by $h_caller): $why"
-      drop_stale "$h_line"; continue
-    fi
-    if [ "$waiting" -eq 0 ]; then
-      waiting=1; wait_start=$SECONDS; note_at=$tick_every
-      read_record "$state_dir/last-pass"; pass_before="$rec_run"
-      read_record "$state_dir/last-fail"; fail_before="$rec_run"
-    fi
+    if [ "$waiting" -eq 0 ]; then waiting=1; wait_start=$SECONDS; note_at=$tick_every; fi
     if [ "$h_pid $h_started" != "$announced" ]; then
       announced="$h_pid $h_started"
       echo "check: waiting for the check started $h_at by $h_caller ($h_tier tier, pid $h_pid)"
@@ -585,7 +651,11 @@ acquire_lock() {
     sleep 2 </dev/null >/dev/null 2>&1
     fp_fresh=0
     # The run it waited for is done, or another has taken its place: what was recorded since may stand for this request.
-    if ! read_lock || [ "$h_pid $h_started" != "$announced" ]; then reuse_after_wait "$((SECONDS - wait_start))"; fi
+    if [ -n "$taken_line" ]; then
+      if ! kill -0 "$h_pid" 2>/dev/null; then taken_line=""; reuse_after_wait "$((SECONDS - wait_start))"; fi
+    elif ! read_lock || [ "$h_pid $h_started" != "$announced" ]; then
+      reuse_after_wait "$((SECONDS - wait_start))"
+    fi
   done
   [ "$waiting" -eq 1 ] || return 0
   # This run goes on after the wait: it checks the files as they are now, and says why no result stood for it.
@@ -593,12 +663,12 @@ acquire_lock() {
   if [ "$if_changed" -eq 1 ]; then explain_miss; echo "check: running the $requested tier after the wait: $cache_note"; fi
 }
 
-trap 'stop_ticker; release_lock' EXIT
+trap 'stop_loop; release_lock' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 
 run_start=$SECONDS
-[ "$arch_only" -eq 1 ] || acquire_lock
+if [ "$arch_only" -eq 0 ]; then acquire_lock; start_loop; fi
 run_start=$SECONDS   # the summary's time leaves the wait out
 now; run_id="${now_iso//[-:]/}-$$"
 
@@ -615,7 +685,6 @@ cfg_get scan skip; skip_dirs="$cfg_value"
 if [ -n "$ui_dirs" ] && [ -n "$data_dirs" ]; then
   echo "check: UI purity"
   step_start=$SECONDS
-  FIND=find; [ -x /usr/bin/find ] && FIND=/usr/bin/find
   # Build grep pattern for data-layer imports
   data_pattern=""
   for d in $data_dirs; do
@@ -728,7 +797,7 @@ cfg_get tests workers; export CHECK_TESTS_WORKERS="$cfg_value"
 # --- test time limit -----------------------------------------------------------------------------
 # The tier's limit (tier_limit, above). GNU timeout only: Windows' timeout.exe is something else. A run past the limit
 # leaves exit status 124.
-tier_limit "$tier"; limit="$t_limit"; limit_name="$t_name"; limit_where="$t_where"
+tier_limit "$tier"; limit="$t_limit"; limit_where="$t_where"
 timeout_cmd=""
 for candidate in timeout gtimeout; do
   if "$candidate" --version 2>/dev/null | grep -qi coreutils; then timeout_cmd="$candidate"; break; fi
@@ -739,10 +808,10 @@ timed_out=""
 # failure.
 run_limited() {
   local what="$1" rc; shift
-  start_ticker "$what"
+  step_begin "$what"
   if [ -n "$timeout_cmd" ]; then "$timeout_cmd" "$limit" "$@" </dev/null; else "$@"; fi
   rc=$?
-  stop_ticker
+  step_end
   if [ "$rc" -eq 124 ] && [ -n "$timeout_cmd" ]; then timed_out="${timed_out:+$timed_out, }$what"; return 0; fi
   return "$rc"
 }
@@ -813,7 +882,7 @@ if [ -n "$timed_out" ]; then
     remove_record pass
     print_summary "COULDN'T RUN"
     echo "check: couldn't run to the end: $timed_out timed out after ${limit} s (the $tier tier's limit, $limit_where)"
-    echo "check: to go on, raise $limit_name, or run 'bash tools/check.sh --$tier' again in the background: a commit then reuses its pass."
+    echo "check: to go on, run it again in the background with a longer limit, 'CHECK_TIMEOUT=<seconds> bash tools/check.sh --$tier': a commit then reuses its pass, since the limit isn't part of what a pass stands for. Or raise [tests] timeout-$tier in tools/check.cfg."
     end_log couldnt-run
     exit 3
   fi

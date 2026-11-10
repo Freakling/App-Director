@@ -35,12 +35,15 @@ nl='
 # The staged source files, one per line, in staged_src: the code extensions and the check's own files. Outside a
 # prototype, those under [tests] ignore don't count (tools/check.sh --unignored reads the setting); a check.sh that can't
 # answer leaves them all counted. A commit that stages none of these starts nothing.
+# The list (ts tsx js jsx mjs cjs mts cts dart py json yaml yml, and tools/check.cfg, tools/check.sh,
+# tools/check.local.sh, tools/stacks/*.sh, .gitleaks.toml and .gitleaksignore) is the one tools/check.sh's fingerprint
+# and tools/stacks/typescript.sh name: the three must match.
 staged_src=""
 source_staged() {
   local kept
   staged_src="$(git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMRD \
     | tr '\0' '\n' \
-    | grep -E '\.(ts|tsx|js|jsx|mjs|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^\.gitleaks(\.toml|ignore)$')"
+    | grep -E '\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|dart|py|json|yaml|yml)$|^tools/check\.(cfg|sh|local\.sh)$|^tools/stacks/[^/]+\.sh$|^\.gitleaks(\.toml|ignore)$')"
   [ -n "$staged_src" ] || return 1
   [ "$prototype" -eq 1 ] && return 0
   if kept="$(printf '%s\n' "$staged_src" | bash tools/check.sh --unignored 2>/dev/null)"; then staged_src="$kept"; fi
@@ -48,10 +51,10 @@ source_staged() {
 }
 
 run_check() {
-  local due tier why flag="" status unstaged p first="" more=0
+  local due tier why status unstaged p first="" more=0
   due="$(bash tools/check.sh --due 2>/dev/null)"
   case "$due" in
-    "check: full tier not due: "*) tier=fast; flag=" --fast"; why="the full tier isn't due (${due#check: full tier not due: })" ;;
+    "check: full tier not due: "*) tier=fast; why="the full tier isn't due (${due#check: full tier not due: })" ;;
     "check: full tier due: "*) tier=full; why="${due#check: full tier due: }" ;;
     *) tier=full; why="'bash tools/check.sh --due' gave no answer" ;;
   esac
@@ -74,8 +77,10 @@ run_check() {
   status=$?
   if [ "$status" -eq 3 ]; then
     echo "pre-commit: the check couldn't run (the reason is above), so nothing was committed; the staged changes are as they were."
-    echo "            To go on: when it ran out of time, run 'bash tools/check.sh$flag' in the background and commit again"
-    echo "            once it passes (the commit reuses its pass); when a tool is missing, run 'bash tools/setup-clone.sh'."
+    echo "            To go on: when it ran out of time, run it again in the background with a longer limit,"
+    echo "            'CHECK_TIMEOUT=<seconds> bash tools/check.sh --$tier', and commit again once it passes (the commit reuses"
+    echo "            its pass, since the limit isn't part of it), or raise [tests] timeout-$tier in tools/check.cfg. When a"
+    echo "            tool is missing, run 'bash tools/setup-clone.sh'."
     echo "            If you accept an unverified commit, commit with --no-verify yourself."
     exit 1
   elif [ "$status" -ne 0 ]; then
