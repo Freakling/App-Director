@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T57 · B8 · R1
+**Next IDs:** T58 · B8 · R1
 
 ## Queue
+
+### T57 · `tools/records.sh` and a commit gate for records · done · L · agent
+- Touches: framework/tools/records.sh (new), framework/.githooks/pre-commit, framework/.githooks/commit-msg (new), framework/tools/setup-clone.sh, project/tools/check.cfg, README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: `bash tools/records.sh summary <file>` registers the exact lines a summary adds and removes, per file, and prints its id, its hash and the lines (test) · `bash tools/records.sh approve <id>`, and `approve --staged` for the human's own edits, record an approval from the human's own terminal, and `approve <id> --hook` is the path for an assistant adapter's hook (test) · the pre-commit hook refuses a commit that adds or removes a line of `product/brief.md` or `product/decisions.md`, sets, changes or removes a confirmed story or the Last validated line, adds an item that isn't `proposed` (except a bug the bugs setting frees), moves a `proposed` item on, changes an item's `Done when`, `Repro` or `Question`, removes an item that isn't `done`, or changes a `[records]` or `[approval]` setting, unless an approval covers exactly those lines; it names the lines and what to do (test) · status changes, the escalation label, `Note:` lines, `Next IDs`, pruned `done` items, `unconfirmed` stories and `proposed` items pass, and so do lines a merge brings from a commit, and a prototype checkout (test) · an approval covers only the text registered: a changed summary, an approval older than its summary and an approval whose lines are already committed are refused (test) · the commit-msg hook refuses a commit that carries approved record lines and doesn't name the approval, with the line to add (test) · `bash tools/records.sh report` lists the approvals used since a commit and the `proposed` items (test) · the record paths come from `[records]` in `tools/check.cfg`, with the defaults when it has none, on Git Bash, bash 3.2 and BSD tools (test) · the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T333
 
 ### T56 · A `proposed` item status, the bugs rule, and what a message means · done · M · agent
 - Touches: framework/.app-director/tasks.md, framework/.app-director/rules.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/review.md, framework/.app-director/procedures/research.md, framework/.app-director/procedures/security.md, framework/.app-director/procedures/align.md, project/tools/check.cfg, ONBOARDING.md, selftest.sh, CHANGELOG.md, TASKS.md

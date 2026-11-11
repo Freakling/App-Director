@@ -14,7 +14,11 @@
 #   2. Runs gitleaks protect --staged --redact to catch secrets entering history, and names the files.
 #      A missing gitleaks blocks the commit. In a prototype, where the scan is the only gate, so does a
 #      .gitleaksignore or .gitleaks.toml that differs from main's, or a staged line that adds gitleaks:allow.
-# Both steps block the commit on failure, and so do unmerged upgrade files (*.adir-new).
+# First of all, on every commit but a prototype's:
+#   0. Runs the records gate, `bash tools/records.sh check`: a staged change to the brief, the decisions, a confirmed
+#      story, an item or the [records] and [approval] settings that no approval of the human's covers blocks the commit,
+#      and it names the lines and what to do. It runs before the check, so a refused commit doesn't wait for one.
+# Every step blocks the commit on failure, and so do unmerged upgrade files (*.adir-new).
 
 # ls-files also lists a nested repository in an ignored folder (such as a clone) as a
 # directory, so keep only the paths that really end in .adir-new.
@@ -29,6 +33,17 @@ fi
 # their only gate. tools/prototype.sh is the one place that says what a prototype is.
 prototype=0
 [ -f tools/prototype.sh ] && bash tools/prototype.sh here >/dev/null 2>&1 && prototype=1
+
+# The records gate: record lines need an approval of the human's (tools/records.sh, which says what is protected). A
+# prototype's lines reach main only through the harvest, so they aren't judged here. When the install manifest lists
+# tools/records.sh and it is gone, the commit is refused: deleting the gate doesn't turn it off.
+if [ "$prototype" -eq 0 ] && [ -f tools/records.sh ]; then
+  bash tools/records.sh check --staged || exit 1
+elif [ "$prototype" -eq 0 ] && grep -qE '(^|[[:space:]])tools/records\.sh[[:space:]]*$' .app-director/manifest 2>/dev/null; then
+  echo "records: tools/records.sh is missing, and App Director installed it (.app-director/manifest), so the records gate can't run and the commit is refused."
+  echo "records: restore it with 'git checkout HEAD -- tools/records.sh' (or upgrade App Director, which installs it again), then commit again."
+  exit 1
+fi
 
 [ -f tools/check.sh ] || [ "$prototype" -eq 1 ] || exit 0
 

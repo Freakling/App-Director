@@ -43,7 +43,7 @@ Run `bash "$ADIR/install.sh" .`. Then read its report.
 
 ## 3. Toolchain check
 
-Run `bash tools/setup-clone.sh`. It checks that the configured stack tool is available (node, flutter, python), verifies gitleaks is installed at the minimum version, and installs the pre-commit and pre-push hooks. Report what it printed. If gitleaks is missing, stop and tell the human which install command to use for their OS (macOS: `brew install gitleaks`; Linux: download binary from the releases page; Windows: `winget install gitleaks`).
+Run `bash tools/setup-clone.sh`. It checks that the configured stack tool is available (node, flutter, python), verifies gitleaks is installed at the minimum version, and installs the pre-commit, pre-push and commit-msg hooks. Report what it printed. If gitleaks is missing, stop and tell the human which install command to use for their OS (macOS: `brew install gitleaks`; Linux: download binary from the releases page; Windows: `winget install gitleaks`).
 
 **For existing apps only (git history scan):** run a one-time full scan of the commit history:
 ```
@@ -192,10 +192,10 @@ If the flows aren't decided yet, leave the placeholders and add an agent item "F
 4. List every file created, changed or deleted (`git status`).
 5. **Commit it all in one commit, after the human approves.**
    - Stage the files: `git add` only the files created or changed.
-   - Mark scripts executable: `git add --chmod=+x -- tools/*.sh .githooks/pre-commit .githooks/pre-push .claude/hooks/*.sh`.
+   - Mark scripts executable: `git add --chmod=+x -- tools/*.sh .githooks/pre-commit .githooks/pre-push .githooks/commit-msg .claude/hooks/*.sh`.
    - Use the message `chore: install App Director <version>` (or `upgrade to`).
 6. **The pre-commit hook.**
-   - If the check passes, run `bash tools/setup-clone.sh`, which installs it and the pre-push hook.
+   - If the check passes, run `bash tools/setup-clone.sh`, which installs it, the pre-push hook and the commit-msg hook.
    - If the check fails, leave the hook off and add an item: "Install the pre-commit hook once the check passes (`bash tools/setup-clone.sh`)".
 7. **Tell the human:**
    - what needs their confirmation (inferred decisions, open questions);

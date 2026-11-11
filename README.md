@@ -151,10 +151,12 @@ your-app/
 ├── tools/security.sh           the security assessment's tools: dependency audit, secrets scan, Semgrep; and whether one is due
 ├── tools/stories.sh            whether the user stories are due for validation
 ├── tools/prototype.sh          a prototype's git steps: its worktree, branch and notes; list, harvest, remove
-├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit and pre-push hooks
+├── tools/records.sh            the records gate: a summary's exact lines, the human's approval of them, and the commit check
+├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit, pre-push and commit-msg hooks
 ├── tools/stacks/               typescript.sh · flutter.sh · python.sh · none.sh
 ├── tools/ui_capture.sh, tools/ui/  screen capture, element map, layout lint, drawing reader, compare and verify (Node and Playwright)
-├── .githooks/pre-commit        runs the check before commits that touch code (the full tier when it's due, else the fast one; not in a prototype), and the secrets scan on every commit (no gitleaks, no commit)
+├── .githooks/pre-commit        refuses record lines (brief, decisions, confirmed stories, items) no approval of yours covers; runs the check before commits that touch code (the full tier when it's due, else the fast one; not in a prototype), and the secrets scan on every commit (no gitleaks, no commit)
+├── .githooks/commit-msg        asks a commit that carries approved record lines to name the approval (Approved: ...)
 ├── .githooks/pre-push          runs the full tier before a push; refuses to push a prototype's proto/ branch, or its commits under another name
 │
 │  App Director's, Claude Code adapter: updated on upgrade
