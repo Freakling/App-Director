@@ -540,7 +540,8 @@ done
 grep -q 'the commit refuses record lines no approval covers' "$src/README.md" || wired="$wired README.md"
 grep -qF '`[approval] words`' "$src/ONBOARDING.md" && grep -qF 'needs no registered summary' "$src/ONBOARDING.md" \
   && grep -qF 'the approval hook works from the next session after the upgrade' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
-_unrel="$(sed -n '/^## Unreleased$/,/^## [0-9]/p' "$src/CHANGELOG.md")"
+# The changelog section that holds this change, whether it is still Unreleased or already a release.
+_unrel="$(awk '/^## /{ if (hit) exit; sec = "" } { sec = sec $0 "\n" } /The procedures write records through the approved summary/{ hit = 1 } END { if (hit) printf "%s", sec }' "$src/CHANGELOG.md")"
 for _pt in '.claude/settings.json.adir-new' 'bash tools/setup-clone.sh' '`[approval] words`' "Lines already committed aren't judged"; do
   printf '%s\n' "$_unrel" | grep -qF -- "$_pt" || wired="$wired CHANGELOG($_pt)"
 done
