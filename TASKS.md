@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T56 · B8 · R1
+**Next IDs:** T57 · B8 · R1
 
 ## Queue
+
+### T56 · A `proposed` item status, the bugs rule, and what a message means · done · M · agent
+- Touches: framework/.app-director/tasks.md, framework/.app-director/rules.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/design.md, framework/.app-director/procedures/review.md, framework/.app-director/procedures/research.md, framework/.app-director/procedures/security.md, framework/.app-director/procedures/align.md, project/tools/check.cfg, ONBOARDING.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: `tasks.md` has the status `proposed`, an item the assistant filed by itself that no procedure picks or builds until an approved summary makes it `todo` (check) · `next-task.md` files a builder's `Found:` lines, review leftovers, research follow-ups and a failing full run as `proposed`, or as a `todo` bug where the bugs rule allows it, and never picks a `proposed` item (check) · the bugs rule is in `rules.md`, and `[records] bugs` in `tools/check.cfg` (`cited` by default, `all` or `none`) is asked at onboarding (check) · `rules.md` and `design.md` say that a complaint, an observation, a screenshot or a bug report means diagnose, propose and ask, that an unanswered question dialog is no answer, and that a run mode or a commit rule never authorises a record (check) · the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T332
 
 ### T55 · The check has a fast tier for every commit, a cache that says why it missed, and one check at a time · done · XL · agent
 - Touches: framework/tools/check.sh, framework/tools/stacks/typescript.sh, framework/.githooks/pre-commit, framework/.githooks/pre-push, framework/.claude/hooks/stop-check.sh, framework/.app-director/rules.md, framework/.app-director/procedures/build.md, framework/.app-director/procedures/next-task.md, framework/.app-director/procedures/release.md, project/tools/check.cfg, README.md, ONBOARDING.md, framework/tools/prototype.sh, selftest.sh, CHANGELOG.md, TASKS.md

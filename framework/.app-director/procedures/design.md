@@ -24,7 +24,7 @@ Brainstorm a topic, answer open design questions, change how part of the app wor
 2. Offer 2-4 concrete options. For each: what the user experiences, what it would take to build (which systems in AGENTS.md › Architecture), and how it fits the product goals. Name the stories it serves, and draft the new or changed stories it needs (User stories, below), so the human confirms them with the option.
    Where an option touches security (input, authentication, authorization, sessions, secrets, data access, file or network access, dependencies), state its effect on the OWASP baseline in `rules.md` › Architecture defaults: the item it touches (such as Broken Access Control) and whether it meets, strengthens or would deviate from it. An option that would deviate is shown with the accepted decision it needs, and never recommended without saying so.
 3. Recommend one, with a one-line reason.
-4. Wait for the human. Hold the answer in the conversation: nothing is recorded yet, and an answered part is not recorded by itself. If you had to interpret the answer, state your reading and ask them to confirm it.
+4. Wait for the human. Hold the answer in the conversation: nothing is recorded yet, and an answered part is not recorded by itself. What counts as an answer, and what doesn't (a complaint, a screenshot, an unanswered question dialog), is in `rules.md` › The human decides. If you had to interpret the answer, state your reading and ask them to confirm it.
 
 ## Summary and approval
 When every question of the session is answered, show one summary of everything the session will write, and wait. Nothing is written before the human approves it.
@@ -32,7 +32,7 @@ When every question of the session is answered, show one summary of everything t
    - the brief text written or replaced;
    - each line for `product/decisions.md`, word for word;
    - the brief › Open Questions removed or added;
-   - each TASKS.md item, new or changed, in full;
+   - each TASKS.md item, new or changed, in full, as `todo`; this is also where a `proposed` item becomes `todo`;
    - each user story with its ID and its Confirmed date, or `unconfirmed`;
    - the research notes and `R<n>` items.
 2. **Ask:** "Approve this summary, or tell me what to change?"
