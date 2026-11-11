@@ -45,7 +45,7 @@ Every subagent's report is followed by a cleanup before anything else: find the 
 - **A rebuild** (after a failure, a blocked report or review findings) gets the previous report, anything the human said about the item, and word that the earlier attempt's edits are still in the tree to continue from.
 - **Report `blocked`:** the report brings the question with options and a recommendation. Put it to the human.
   - If the answer is a design decision, the summary lists its records, as `design.md` lists them. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options.
-  - Once it is approved, record it following `design.md` › Record each decision before rebuilding. It's committed with the item.
+  - Once it is approved, record it following `design.md` › Record each decision and commit its records at once, as their own commit, before the rebuild: an approval is used by its commit, and a later message from the human withdraws one that isn't committed.
   - Then rebuild, including the answer.
 - **Report `failed`:**
   - If the item is not `XL` and has not already been escalated, retry once with its model set to the next size's entry (XS→S, S→M, M→L, L→XL), or the session model where that size has no entry, as section 3 says. Update the item label to `<next-size> (escalated from <original-size>)`, e.g. `M (escalated from S)`.
@@ -56,7 +56,7 @@ Every subagent's report is followed by a cleanup before anything else: find the 
 Run `bash tools/check.sh --fast --if-changed`. It passes at once if the files are as the builder left them.
 
 ## 5. Update the records
-From the report:
+From the report. The status changes, the `Note:` lines, `Next IDs`, `Found:` items filed `proposed` (or a `todo` bug that cites, under the bugs rule) and a drafted `unconfirmed` story are free for the records gate. Anything protected goes through `design.md` › Summary and approval.
 - Set the item to `done`, and delete its `Note:` if it has one.
 - `Systems:` → AGENTS.md › Architecture.
 - A milestone finished or changed → its row in TASKS.md › Milestones.
@@ -72,7 +72,7 @@ Only when `rules.md` › Reviews and model size calls for one, judged from the i
 
 ## 7. Commit and report
 - **Commit** as `rules.md` › Git describes: one commit for the item's paths, including its records (with `product/user-stories.md` when the claim drafted a story). A research item's paths are its note and TASKS.md, and its message is `docs: <summary> (R3)`. Before the commit, ask `bash tools/check.sh --due` and, when the full tier is due, run it in the background first (`rules.md` › Running the check, Before a commit). The pre-commit hook then reuses a pass of the same files: the builder's, or that full run's. Pause for approval unless the human has said to work autonomously ("do the next N tasks", "work through the queue", "grab tasks until you're blocked"), in which case commit without pausing and include all commits in the final report.
-- **Report** in a few lines: what changed, the check result, placeholders added, the `proposed` items filed, and anything waiting on the human. Mention that `(demo)` outcomes, or a bug fix without a regression test, will be in the next acceptance check.
+- **Report** in a few lines: what changed, the check result, placeholders added, the `proposed` items filed (from `bash tools/records.sh report`, as the final report below), and anything waiting on the human. Mention that `(demo)` outcomes, or a bug fix without a regression test, will be in the next acceptance check.
 - **After the commit,** the records hold everything about the item. A new item can start in a fresh session, or after `/clear` in Claude Code, without losing anything.
 
 ## Research items
@@ -99,7 +99,7 @@ A finished research item doesn't stop the run: it goes on with the next candidat
 
 A run of many small items commits each one on the fast tier, and between them the full tier runs whenever it's due, started in the background before that commit (`rules.md` › Running the check). The run ends with one full run: after the last commit, start `bash tools/check.sh --if-changed` in the background (it reuses a full pass of the same files) and wait for its completion notice. A failure there goes into the final report with its failing lines, and becomes a bug item, filed as step 5 files a `Found:` line (so `proposed` unless the bugs rule allows `todo`) and committed on its own as `docs: file the failing full run as a bug item`.
 
-End with the list of items done, the full run's result, a security assessment or a stories validation if Pick step 4 found one due, the stories drafted for items that had none (for the human to confirm), every `proposed` item the run filed (for the human to approve or drop), the questions that research has made ready for a design call, and what's next.
+Note the commit the run starts from (`git rev-parse --short HEAD`) when it starts. End with the list of items done, the full run's result, a security assessment or a stories validation if Pick step 4 found one due, the stories drafted for items that had none (for the human to confirm), each record written with its approval and every `proposed` item the run filed (for the human to approve or drop), both from `bash tools/records.sh report <the commit the run started from>`, the questions that research has made ready for a design call, and what's next.
 
 ## Stopping partway through
 If you must stop before the item is done, add `- Note: <where it stands, what's next>` to the item.

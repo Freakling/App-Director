@@ -38,7 +38,7 @@ The request is `prepare` (the default), `process`, or `all` (a full regression r
      It uses the item's own `(demo)` outcome for what to try, so the usual collection of outcomes picks it up.
 
 ## Process
-Read the whole ticked file first and work out what it leads to. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options. The summary lists the `B` items, the story rewrites and ticks, the records of design findings (decision lines, Open Questions), and the Processed line.
+Read the whole ticked file first and work out what it leads to. Write nothing until the human approves a summary of all of it, registered, shown and approved as `design.md` › Summary and approval says; a chat message or an "Other" answer before then re-opens the options. Protected here are the confirmed stories, a decision line, an Open Question and a `todo` bug that cites no brief heading or confirmed story; a bug that cites one, a `proposed` item, the ticked file and its Processed line are free. The summary lists the `B` items, the story rewrites and ticks, the records of design findings (decision lines, Open Questions), and the Processed line.
 1. **Works:** nothing to record; the ticked file is the record.
 2. **Broken:** draft a `B` item.
    - Take the repro from the notes, set `Found in:` to the file, and take `Stories:` from the item it was found under.

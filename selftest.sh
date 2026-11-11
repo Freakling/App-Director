@@ -505,6 +505,48 @@ grep -q '`\[records\] bugs`' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md
 [ -z "$wired" ] && ok "the proposed status, the bugs rule, the message rules and the [records] bugs setting are wired into the rules, the procedures, the seed and onboarding" \
   || bad "the proposed status and the records rules aren't wired into:$wired"
 
+# The procedures write records through the approved summary: design.md holds the steps once (register, show word for
+# word with the id, only a recorded approval, commit after it), the other procedures point there, next-task.md commits a
+# decision's records before the rebuild and takes the final report from records.sh report, build.md and the agents say
+# a subagent reports record text and never writes it, and the changelog names the four upgrade points.
+wired=""
+_dd="$adir/procedures/design.md"
+grep -q '^2\. \*\*Register it\.\*\*' "$_dd" && grep -qF 'bash tools/records.sh summary <file>' "$_dd" \
+  && grep -q '^3\. \*\*Show it\.\*\*' "$_dd" && grep -qF 'word for word, with the id' "$_dd" \
+  && grep -qF 'Approve this summary (S<n>), or tell me what to change?' "$_dd" \
+  && grep -q '^4\. \*\*Only a recorded approval counts\.\*\*' "$_dd" && grep -qF 'bash tools/records.sh approve <id>' "$_dd" \
+  && grep -qF 'Write these only after the approval is recorded' "$_dd" && grep -qF 'bash tools/records.sh trailer' "$_dd" \
+  && grep -qF 'Never change a summary to match what was written' "$_dd" || wired="$wired design.md"
+grep -q 'registered, shown and approved as `design.md` › Summary and approval says' "$adir/procedures/ui-design.md" || wired="$wired ui-design.md"
+for _p in acceptance align research drift-reset security; do
+  grep -q 'design\.md` › Summary and approval' "$adir/procedures/$_p.md" && grep -qi 'protected' "$adir/procedures/$_p.md" || wired="$wired $_p.md"
+done
+[ "$(grep -c 'registered, shown and approved as' "$adir/procedures/drift-reset.md")" -eq 2 ] || wired="$wired drift-reset.md(two summaries)"
+grep -q 'Summary and approval says; the decisions, confirmed stories and `todo` items are protected' "$_dd" || wired="$wired design.md(harvest)"
+grep -q 'confirmed stories and the Last validated value are protected' "$_dd" && grep -q 'A confirmed story is a protected record line' "$_dd" || wired="$wired design.md(stories)"
+grep -qF 'commit its records at once, as their own commit, before the rebuild' "$adir/procedures/next-task.md" \
+  && grep -qF 'a later message from the human withdraws one that isn' "$adir/procedures/next-task.md" \
+  && grep -qF 'bash tools/records.sh report <the commit the run started from>' "$adir/procedures/next-task.md" \
+  && grep -qF 'each record written with its approval' "$adir/procedures/next-task.md" || wired="$wired next-task.md"
+grep -q 'A run.s final report' "$adir/rules.md" && wired="$wired rules.md(final report still there)"
+grep -qF 'bash tools/records.sh summary' "$adir/rules.md" && grep -qF 'only an approval the tool recorded counts' "$adir/rules.md" \
+  && grep -qF 'carries the `Approved:` line' "$adir/rules.md" || wired="$wired rules.md"
+grep -qF 'report record text and never write it' "$adir/procedures/build.md" || wired="$wired build.md"
+grep -qF 'report record text and never write it' "$adir/rules.md" || wired="$wired rules.md(who records)"
+for _a in builder reviewer researcher; do
+  grep -qF 'file guard refuses a subagent' "$src/framework/.claude/agents/$_a.md" && grep -qF 'is never approved' "$src/framework/.claude/agents/$_a.md" \
+    && grep -q 'record text' "$src/framework/.claude/agents/$_a.md" || wired="$wired agents/$_a.md"
+done
+grep -q 'the commit refuses record lines no approval covers' "$src/README.md" || wired="$wired README.md"
+grep -qF '`[approval] words`' "$src/ONBOARDING.md" && grep -qF 'needs no registered summary' "$src/ONBOARDING.md" \
+  && grep -qF 'the approval hook works from the next session after the upgrade' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
+_unrel="$(sed -n '/^## Unreleased$/,/^## [0-9]/p' "$src/CHANGELOG.md")"
+for _pt in '.claude/settings.json.adir-new' 'bash tools/setup-clone.sh' '`[approval] words`' "Lines already committed aren't judged"; do
+  printf '%s\n' "$_unrel" | grep -qF -- "$_pt" || wired="$wired CHANGELOG($_pt)"
+done
+[ -z "$wired" ] && ok "the procedures register, show and commit records through the approved summary, and the final report, the subagents and the changelog say so" \
+  || bad "the approved-summary wiring is missing from:$wired"
+
 # The records gate: the pre-commit hook runs it before the check, the commit-msg hook hands its message to it, setup-clone
 # installs that hook, and the check.cfg seed carries every [records] path and [approval] words with the defaults the
 # script uses. The gate itself runs under "records gate".
@@ -583,17 +625,19 @@ _ap_rec="$(grep -n '^## Record each decision in one change$' "$_ap_dm" | cut -d:
   || wired="$wired design.md(Summary and approval between For each question and Record)"
 grep -qF 'Hold the answer in the conversation: nothing is recorded yet, and an answered part is not recorded by itself.' "$_ap_dm" \
   && ! grep -qF 'record only that part' "$_ap_dm" || wired="$wired design.md(the wait holds the answers)"
-grep -qF 'Nothing is written before the human approves it.' "$_ap_dm" && grep -qF 'Approve this summary, or tell me what to change?' "$_ap_dm" \
-  && grep -qF 'Only a yes to the summary as shown approves it.' "$_ap_dm" \
+grep -qF 'Nothing is written before the human approves it.' "$_ap_dm" && grep -qF 'Approve this summary (S<n>), or tell me what to change?' "$_ap_dm" \
+  && grep -qF 'An earlier summary is not approved by a later word.' "$_ap_dm" \
   && grep -qF 'each user story with its ID and its Confirmed date, or `unconfirmed`;' "$_ap_dm" \
   && grep -qF 'the research notes and `R<n>` items.' "$_ap_dm" || wired="$wired design.md(the summary's list)"
-grep -qF 'Write everything the approved summary lists and commit it as one change, `docs: <summary>`' "$_ap_dm" \
+grep -qF 'Write everything the approved summary lists, stage it, and commit it at once as one change, `docs: <summary>`' "$_ap_dm" \
   && grep -qF 'The approval of the summary is the approval to commit (`rules.md` › Git).' "$_ap_dm" || wired="$wired design.md(Finish)"
-[ "$(grep -cF "$_ap_ptr" "$_ap_dm")" -ge 2 ] || wired="$wired design.md(pointers in the validation and the harvest)"
-for _ap_f in research.md next-task.md ui-design.md acceptance.md align.md; do
-  grep -qF "$_ap_ptr" "$adir/procedures/$_ap_f" || wired="$wired $_ap_f(pointer)"
+_ap_ptr2='Write nothing until the human approves a summary of all of it, registered, shown and approved as'
+[ "$(grep -cF "$_ap_ptr2" "$_ap_dm")" -ge 2 ] || wired="$wired design.md(pointers in the validation and the harvest)"
+for _ap_f in research.md ui-design.md acceptance.md align.md; do
+  grep -qF "$_ap_ptr2" "$adir/procedures/$_ap_f" || wired="$wired $_ap_f(pointer)"
 done
-[ "$(grep -cF "$_ap_ptr" "$adir/procedures/drift-reset.md")" -ge 2 ] || wired="$wired drift-reset.md(pointers in the reset and the postmortem)"
+grep -qF "$_ap_ptr" "$adir/procedures/next-task.md" || wired="$wired next-task.md(pointer)"
+[ "$(grep -cF "$_ap_ptr2" "$adir/procedures/drift-reset.md")" -ge 2 ] || wired="$wired drift-reset.md(pointers in the reset and the postmortem)"
 grep -qF "$_ap_ptr" "$src/ONBOARDING.md" && grep -q '^### Summary and approval$' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md(pointer and Summary and approval)"
 grep -qF 'Inside a session or onboarding the fixes join its summary.' "$adir/procedures/align.md" || wired="$wired align.md(the fixes join the summary)"
 grep -qF 'the decision lines word for word, the design diff' "$adir/procedures/drift-reset.md" && grep -qF 'and each TASKS.md item in full' "$adir/procedures/drift-reset.md" \

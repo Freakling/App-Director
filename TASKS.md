@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T59 · B8 · R1
+**Next IDs:** T60 · B8 · R1
 
 ## Queue
+
+### T59 · The procedures write records through the approved summary · done · M · agent
+- Touches: framework/.app-director/rules.md, framework/.app-director/procedures/design.md, next-task.md, build.md, acceptance.md, align.md, research.md, ui-design.md, drift-reset.md, security.md, prune.md, prototype.md, framework/.claude/agents/builder.md, reviewer.md, researcher.md, README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: `design.md` › Summary and approval registers the summary, shows its lines word for word with its id, and writes and commits only after the approval, and every procedure that writes from a conversation points there (check) · `next-task.md` commits a decision's records at once, before the rebuild, and a run's final report lists each record written with its approval and every `proposed` item filed, from `bash tools/records.sh report` (check) · `build.md` and the three agents say that a builder, reviewer or researcher reports record text and never writes it (check) · the CHANGELOG has Upgrade steps: the hook wiring in `.claude/settings.json`, `bash tools/setup-clone.sh` for the new git hook, the settings in `tools/check.cfg`, and that lines already committed aren't judged (check) · the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T335
 
 ### T58 · Claude Code records the human's approval and guards the records · done · L · agent
 - Touches: framework/.claude/hooks/record-approval.sh (new), framework/.claude/hooks/record-watch.sh (new), framework/.claude/hooks/record-paths.sh (new), framework/.claude/hooks/guard-protected.sh, framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, framework/tools/records.sh, selftest.sh, CHANGELOG.md, TASKS.md

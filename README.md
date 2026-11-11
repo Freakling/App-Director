@@ -163,7 +163,8 @@ your-app/
 ├── .claude/skills/             /next-task and the rest: each points to its procedure
 ├── .claude/agents/             builder (builds each item in a fresh context) · reviewer and researcher (read-only)
 ├── .claude/hooks/              runs the fast tier before a turn ends, for a session that changed code;
-│                               blocks risky git commands; says at session start when the
+│                               records your approval of a summary and blocks the assistant from
+│                               recording one; blocks risky git commands; says at session start when the
 │                               project is behind the latest release, and lists the processes
 │                               an ended session left behind
 └── .claude/settings.json       permissions, hooks, timeouts
@@ -173,6 +174,7 @@ Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/
 ### The rules, briefly
 The full rules are in `.app-director/rules.md`, and the assistant reads them every session.
 - **You decide design.** The assistant offers options and a recommendation. It never picks values (new values are marked `PLACEHOLDER`), and never answers an open question itself.
+- **You approve what the records say.** Before the brief, the decisions, a confirmed story or an item is written, the assistant shows you a summary of exactly those lines, with an id, and you answer with an approval word. The approval is tied to those lines, and the commit refuses record lines no approval covers.
 - **Areas you own are never generated.** Onboarding asks who owns visual design, assets, copy and infrastructure. Human-owned areas get an agreed placeholder instead of generated content. `director/` is an optional protected workspace: the AI reads it for context but never creates, modifies or deletes anything inside it.
 - **Each fact lives in one place,** and is updated in the same change that makes it untrue.
 - **Logic lives in the logic layer, not the UI.** Screens display state and call services. They never fetch data directly or hold business logic. The check fails when they do.
