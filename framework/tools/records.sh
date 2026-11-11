@@ -15,9 +15,11 @@
 #                                            records an approval an assistant adapter's own hook saw the human give, in a
 #                                            prompt or a question dialog. The adapter must stop the assistant from running
 #                                            this itself, and from writing under .app-director/state/records/
-#   bash tools/records.sh withdraw           withdraws every approval no commit has used yet
+#   bash tools/records.sh withdraw [<id>...] withdraws every approval no commit has used yet, or only those of the
+#                                            summaries named
 #   bash tools/records.sh status             one line per summary not used up: <id> <hash> <state> <registered, epoch>,
 #                                            the state registered, approved, withdrawn or invalid
+#   bash tools/records.sh word <word>        exit 0 when <word> is one of [approval] words, as approve matches it
 #   bash tools/records.sh open <path>        exit 0 when an approved summary no commit has used has lines for <path>
 #   bash tools/records.sh check [--staged|--worktree]
 #                                            the gate: the protected changes no approval covers, in the index (the default)
@@ -41,8 +43,8 @@
 # isn't done; every line of the [records] and [approval] sections of tools/check.cfg. In the brief and the stories a line
 # is placed by the path of headings above it: a line whose text stays but whose path changed is a move (removed and
 # added). A plain rename (one heading changed, same place and level, nothing else in the headings changed) moves
-# nothing; any other change to the headings lists every line it re-homes. Status changes, sizes, other fields, Note: and PRs: lines, the Next IDs line, a moved item and an unconfirmed
-# story are free. An item heading is a heading of any level whose text starts with T, B or R and digits, followed by
+# nothing; any other change to the headings lists every line it re-homes. Status changes, sizes, other fields, Note:
+# and PRs: lines, the Next IDs line, a moved item and an unconfirmed story are free. An item heading is a heading of any level whose text starts with T, B or R and digits, followed by
 # anything but a letter or a digit; it reads ID · title · status · size · owner (a bug adds · severity), or in the older
 # form ID · title · size · status, and one that reads neither way has no status and counts as not proposed. An item runs
 # to the next item heading or heading of level 1 or 2. A heading is # to ###### after up to three spaces, or a setext
@@ -62,9 +64,9 @@
 # git revert, git rebase, git am), a commit made with --no-verify and a prototype checkout aren't judged, nor is a merge
 # git merge or git pull completes by itself (no pre-commit hook runs; whatever -X theirs or a merge=union attribute chose
 # passes). A merge trusts the commits it brings: lines in a commit made without the hooks (a stash, for one) pass when it
-# is merged. It is a safety
-# net, not a lock: the state lives in the working copy, so an approval forged on purpose from the same account can't be
-# ruled out.
+# is merged. It is a safety net, not a lock: the state lives in the working copy, so an approval forged on purpose from
+# the same account can't be ruled out. A summary file is read only from inside the repository, and report's <since>
+# can't start with -, so neither can read or write a file elsewhere through git.
 # Exit codes: 0 = passes or done · 1 = refused (the reason is printed) · 3 = couldn't run
 
 set -u
@@ -106,6 +108,16 @@ tmp_init() {
 
 abs_path() { # a path given on the command line, from the folder it was given in
   case "$1" in /*|[A-Za-z]:*) printf '%s' "$1" ;; *) printf '%s' "$orig_pwd/$1" ;; esac
+}
+
+one_form() { # one_form <absolute path>: REPLY with / separators and a drive C:/x as /c/x (no process)
+  local p="${1//\\//}" d lo=abcdefghijklmnopqrstuvwxyz up=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+  case "$p" in
+    [A-Za-z]:/*|[A-Za-z]:)
+      d="${p:0:1}"; case "$up" in *"$d"*) d="${up%%"$d"*}"; d="${lo:${#d}:1}" ;; esac
+      p="/$d${p:2}" ;;
+  esac
+  REPLY="$p"
 }
 
 norm_path() { # a record path as git prints it: no leading ./, forward slashes, no trailing slash
@@ -850,21 +862,36 @@ register() {
   done < "$f"
   printf '%s' "$req" > "$tmp.req"; : > "$tmp.blobs"
   [ "$has_head" -eq 1 ] && [ -n "$req" ] && git cat-file --batch < "$tmp.req" > "$tmp.blobs" 2>/dev/null
-  [ -f "$state/counter" ] && read -r n < "$state/counter"
-  case "$n" in ''|*[!0-9]*) n=0 ;; esac
-  n=$((n + 1))
-  while [ -e "$state/S$n.meta" ] || [ -e "$state/S$n.txt" ]; do n=$((n + 1)); done
   if ! LC_ALL=C awk -v reqf="$tmp.req" -v blobf="$tmp.blobs" -v out="$tmp.canon" -v eff="$tmp.eff" -v a1="$p_brief" \
       -v a2="$p_decisions" -v a3="$p_stories" -v a4="$p_tasks" -v a5="tools/check.cfg" "$awk_lib$summary_prog" < "$f"; then
     exit 1
   fi
   [ "$has_head" -eq 1 ] && read -r eff < "$tmp.eff"
+  # The id is claimed with mkdir of S<n>.lock, which only one run can make: two runs at once never share an id. A claim
+  # finds the files of an id another run finished in the meantime, and moves on. The lock goes once the files are written.
+  [ -f "$state/counter" ] && read -r n < "$state/counter"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  while :; do
+    n=$((n + 1))
+    [ -e "$state/S$n.meta" ] || [ -e "$state/S$n.txt" ] && continue
+    if ! mkdir "$state/S$n.lock" 2>/dev/null; then
+      [ -d "$state/S$n.lock" ] && continue   # another run holds it, or a stale lock: the next id
+      echo "records: couldn't create $state/S$n.lock to claim an id; nothing was registered" >&2; exit 3
+    fi
+    [ -e "$state/S$n.meta" ] || [ -e "$state/S$n.txt" ] || break
+    rmdir "$state/S$n.lock" 2>/dev/null
+  done
   now="$(date +%s)"
   printf '# S%s registered %s\n' "$n" "$now" > "$state/S$n.txt"
   while IFS= read -r line; do printf '%s\n' "$line" >> "$state/S$n.txt"; done < "$tmp.canon"
-  printf '%s\n' "$n" > "$state/counter"
   reg_hash="$(git hash-object --no-filters "$state/S$n.txt")"
   printf 'registered=%s\nhash=%s\n%s\n' "$now" "$reg_hash" "${eff:-effect=1}" > "$state/S$n.meta"
+  rmdir "$state/S$n.lock" 2>/dev/null
+  # The counter moves last, and never back (a run that claimed a lower id may finish later), so a reader never sees an
+  # id whose files aren't there yet.
+  line=0; [ -f "$state/counter" ] && read -r line < "$state/counter"
+  case "$line" in ''|*[!0-9]*) line=0 ;; esac
+  [ "$n" -gt "$line" ] && printf '%s\n' "$n" > "$state/counter"
   reg_id="S$n"
 }
 
@@ -887,7 +914,21 @@ is_word() { # is_word <word>: one of [approval] words, whole, ASCII letters and 
 
 cmd_summary() {
   [ -n "${1:-}" ] || usage
-  local f; f="$(abs_path "$1")"
+  local f inside=0; f="$(abs_path "$1")"
+  # Only a file inside the repository: an error quotes the summary's lines, so a file elsewhere would be printed. The path
+  # and the repository are compared in one form (C:\x, C:/x and /c/x are one folder on Windows, in any case).
+  case "/${1//\\//}/" in */../*) refuse "a summary file is read only from inside the repository: $1" ;; esac
+  one_form "$f"; f="$REPLY"; one_form "$PWD"
+  case "${OSTYPE:-}" in
+    msys*|cygwin*)
+      shopt -s nocasematch
+      [[ $f == "$REPLY"/* ]] && inside=1
+      # Git Bash spells some folders two ways (/tmp/x is C:/Users/<name>/AppData/Local/Temp/x): its own Windows form too.
+      if [ "$inside" -eq 0 ]; then one_form "$(pwd -W 2>/dev/null)"; [ "$REPLY" != "" ] && [[ $f == "$REPLY"/* ]] && inside=1; fi
+      shopt -u nocasematch ;;
+    *) [[ $f == "$REPLY"/* ]] && inside=1 ;;
+  esac
+  [ "$inside" -eq 1 ] || refuse "a summary file is read only from inside the repository: $1"
   [ -f "$f" ] || refuse "no summary file $1"
   read_settings
   register "$f"
@@ -957,10 +998,11 @@ cmd_approve() {
 }
 
 cmd_withdraw() {
-  local id st note d w h r list="" now
+  local id st note d w h r list="" now only=" $* "
   read_settings
   approvals_data
   while IFS="$tab" read -r id st note d w h r; do
+    [ "$#" -eq 0 ] || case "$only" in *" $id "*) ;; *) continue ;; esac
     case "$st" in approved|invalid) [ -f "$state/$id.approval" ] && list="$list $id" ;; esac
   done < "$tmp.appr"
   [ -n "$list" ] || { say "no approval to withdraw"; exit 0; }
@@ -1022,6 +1064,7 @@ cmd_message() {
 
 cmd_report() {
   local since="${1:-}" what
+  case "$since" in -*) refuse "report takes a commit, not an option: $since" ;; esac
   [ "$has_head" -eq 1 ] || { echo "approvals used: none"; echo "proposed items: none"; exit 0; }
   read_settings
   tmp_init
@@ -1054,8 +1097,9 @@ cmd="${1:-}"
 case "$cmd" in
   summary) cmd_summary "$@" ;;
   approve) cmd_approve "$@" ;;
-  withdraw) cmd_withdraw ;;
+  withdraw) cmd_withdraw "$@" ;;
   status) cmd_status ;;
+  word) [ -n "${1:-}" ] || usage; read_settings; is_word "$1"; exit $? ;;
   open) cmd_open "$@" ;;
   check) cmd_check "$@" ;;
   trailer) cmd_trailer ;;

@@ -4,9 +4,16 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T58 · B8 · R1
+**Next IDs:** T59 · B8 · R1
 
 ## Queue
+
+### T58 · Claude Code records the human's approval and guards the records · done · L · agent
+- Touches: framework/.claude/hooks/record-approval.sh (new), framework/.claude/hooks/record-watch.sh (new), framework/.claude/hooks/record-paths.sh (new), framework/.claude/hooks/guard-protected.sh, framework/.claude/hooks/guard-commands.sh, framework/.claude/settings.json, framework/tools/records.sh, selftest.sh, CHANGELOG.md, TASKS.md
+- Done when: the hook's header and the CHANGELOG say what a probe showed the hooks receive for a typed message, a dialog answer, a message typed while a dialog is open, a background subagent's report, another session's message and a scheduled prompt (check) · a prompt hook records an approval when the human's message is nothing but a word from `[approval] words`, alone for a summary registered since the previous message or followed by the summary's id, and the Approve option of a question dialog that names the summary counts too (test) · any other message withdraws an approval that isn't committed yet and tells the assistant that nothing may be written; with no summary waiting the hook prints nothing; only the approval is stored, never a message's text (test) · the file tools can't change `product/brief.md` or `product/decisions.md` without an open approval, never from a subagent, and never the approval state; the command guard refuses `records.sh approve` and a prompt the assistant schedules or sends that is only an approval word (test) · an approval counts only in the session that registered its summary, and a prompt that equals one the session has scheduled is never an approval (test) · the command guard refuses `git cherry-pick`, `git revert`, `git rebase` and `git am` (test) · after a file tool or a shell command changes a protected file, a hook tells the assistant at once which lines no approval covers, whatever wrote them (test) · the 2026-11-11 sequence, replayed against a fake repository, ends with no approval and a refused commit (test) · the guard's existing cases still pass, and the new hooks run on Git Bash and bash 3.2 (check) · the selftest passes (check)
+- Brief: -
+- Stories: -
+- Source: Director-Driven-Development T334
 
 ### T57 · `tools/records.sh` and a commit gate for records · done · L · agent
 - Touches: framework/tools/records.sh (new), framework/.githooks/pre-commit, framework/.githooks/commit-msg (new), framework/tools/setup-clone.sh, project/tools/check.cfg, README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md, TASKS.md
