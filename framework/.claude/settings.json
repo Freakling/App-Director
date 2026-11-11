@@ -13,6 +13,11 @@
       "Bash(node tools/ui/capture.mjs *)",
       "Bash(bash tools/setup-clone.sh*)",
       "Bash(bash tools/stacks/*.sh*)",
+      "Bash(bash tools/records.sh summary *)",
+      "Bash(bash tools/records.sh check*)",
+      "Bash(bash tools/records.sh trailer)",
+      "Bash(bash tools/records.sh status)",
+      "Bash(bash tools/records.sh report*)",
       "Bash(git add *)",
       "Bash(git diff *)",
       "Bash(git log *)",
@@ -68,10 +73,24 @@
       "Bash(git tag *--file*)",
       "PowerShell(git tag *--file*)",
       "Bash(bash tools/*..*)",
-      "PowerShell(bash tools/*..*)"
+      "PowerShell(bash tools/*..*)",
+      "Bash(bash tools/records.sh approve*)",
+      "PowerShell(bash tools/records.sh approve*)"
     ]
   },
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/record-approval.sh\" prompt",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume",
@@ -97,6 +116,11 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-check.sh\"",
             "timeout": 3600
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/record-approval.sh\" stop",
+            "timeout": 15
           }
         ]
       }
@@ -118,7 +142,7 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-protected.sh\"",
-            "timeout": 5
+            "timeout": 30
           }
         ]
       },
@@ -128,7 +152,27 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-protected.sh\"",
-            "timeout": 5
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-protected.sh\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "ScheduleWakeup|CronCreate|CronUpdate|SendMessage|RemoteTrigger|mcp__.*(send_message|scheduled_task).*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/record-approval.sh\" outgoing",
+            "timeout": 15
           }
         ]
       },
@@ -151,6 +195,11 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-touched.sh\" after",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/record-watch.sh\"",
+            "timeout": 30
           }
         ]
       },
@@ -160,6 +209,21 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-touched.sh\" after",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/record-watch.sh\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/record-approval.sh\" dialog",
             "timeout": 20
           }
         ]
@@ -173,6 +237,11 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-touched.sh\" after",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/record-watch.sh\"",
+            "timeout": 30
           }
         ]
       }

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# App Director commit-msg hook · framework-owned: replaced on upgrade.
+# `bash tools/setup-clone.sh` installs a small shim in .git/hooks that runs this file.
+#
+# When the commit carries protected record lines that the human's approvals cover (the pre-commit hook has refused the
+# ones no approval covers), its message must name each approval used, one line each:
+#   Approved: <id> <date> "<word>" <12-character hash>
+# `bash tools/records.sh trailer` prints the lines. Once a commit that names an approval is in the history, the approval
+# covers nothing more. A line in a comment (#) doesn't count. Nothing is asked during a cherry-pick, a revert or a
+# rebase, in a prototype, or when no line an approval covers is staged; during a merge, a change the other parent
+# brought (against its merge base with HEAD) doesn't count. The logic is tools/records.sh's (message). When the install manifest lists tools/records.sh and it is
+# gone, the commit is refused.
+
+if [ ! -f tools/records.sh ]; then
+  grep -qE '(^|[[:space:]])tools/records\.sh[[:space:]]*$' .app-director/manifest 2>/dev/null || exit 0
+  [ -f tools/prototype.sh ] && bash tools/prototype.sh here >/dev/null 2>&1 && exit 0
+  echo "records: tools/records.sh is missing, and App Director installed it (.app-director/manifest), so the records gate can't run and the commit is refused."
+  echo "records: restore it with 'git checkout HEAD -- tools/records.sh' (or upgrade App Director, which installs it again), then commit again."
+  exit 1
+fi
+exec bash tools/records.sh message "$1"

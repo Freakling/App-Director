@@ -505,6 +505,67 @@ grep -q '`\[records\] bugs`' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md
 [ -z "$wired" ] && ok "the proposed status, the bugs rule, the message rules and the [records] bugs setting are wired into the rules, the procedures, the seed and onboarding" \
   || bad "the proposed status and the records rules aren't wired into:$wired"
 
+# The procedures write records through the approved summary: design.md holds the steps once (register, show word for
+# word with the id, only a recorded approval, commit after it), the other procedures point there, next-task.md commits a
+# decision's records before the rebuild and takes the final report from records.sh report, build.md and the agents say
+# a subagent reports record text and never writes it, and the changelog names the four upgrade points.
+wired=""
+_dd="$adir/procedures/design.md"
+grep -q '^2\. \*\*Register it\.\*\*' "$_dd" && grep -qF 'bash tools/records.sh summary <file>' "$_dd" \
+  && grep -q '^3\. \*\*Show it\.\*\*' "$_dd" && grep -qF 'word for word, with the id' "$_dd" \
+  && grep -qF 'Approve this summary (S<n>), or tell me what to change?' "$_dd" \
+  && grep -q '^4\. \*\*Only a recorded approval counts\.\*\*' "$_dd" && grep -qF 'bash tools/records.sh approve <id>' "$_dd" \
+  && grep -qF 'Write these only after the approval is recorded' "$_dd" && grep -qF 'bash tools/records.sh trailer' "$_dd" \
+  && grep -qF 'Never change a summary to match what was written' "$_dd" || wired="$wired design.md"
+grep -q 'registered, shown and approved as `design.md` › Summary and approval says' "$adir/procedures/ui-design.md" || wired="$wired ui-design.md"
+for _p in acceptance align research drift-reset security; do
+  grep -q 'design\.md` › Summary and approval' "$adir/procedures/$_p.md" && grep -qi 'protected' "$adir/procedures/$_p.md" || wired="$wired $_p.md"
+done
+[ "$(grep -c 'registered, shown and approved as' "$adir/procedures/drift-reset.md")" -eq 2 ] || wired="$wired drift-reset.md(two summaries)"
+grep -q 'Summary and approval says; the decisions, confirmed stories and `todo` items are protected' "$_dd" || wired="$wired design.md(harvest)"
+grep -q 'confirmed stories and the Last validated value are protected' "$_dd" && grep -q 'A confirmed story is a protected record line' "$_dd" || wired="$wired design.md(stories)"
+grep -qF 'commit its records at once, as their own commit, before the rebuild' "$adir/procedures/next-task.md" \
+  && grep -qF 'a later message from the human withdraws one that isn' "$adir/procedures/next-task.md" \
+  && grep -qF 'bash tools/records.sh report <the commit the run started from>' "$adir/procedures/next-task.md" \
+  && grep -qF 'each record written with its approval' "$adir/procedures/next-task.md" || wired="$wired next-task.md"
+grep -q 'A run.s final report' "$adir/rules.md" && wired="$wired rules.md(final report still there)"
+grep -qF 'bash tools/records.sh summary' "$adir/rules.md" && grep -qF 'only an approval the tool recorded counts' "$adir/rules.md" \
+  && grep -qF 'carries the `Approved:` line' "$adir/rules.md" || wired="$wired rules.md"
+grep -qF 'report record text and never write it' "$adir/procedures/build.md" || wired="$wired build.md"
+grep -qF 'report record text and never write it' "$adir/rules.md" || wired="$wired rules.md(who records)"
+for _a in builder reviewer researcher; do
+  grep -qF 'file guard refuses a subagent' "$src/framework/.claude/agents/$_a.md" && grep -qF 'is never approved' "$src/framework/.claude/agents/$_a.md" \
+    && grep -q 'record text' "$src/framework/.claude/agents/$_a.md" || wired="$wired agents/$_a.md"
+done
+grep -q 'the commit refuses record lines no approval covers' "$src/README.md" || wired="$wired README.md"
+grep -qF '`[approval] words`' "$src/ONBOARDING.md" && grep -qF 'needs no registered summary' "$src/ONBOARDING.md" \
+  && grep -qF 'the approval hook works from the next session after the upgrade' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
+# The changelog section that holds this change, whether it is still Unreleased or already a release.
+_unrel="$(awk '/^## /{ if (hit) exit; sec = "" } { sec = sec $0 "\n" } /The procedures write records through the approved summary/{ hit = 1 } END { if (hit) printf "%s", sec }' "$src/CHANGELOG.md")"
+for _pt in '.claude/settings.json.adir-new' 'bash tools/setup-clone.sh' '`[approval] words`' "Lines already committed aren't judged"; do
+  printf '%s\n' "$_unrel" | grep -qF -- "$_pt" || wired="$wired CHANGELOG($_pt)"
+done
+[ -z "$wired" ] && ok "the procedures register, show and commit records through the approved summary, and the final report, the subagents and the changelog say so" \
+  || bad "the approved-summary wiring is missing from:$wired"
+
+# The records gate: the pre-commit hook runs it before the check, the commit-msg hook hands its message to it, setup-clone
+# installs that hook, and the check.cfg seed carries every [records] path and [approval] words with the defaults the
+# script uses. The gate itself runs under "records gate".
+wired=""
+_pc="$src/framework/.githooks/pre-commit"
+grep -q 'bash tools/records.sh check --staged || exit 1' "$_pc" \
+  && [ "$(grep -n 'records.sh check' "$_pc" | head -n 1 | cut -d: -f1)" -lt "$(grep -n 'run_check$' "$_pc" | tail -n 1 | cut -d: -f1)" ] || wired="$wired pre-commit"
+grep -q 'exec bash tools/records.sh message "\$1"' "$src/framework/.githooks/commit-msg" || wired="$wired commit-msg"
+grep -q 'for name in pre-commit pre-push commit-msg; do' "$src/framework/tools/setup-clone.sh" || wired="$wired setup-clone.sh"
+for _kv in "bugs = cited" "brief = product/brief.md" "decisions = product/decisions.md" "stories = product/user-stories.md" "tasks = TASKS.md"; do
+  sed -n '/^\[records\]$/,/^\[[a-z]*\]$/p' "$src/project/tools/check.cfg" | grep -qx "$_kv" && grep -qF "${_kv#* = }" "$src/framework/tools/records.sh" || wired="$wired check.cfg($_kv)"
+done
+_words="$(sed -n '/^\[approval\]$/,/^\[[a-z]*\]$/p' "$src/project/tools/check.cfg" | sed -n 's/^words = //p')"
+[ -n "$_words" ] && grep -qF "words=\"$_words\"" "$src/framework/tools/records.sh" || wired="$wired check.cfg([approval] words)"
+grep -q 'tools/records.sh' "$src/README.md" && grep -q '\.githooks/commit-msg' "$src/README.md" && grep -q '\.githooks/commit-msg' "$src/ONBOARDING.md" || wired="$wired docs"
+[ -z "$wired" ] && ok "the records gate is wired into the hooks, setup-clone, the check.cfg seed and the docs" \
+  || bad "the records gate isn't wired into:$wired"
+
 # Prototypes: the procedure, the skill and tools/prototype.sh exist and are wired in. rules.md routes the
 # procedure and says a prototype session is outside the loop and reaches main only through the harvest, the
 # item format has Prototype:, the design procedure harvests one and files nothing without the human, the
@@ -565,17 +626,19 @@ _ap_rec="$(grep -n '^## Record each decision in one change$' "$_ap_dm" | cut -d:
   || wired="$wired design.md(Summary and approval between For each question and Record)"
 grep -qF 'Hold the answer in the conversation: nothing is recorded yet, and an answered part is not recorded by itself.' "$_ap_dm" \
   && ! grep -qF 'record only that part' "$_ap_dm" || wired="$wired design.md(the wait holds the answers)"
-grep -qF 'Nothing is written before the human approves it.' "$_ap_dm" && grep -qF 'Approve this summary, or tell me what to change?' "$_ap_dm" \
-  && grep -qF 'Only a yes to the summary as shown approves it.' "$_ap_dm" \
+grep -qF 'Nothing is written before the human approves it.' "$_ap_dm" && grep -qF 'Approve this summary (S<n>), or tell me what to change?' "$_ap_dm" \
+  && grep -qF 'An earlier summary is not approved by a later word.' "$_ap_dm" \
   && grep -qF 'each user story with its ID and its Confirmed date, or `unconfirmed`;' "$_ap_dm" \
   && grep -qF 'the research notes and `R<n>` items.' "$_ap_dm" || wired="$wired design.md(the summary's list)"
-grep -qF 'Write everything the approved summary lists and commit it as one change, `docs: <summary>`' "$_ap_dm" \
+grep -qF 'Write everything the approved summary lists, stage it, and commit it at once as one change, `docs: <summary>`' "$_ap_dm" \
   && grep -qF 'The approval of the summary is the approval to commit (`rules.md` › Git).' "$_ap_dm" || wired="$wired design.md(Finish)"
-[ "$(grep -cF "$_ap_ptr" "$_ap_dm")" -ge 2 ] || wired="$wired design.md(pointers in the validation and the harvest)"
-for _ap_f in research.md next-task.md ui-design.md acceptance.md align.md; do
-  grep -qF "$_ap_ptr" "$adir/procedures/$_ap_f" || wired="$wired $_ap_f(pointer)"
+_ap_ptr2='Write nothing until the human approves a summary of all of it, registered, shown and approved as'
+[ "$(grep -cF "$_ap_ptr2" "$_ap_dm")" -ge 2 ] || wired="$wired design.md(pointers in the validation and the harvest)"
+for _ap_f in research.md ui-design.md acceptance.md align.md; do
+  grep -qF "$_ap_ptr2" "$adir/procedures/$_ap_f" || wired="$wired $_ap_f(pointer)"
 done
-[ "$(grep -cF "$_ap_ptr" "$adir/procedures/drift-reset.md")" -ge 2 ] || wired="$wired drift-reset.md(pointers in the reset and the postmortem)"
+grep -qF "$_ap_ptr" "$adir/procedures/next-task.md" || wired="$wired next-task.md(pointer)"
+[ "$(grep -cF "$_ap_ptr2" "$adir/procedures/drift-reset.md")" -ge 2 ] || wired="$wired drift-reset.md(pointers in the reset and the postmortem)"
 grep -qF "$_ap_ptr" "$src/ONBOARDING.md" && grep -q '^### Summary and approval$' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md(pointer and Summary and approval)"
 grep -qF 'Inside a session or onboarding the fixes join its summary.' "$adir/procedures/align.md" || wired="$wired align.md(the fixes join the summary)"
 grep -qF 'the decision lines word for word, the design diff' "$adir/procedures/drift-reset.md" && grep -qF 'and each TASKS.md item in full' "$adir/procedures/drift-reset.md" \
@@ -1191,6 +1254,10 @@ fi
   && [ -x .githooks/pre-push ] \
   && ok "installs prototypes: the procedure, the skill, tools/prototype.sh and the pre-push hook" \
   || bad "installs prototypes: the procedure, the skill, tools/prototype.sh and the pre-push hook" "$out"
+[ -x tools/records.sh ] && [ -x .githooks/commit-msg ] && grep -q "$(printf '\t')tools/records.sh$" .app-director/manifest \
+  && grep -q "$(printf '\t').githooks/commit-msg$" .app-director/manifest && git check-ignore -q .app-director/state/records/S1.txt \
+  && ok "installs the records gate (tools/records.sh) and the commit-msg hook, and git ignores the approvals it keeps" \
+  || bad "installs the records gate (tools/records.sh) and the commit-msg hook, and git ignores the approvals it keeps" "$out"
 [ -x tools/stories.sh ] && cmp -s product/user-stories.md "$src/project/product/user-stories.md" \
   && ok "installs tools/stories.sh and seeds product/user-stories.md" \
   || bad "installs tools/stories.sh and seeds product/user-stories.md" "$out"
@@ -1205,6 +1272,11 @@ grep -q "$(printf '\t')tools/ui/capture.mjs$" .app-director/manifest && ! grep -
 [ -x .claude/hooks/session-touched.sh ] && grep -q "$(printf '\t').claude/hooks/session-touched.sh$" .app-director/manifest \
   && git check-ignore -q .app-director/state/sessions/design.touched && git check-ignore -q .app-director/state/sessions/design.before \
   && ok "installs the session record hook, and git ignores the records it keeps" || bad "installs the session record hook, and git ignores the records it keeps" "$(cat .gitignore)"
+[ -x .claude/hooks/record-approval.sh ] && [ -x .claude/hooks/record-watch.sh ] && [ -f .claude/hooks/record-paths.sh ] && grep -q "$(printf '\t').claude/hooks/record-approval.sh$" .app-director/manifest \
+  && grep -q "$(printf '\t').claude/hooks/record-watch.sh$" .app-director/manifest && grep -q 'record-approval\.sh' .claude/settings.json \
+  && git check-ignore -q .app-director/state/records/claude/S1.stamp \
+  && ok "installs the approval hook and the record watch, wires them into settings.json, and git ignores what they keep" \
+  || bad "installs the approval hook and the record watch, wires them into settings.json, and git ignores what they keep"
 [ -x .claude/hooks/release-check.sh ] && grep -q "$(printf '\t').claude/hooks/release-check.sh$" .app-director/manifest \
   && grep -q 'release-check\.sh' .claude/settings.json && git check-ignore -q .app-director/state/latest-release \
   && ok "installs the release check hook, wires it into settings.json, and git ignores the cache it keeps" \
@@ -5289,6 +5361,100 @@ EOF
   guard_run
   guard_report "$git_fail" "the guard hook doesn't read a path in front of git's -c and program flags or in front of a shell, so they pass behind it, or it blocks a path that is an argument or a message (Director-Driven-Development T294)" "the guard hook blocks git's -c and program flags and a shell's script behind a quoted path with a space, a backslash path, forward slashes, .exe in any case and a prefix, in the Bash and the PowerShell tool, and passes the paths that are arguments, messages and other programs (T294)"
 
+  # The records (Director-Driven-Development T334): records.sh approve in the forms the guard can read, a records.sh command
+  # with a $, a backtick or a glob, a command that names the approvals' state, and the git commands that commit without the
+  # pre-commit hook where git is the command being run; and messages, titles and searches that only name them pass.
+  git_fail=""
+  for cmd in \
+      'bash tools/records.sh approve S1 --hook --word ok --by prompt' \
+      'bash tools/records.sh approve S1' \
+      'sh ./tools/records.sh approve S2' \
+      'env FOO=1 bash tools/records.sh approve S3 --hook --word ja --by dialog' \
+      'bash "tools/records.sh" "approve" S1' \
+      "bash tools/records.sh 'app'rove S1" \
+      'cd tools && bash records.sh approve S1' \
+      './tools/records.sh approve S1 --hook --word ok --by prompt' \
+      'BASH TOOLS/RECORDS.SH APPROVE S1' \
+      'bash -c "bash tools/records.sh approve S1 --hook --word ok --by prompt"' \
+      "bash tools/records.sh \$'approve' S1 --hook --word ok --by prompt" \
+      'a=approve; bash tools/records.sh $a S1 --hook --word ok --by prompt' \
+      'bash tools/records.sh $(echo approve) S1 --hook --word ok --by prompt' \
+      'bash tools/records.sh `echo approve` S1' \
+      'bash tools/records.sh appro? S1' \
+      'bash tools/records.sh [a]pprove S1' \
+      'echo approve S1 --hook --word ok --by prompt | xargs bash tools/records.sh' \
+      'bash tools/records.sh' \
+      'bash tools/records.sh frobnicate S1' \
+      'timeout -s KILL 60 bash tools/records.sh approve S1 --hook --word ok --by prompt' \
+      'echo S1 | xargs -I {} bash tools/records.sh approve {} --hook --word ok --by prompt' \
+      'nice bash tools/records.sh approve S1 --hook --word ok --by prompt' \
+      'zsh tools/records.sh approve S1 --hook --word ok --by prompt' \
+      'cat .app-director/state/./records/S1.txt' \
+      'cp x ".app-director/state/records/S1.approval"' \
+      'cat .app-director//state/.//records/S1.txt' \
+      'cat .app-director/state/records/S1.txt' \
+      'ls .app-director/state/records' \
+      'rm -rf ./.app-director/state/records/' \
+      'printf "hash=x\n" > .app-director/state/records/S1.approval' \
+      'cat .app-director\state\records\S1.meta' \
+      'cat ".app-director/state/"records/S1.txt' \
+      'cat .app-director/state/rec*/S1.txt' \
+      'cat .app-director/*/records/S1.txt' \
+      'git cherry-pick abc123' \
+      'git revert HEAD' \
+      'git rebase main' \
+      'git am < fix.patch' \
+      'git -C work/app revert HEAD' \
+      'git -c core.quotepath=false rebase origin/main' \
+      'git --no-pager cherry-pick -x abc123' \
+      'git "rebase" --continue' \
+      'env GIT_TRACE=0 git revert HEAD' \
+      'timeout 60 git rebase main' \
+      '/usr/bin/git am p.mbox' \
+      'cd x && git am -3 p.mbox'; do
+    guard 2 "$cmd" Bash 'record'
+    guard 2 "$cmd" PowerShell
+  done
+  # Backslashes: an escape in Bash (ap\prove is approve, tools\records.sh is toolsrecords.sh), a separator in PowerShell.
+  guard 2 'bash tools/rec*.sh approve S1 --hook --word ok --by prompt' Bash 'glob'
+  guard 2 'bash tools/rec*.sh approve S1 --hook --word ok --by prompt' PowerShell
+  guard 2 "bash <<'EOF'${nl}bash tools/records.sh approve S1 --hook --word ok --by prompt${nl}EOF" Bash 'records.sh runs only'
+  guard 0 "cat > notes.md <<'EOF'${nl}bash tools/records.sh approve S1 is refused${nl}EOF"
+  guard 2 'bash tools/records.sh ap\prove S1'
+  guard 2 'bash tools\records.sh approve S1'
+  guard 2 'bash tools\records.sh approve S1' PowerShell
+  for cmd in \
+      'bash tools/records.sh summary .app-director/state/summary.txt' \
+      'bash tools/records.sh status' \
+      'bash tools/records.sh check --worktree' \
+      'bash tools/records.sh trailer' \
+      'git commit -q -m "docs: approve the plan"' \
+      'git log --grep revert' \
+      'git pull --rebase origin main' \
+      'git status' \
+      'cat .app-director/state/summary.txt' \
+      'git commit -m "records.sh approve is refused now"' \
+      'git commit -m "approve plan --hook"' \
+      'gh pr create --title "Undo it with git revert"' \
+      'grep -rn "git rebase" docs' \
+      'echo git rebase is done by hand' \
+      'git log --oneline -- tools/records.sh' \
+      "grep -nE 'S[0-9]+' tools/records.sh" \
+      "grep -n 'withdraw\$' tools/records.sh" \
+      "git log -S'\$x' -- tools/records.sh" \
+      'git commit -m "fix: keep .app-director/state/records out of reach"' \
+      'grep -rn ".app-director/state/records" .' \
+      'bash tools/records.sh word ok' \
+      'bash tools/records.sh open product/brief.md' \
+      'bash tools/records.sh report HEAD~3' \
+      'bash -n tools/records.sh' \
+      'echo approve'; do
+    guard 0 "$cmd"
+    guard 0 "$cmd" PowerShell
+  done
+  guard_run
+  guard_report "$git_fail" "the guard hook lets records.sh approve, a command naming the approvals' state, or git cherry-pick, revert, rebase or am through, or blocks an ordinary records.sh or git command (T334)" "the guard hook blocks records.sh approve in the forms it can read, a records.sh command with a \$, a backtick or a glob, a command naming .app-director/state/records, and git cherry-pick, revert, rebase and am where git is the command being run, in the Bash and the PowerShell tool, and passes the other records.sh and git commands and the messages, titles and searches that name them (T334)"
+
   # The PowerShell tool (B24) has its own name. The guard runs for it only when the hook's matcher names it,
   # and a Bash(...) deny or ask rule stops the same command in PowerShell only through its PowerShell(...)
   # twin, in the same list. The allow list names no PowerShell command, so nothing PowerShell runs is allowed
@@ -6443,6 +6609,1081 @@ out="$(cd "$_ps" && bash tools/prototype.sh remove try 2>&1)"; status=$?
 [ "$status" -eq 0 ] && [ ! -e "$_psw" ] && ok "remove works there" || bad "remove works in a folder whose name has a space (exit $status)" "$out"
 }
 
+part_records() {
+# --- records gate ---------------------------------------------------------------------------------
+echo "records gate"
+# tools/records.sh, the pre-commit gate and the commit-msg hook in a scratch app with a brief, decisions, stories, a
+# TASKS.md and [records] in tools/check.cfg (T333). It has no tools/check.sh, so a commit runs the gate and nothing else
+# (a prototype's commit also scans, with a stand-in gitleaks). The terminal-only approve can't be driven by a script: it is
+# tested to refuse without a terminal, and the approving cases go through the --hook entry an adapter's hook uses.
+_rg_gl="$work/records-gl"; mkdir -p "$_rg_gl"
+printf '#!/usr/bin/env bash\ncase "$1" in version) printf "v8.18.0\\n";; esac; exit 0\n' > "$_rg_gl/gitleaks"
+chmod +x "$_rg_gl/gitleaks"
+PATH="$_rg_gl:$PATH"
+_ra="$work/records-app"
+new_repo "$_ra"
+mkdir -p "$_ra/tools" "$_ra/.githooks" "$_ra/product" "$_ra/.app-director/state"
+cp "$src/framework/tools/records.sh" "$src/framework/tools/prototype.sh" "$src/framework/tools/setup-clone.sh" "$_ra/tools/"
+cp "$src/framework/.githooks/pre-commit" "$src/framework/.githooks/commit-msg" "$_ra/.githooks/"
+printf '.app-director/state/\n' > "$_ra/.gitignore"
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n' > "$_ra/product/brief.md"
+printf "# Decisions\n\n- 2026-11-01 · members sign in by email · the director's call\n" > "$_ra/product/decisions.md"
+_rg_stories() { # _rg_stories <Last validated> <row>...: the stories file, with US-1 confirmed and these rows after it
+  local lv="$1"; shift
+  { printf '# User stories\n\n**Next ID:** US-4 · **Last validated:** %s\n\n| ID | Story | Confirmed |\n|---|---|---|\n' "$lv"
+    printf '| US-1 | As a member I pay for my place. | 2026-11-01 |\n'; printf '%s\n' "$@"; } > "$_ra/product/user-stories.md"
+}
+_rg_us2='| US-2 | As a member I see the next meeting. | unconfirmed |'
+_rg_stories never "$_rg_us2"
+_rg_tasks() { # _rg_tasks <Next IDs> <item>...: TASKS.md with these items, in this order
+  local ids="$1" item; shift
+  { printf '# Tasks\n\n**Next IDs:** %s\n\n## Queue\n\n' "$ids"; for item in "$@"; do printf '%s\n\n' "$item"; done
+    printf '## Milestones\n\n| # | Name | Status |\n|---|---|---|\n| M1 | Paying | todo |\n'; } > "$_ra/TASKS.md"
+}
+_rg_t1h='### T1 · Members pay by card · todo · S · agent'
+_rg_t1b='- Touches: src/pay.ts
+- Done when: a card payment is saved (test)
+- Brief: Core Flows › Paying
+- Stories: US-1'
+_rg_t1="$_rg_t1h$nl$_rg_t1b"
+_rg_t2='### T2 · Scaffold · done · XS · agent
+- Touches: src/
+- Done when: the app starts (check)'
+_rg_t3h="### T3 · An idea of the assistant's · proposed · S · agent"
+_rg_t3b='- Touches: src/idea.ts
+- Done when: the idea works (test)'
+_rg_t3="$_rg_t3h$nl$_rg_t3b"
+_rg_base() { _rg_tasks "T4 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3"; }
+_rg_base
+printf '[project]\nstack = none\n\n[records]\n; which bugs are free\nbugs = cited\n' > "$_ra/tools/check.cfg"
+(cd "$_ra" && git branch -M main && git add -A && git_q commit -qm "the records") >/dev/null 2>&1
+out="$(cd "$_ra" && bash tools/setup-clone.sh 2>&1)"
+grep -qs '\.githooks/commit-msg' "$(git -C "$_ra" rev-parse --absolute-git-dir)/hooks/commit-msg" \
+  && ok "setup-clone installs the commit-msg hook beside the other two" || bad "setup-clone installs the commit-msg hook" "$out"
+
+rg() { cd "$_ra" && exec bash tools/records.sh "$@" 2>&1; }   # always called in $(...)
+rg_commit() { cd "$_ra" && git_q commit -q "$@" 2>&1; }       # always called in $(...)
+rg_reset() { git -C "$_ra" reset -q --hard; }
+rg_stage() { git -C "$_ra" add -A; }
+_rg_sum="$_ra/.app-director/state/summary.txt"
+rg_register() { # rg_register <line>...: writes and registers a summary; sets rg_id, rg_h and out
+  printf '%s\n' "$@" > "$_rg_sum"
+  out="$(rg summary .app-director/state/summary.txt)"; rg_status=$?
+  rg_id="${out#records: summary }"; rg_id="${rg_id%% *}"
+  rg_h="${out#records: summary * · }"; rg_h="${rg_h%%"$nl"*}"
+}
+rg_refused() { # rg_refused <what> <pattern>...: the staged change is refused, and the output matches each pattern
+  local what="$1" p; shift
+  rg_stage; out="$(rg check)"; rg_status=$?
+  expect_status "refused: $what" 1 "$rg_status" "$out"
+  for p in "$@"; do expect_output "  and names it: $p" "$p" "$out"; done
+}
+rg_free() { # rg_free <what>: the staged change passes
+  rg_stage; out="$(rg check)"; expect_status "free: $1" 0 $? "$out"
+}
+_rg_dec1="- 2026-11-11 · members can pay by invoice · the director's call"
+
+# 1. Nothing staged, and approve without a terminal.
+out="$(rg check)"; expect_status "check passes with nothing staged" 0 $? "$out"
+out="$(rg approve S1 < /dev/null)"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "run 'bash tools/records.sh approve S1' in your own terminal"; } \
+  && ok "approve refuses without a terminal, and says to run it in the human's own" || bad "approve refuses without a terminal (exit $status)" "$out"
+
+# 2. A decision line: refused without an approval, at the check and at the commit, with what to do.
+printf '%s\n' "$_rg_dec1" >> "$_ra/product/decisions.md"
+rg_refused "a decision line" "^  product/decisions\.md: \+ - 2026-11-11 · members can pay by invoice" "\(a decision line\)" \
+  "bash tools/records\.sh summary <file>" "word for word" "bash tools/records\.sh approve --staged. in your own terminal"
+out="$(rg_commit -m "a decision")"; expect_status "the pre-commit hook refuses it" 1 $? "$out"
+# approve --staged prints the lines it would cover, then refuses without a terminal, and registers nothing.
+out="$(rg approve --staged < /dev/null)"; status=$?
+expect_status "approve --staged refuses without a terminal" 1 "$status" "$out"
+expect_output "  after printing the staged lines it would cover" "^\+ - 2026-11-11 · members can pay by invoice · the director's call$" "$out"
+expect_output "  under their file" "^## product/decisions\.md$" "$out"
+expect_output "  and says to run it in the human's own terminal" "approve --staged' in your own terminal" "$out"
+[ ! -e "$_ra/.app-director/state/records/S1.meta" ] && ok "  and registers no summary and no approval" \
+  || bad "approve --staged without a terminal registered S1" "$(ls "$_ra/.app-director/state/records")"
+
+# 3. The summary format: each error names its line, and nothing is registered.
+printf '## product/decisions.md\n* a list item\n' > "$_rg_sum"
+out="$(rg summary .app-director/state/summary.txt)"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "line 2 of the summary: not .## <path>., .+ <line>. or .- <line>.: \* a list item"; } \
+  && ok "summary refuses a line that isn't ## <path>, + or -, naming it" || bad "summary refuses a malformed line (exit $status)" "$out"
+printf '## product/decisions.md\n- a line that was never there\n' > "$_rg_sum"
+out="$(rg summary .app-director/state/summary.txt)"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "the line removed isn't in product/decisions.md at HEAD"; } \
+  && ok "summary refuses a removed line that isn't in the file at HEAD" || bad "summary refuses a removed line not at HEAD (exit $status)" "$out"
+printf '## src/app.ts\n+ x\n' > "$_rg_sum"
+out="$(rg summary .app-director/state/summary.txt)"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "src/app.ts isn't a record file"; } \
+  && ok "summary refuses a file that isn't a record file" || bad "summary refuses a file that isn't a record file (exit $status)" "$out"
+[ ! -e "$_ra/.app-director/state/records/S1.meta" ] && ok "a refused summary registers nothing" || bad "a refused summary registered S1"
+
+# 4. Registered: the id, the hash and the lines, to be shown word for word. The same text again: a new id and a new hash,
+# since the hash covers the id and the registration time too.
+rg_register "## product/decisions.md" "+ $_rg_dec1"
+expect_status "summary registers a summary" 0 "$rg_status" "$out"
+expect_output "and prints its id and hash" "^records: summary S1 · [0-9a-f]{12}$" "$out"
+expect_output "and the lines, grouped by file" "^## product/decisions\.md$" "$out"
+expect_output "  each as given" "^\+ - 2026-11-11 · members can pay by invoice · the director's call$" "$out"
+expect_output "and says to show them word for word with the id, and that nothing is written before the approval" \
+  "show the human these lines word for word, with the id S1\. Nothing is written until they approve it\.$" "$out"
+_rg_h1="$rg_h"
+rg_register "## product/decisions.md" "+ $_rg_dec1"
+[ "$rg_id" = S2 ] && [ -n "$rg_h" ] && [ "$rg_h" != "$_rg_h1" ] && ok "the same text again gets a new id and a new hash" \
+  || bad "the same text again gets a new id and a new hash ($rg_id $rg_h, S1 $_rg_h1)" "$out"
+_rg_h2="$rg_h"
+rg_refused "a registered summary isn't an approval" "S[12] is registered but not approved yet"
+
+# 5. Approved through the hook entry: the check passes, and the trailer names it.
+out="$(rg approve S1 --hook --word maybe --by prompt)"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "'maybe' isn't an approval word"; } \
+  && ok "the hook entry refuses a word that isn't an approval word" || bad "the hook entry refuses a word that isn't an approval word (exit $status)" "$out"
+out="$(rg approve S1 --hook --word GODKÄNT --by prompt)"; expect_status "the hook entry records an approval, the word in any case" 0 $? "$out"
+out="$(rg check)"; expect_status "the approved decision line passes" 0 $? "$out"
+out="$(rg open product/decisions.md)"; expect_status "open: an approved summary has lines for the decisions" 0 $? "$out"
+out="$(rg open product/brief.md)"; expect_status "open: and none for the brief" 1 $? "$out"
+out="$(rg status)"
+expect_output "status lists the approved summary" "^S1 $_rg_h1 approved [0-9]+$" "$out"
+expect_output "and the registered one" "^S2 $_rg_h2 registered [0-9]+$" "$out"
+_rg_trailer="$(rg trailer)"
+expect_output "trailer prints the Approved: line" "^Approved: S1 [0-9]{4}-[0-9]{2}-[0-9]{2} \"GODKÄNT\" $_rg_h1$" "$_rg_trailer"
+
+# 6. The commit-msg hook: without the line it refuses and prints it; a comment doesn't count; with it the commit is made.
+out="$(rg_commit -m "docs: invoices")"; status=$?
+expect_status "commit-msg refuses a message that doesn't name the approval" 1 "$status" "$out"
+expect_output "and prints the line to add" "^  $_rg_trailer$" "$out"
+printf 'docs: invoices\n\n# %s\n' "$_rg_trailer" > "$work/records-msg"
+out="$(rg message "$work/records-msg")"; expect_status "a commented-out Approved: line doesn't count" 1 $? "$out"
+out="$(rg_commit -m "docs: invoices" -m "$_rg_trailer")"; expect_status "the commit that names the approval is made" 0 $? "$out"
+
+# 7. Used: the approval covers nothing more, nor does a summary with the same text.
+printf '%s\n' "$_rg_dec1" >> "$_ra/product/decisions.md"
+rg_refused "an approval used a second time" "S[12] is already used( in commit [0-9a-f]+|: its lines are already committed)"
+rg_reset
+out="$(rg status)"; expect_no_output "status leaves out the used summaries" "^S[12] " "$out"
+out="$(rg report)"
+expect_output "report lists the Approved: line with its commit" "^  [0-9a-f]+ docs: invoices: $_rg_trailer$" "$out"
+expect_output "and the proposed items" "^  $_rg_t3h$" "$out"
+out="$(rg report HEAD)"; expect_output "report since HEAD: none" "^  none$" "$out"
+
+# 8. Brief text: both the removed and the added line, and an approval with both passes.
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card or invoice.\n' > "$_ra/product/brief.md"
+rg_refused "brief text" "^  product/brief\.md: - Members pay by card\.$" "^  product/brief\.md: \+ Members pay by card or invoice\.$" "\(brief text under .# Brief › ## Core Flows › ### Paying.\)"
+rg_register "## product/brief.md" "- Members pay by card." "+ Members pay by card or invoice."
+out="$(rg approve "$rg_id" --hook --word ok --by dialog)"
+out="$(rg check)"; expect_status "approved brief text passes" 0 $? "$out"
+rg_reset
+
+# 9. A new todo item: its heading and fields, and an approval of them passes.
+_rg_t4h='### T4 · Members pay by invoice · todo · M · agent'
+_rg_t4="$_rg_t4h
+- Touches: src/billing/
+- Done when: an invoice is created for a member who chooses it (test)
+- Brief: Core Flows › Paying
+- Stories: US-1
+- Note: started from the brief"
+_rg_tasks "T5 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "$_rg_t4"
+rg_refused "a new todo item" "^  TASKS\.md: \+ $_rg_t4h$" "^  TASKS\.md: \+ - Done when: an invoice" "a new item that isn't .proposed."
+expect_no_output "  but not its Note: line" "Note: started" "$out"
+rg_register "## TASKS.md" "+ $_rg_t4h" "+ - Touches: src/billing/" "+ - Done when: an invoice is created for a member who chooses it (test)" \
+  "+ - Brief: Core Flows › Paying" "+ - Stories: US-1"
+out="$(rg approve "$rg_id" --hook --word ja --by prompt)"
+out="$(rg check)"; expect_status "an approved new item passes" 0 $? "$out"
+_rg_tasks "T5 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "${_rg_t4/Members pay by invoice/Members pay by invoice or card}"
+rg_refused "an approval covers only the text registered" "the approved summary S[0-9]+ has lines for TASKS\.md, but not this one: the text differs from the summary"
+rg_reset
+
+# 10. An approval whose summary changed, one withdrawn, and one older than its summary.
+_rg_dec2="- 2026-11-12 · a second decision"
+printf '%s\n' "$_rg_dec2" >> "$_ra/product/decisions.md"
+rg_register "## product/decisions.md" "+ $_rg_dec2"; _rg_s="$rg_id"
+out="$(rg approve "$rg_id" --hook --word yes --by prompt)"
+printf '+ - 2026-11-12 · a line added later\n' >> "$_ra/.app-director/state/records/$_rg_s.txt"
+rg_refused "a summary changed after its approval" "the text of $_rg_s differs from the summary the human approved"
+out="$(rg status)"; expect_output "status calls it invalid" "^$_rg_s [0-9a-f]{12} invalid " "$out"
+rg_register "## product/decisions.md" "+ $_rg_dec2"; _rg_s="$rg_id"
+out="$(rg approve "$rg_id" --hook --word yes --by prompt)"
+out="$(rg withdraw)"; expect_output "withdraw names what it withdrew" "^records: withdrawn:.* $_rg_s$" "$out"
+rg_refused "a withdrawn approval" "$_rg_s was approved, then withdrawn"
+rg_register "## product/decisions.md" "+ $_rg_dec2"; _rg_s="$rg_id"
+out="$(rg approve "$rg_id" --hook --word yes --by prompt)"
+_rg_ap="$_ra/.app-director/state/records/$_rg_s.approval"
+sed 's/^time=.*/time=1000000000/' "$_rg_ap" > "$work/records-ap" && cp "$work/records-ap" "$_rg_ap"
+rg_refused "an approval older than its summary" "the approval of $_rg_s is older than its summary"
+rg_reset
+
+# 11. Free: status changes, the escalation label, a Note:, Next IDs, a pruned done item, proposed items, a moved item and
+# unconfirmed stories.
+_rg_tasks "T4 · B1 · R1" "${_rg_t1h/todo/in-progress 2026-11-11}$nl$_rg_t1b" "$_rg_t2" "$_rg_t3"; rg_free "todo to in-progress"
+_rg_tasks "T4 · B1 · R1" "${_rg_t1h/todo/done 2026-11-11}$nl$_rg_t1b" "$_rg_t2" "$_rg_t3"; rg_free "a done item with a date"
+_rg_tasks "T4 · B1 · R1" "${_rg_t1h/ S / M (escalated from S) }$nl$_rg_t1b" "$_rg_t2" "$_rg_t3"; rg_free "the escalation label"
+_rg_tasks "T4 · B1 · R1" "$_rg_t1$nl- Note: halfway; the card form is next$nl  and a line under it" "$_rg_t2" "$_rg_t3"; rg_free "a Note: line"
+_rg_tasks "T9 · B4 · R2" "$_rg_t1" "$_rg_t2" "$_rg_t3"; rg_free "the Next IDs line"
+_rg_tasks "T4 · B1 · R1" "$_rg_t1" "$_rg_t3"; rg_free "a pruned done item"
+_rg_tasks "T5 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3h$nl- Touches: src/idea.ts$nl- Done when: the idea works better (test)" \
+  "### T4 · Another idea · proposed · S · agent$nl- Done when: it works (test)"; rg_free "a proposed item edited and one added"
+_rg_tasks "T4 · B1 · R1" "$_rg_t1" "$_rg_t2"; rg_free "a proposed item removed"
+_rg_tasks "T4 · B1 · R1" "$_rg_t3" "$_rg_t2" "$_rg_t1"; rg_free "items moved"
+rg_reset
+_rg_stories never "$_rg_us2" '| US-3 | As a member I suggest a book. | unconfirmed |'; rg_free "an unconfirmed story added"
+_rg_stories never '| US-2 | As a member I see the next meeting and its book. | unconfirmed |'; rg_free "an unconfirmed story edited"
+_rg_stories never; rg_free "an unconfirmed story removed"
+rg_reset
+
+# 12. Protected in the stories and the items.
+_rg_stories never '| US-2 | As a member I see the next meeting. | 2026-11-11 |'
+rg_refused "a story confirmed" "^  product/user-stories\.md: \+ \| US-2 .*\| 2026-11-11 \|$" "\(a confirmed story under .# User stories.\)"
+_rg_stories "2026-11-11 at \`abc1234\`" "$_rg_us2"
+rg_refused "the Last validated line" "^  product/user-stories\.md: \+ \*\*Next ID:\*\* US-4 · \*\*Last validated:\*\* 2026-11-11" "\(the Last validated line\)"
+rg_reset
+sed 's/I pay for my place\./I pay for my place and a guest./' "$_ra/product/user-stories.md" > "$work/records-us" && cp "$work/records-us" "$_ra/product/user-stories.md"
+rg_refused "a confirmed story's text changed" "^  product/user-stories\.md: - \| US-1 \| As a member I pay for my place\. \|" \
+  "^  product/user-stories\.md: \+ \| US-1 \| As a member I pay for my place and a guest\. \|"
+rg_reset
+grep -v '^| US-1 ' "$_ra/product/user-stories.md" > "$work/records-us" && cp "$work/records-us" "$_ra/product/user-stories.md"
+rg_refused "a confirmed story's row removed" "^  product/user-stories\.md: - \| US-1 \| As a member I pay for my place\. \| 2026-11-01 \|$"
+rg_reset
+grep -v 'Last validated' "$_ra/product/user-stories.md" > "$work/records-us" && cp "$work/records-us" "$_ra/product/user-stories.md"
+rg_refused "the Last validated line removed" "^  product/user-stories\.md: - \*\*Next ID:\*\* US-4 · \*\*Last validated:\*\* never$"
+rg_reset
+printf '# User stories\n\n**Next ID:** US-4 · **Last validated:** never\n\n| ID | Story | Confirmed |\n|---|---|---|\n%s\n\n## Meetings\n\n| ID | Story | Confirmed |\n|---|---|---|\n| US-1 | As a member I pay for my place. | 2026-11-01 |\n' \
+  "$_rg_us2" > "$_ra/product/user-stories.md"
+rg_refused "a confirmed story's row moved to another area's table" "^  product/user-stories\.md: \+ \| US-1 " \
+  "^  product/user-stories\.md: - \| US-1 " "\(a confirmed story under .# User stories › ## Meetings.\)" "\(a confirmed story under .# User stories.\)"
+rg_reset
+_rg_tasks "T4 · B1 · R1" "${_rg_t1/a card payment is saved/a card payment is saved and receipted}" "$_rg_t2" "$_rg_t3"
+rg_refused "Done when changed on a todo item" "^  TASKS\.md: \+ - Done when: a card payment is saved and receipted \(test\)$" \
+  "^  TASKS\.md: - - Done when: a card payment is saved \(test\)$" "a changed .Done when."
+_rg_tasks "T4 · B1 · R1" "$_rg_t2" "$_rg_t3"
+rg_refused "a todo item removed" "^  TASKS\.md: - $_rg_t1h$" "an item removed that isn't .done."
+_rg_tasks "T4 · B1 · R1" "$_rg_t1" "$_rg_t2" "${_rg_t3h/proposed/todo}$nl$_rg_t3b"
+rg_refused "a proposed item moved on" "^  TASKS\.md: \+ ${_rg_t3h/proposed/todo}$" "a .proposed. item moved on"
+_rg_tasks "T4 · B1 · R1" "${_rg_t1h/todo/proposed}$nl$_rg_t1b" "$_rg_t2" "$_rg_t3"
+rg_refused "an item moved back to proposed" "an item moved back to .proposed."
+_rg_tasks "T6 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### T4 · Bare · todo · S · agent"
+rg_refused "a new todo item with no fields" "^  TASKS\.md: \+ ### T4 · Bare · todo · S · agent$"
+_rg_tasks "T6 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3$nl#### T5 · Hidden under a proposed item · todo · S · agent$nl- Done when: it ships (test)"
+rg_refused "a level-4 item heading under a proposed item" "^  TASKS\.md: \+ #### T5 · Hidden under a proposed item · todo · S · agent$" "^  TASKS\.md: \+ - Done when: it ships \(test\)$"
+_rg_tasks "T6 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### T4 · Do X · todo · S · agent · proposed$nl- Done when: X is done (test)"
+rg_refused "a heading whose tail isn't severity, owner, size, status (a trailing proposed)" "^  TASKS\.md: \+ ### T4 · Do X · todo · S · agent · proposed$"
+_rg_tasks "T6 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### T4 · Prose · todo · S · agent${nl}Members can pay twice.$nl- Note: the next step${nl}  continues here"
+rg_refused "a new item's every line but its Note:" "^  TASKS\.md: \+ Members can pay twice\.$"
+expect_no_output "  and not the Note: line or its continuation" "Note: the next step|continues here" "$out"
+rg_reset
+# Fields written another way: two spaces, a star, bold, indented. A changed value is refused in each.
+_rg_tasks "T8 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### T4 · Four · todo · S · agent$nl-  Done when: four (test)" \
+  "### T5 · Five · todo · S · agent$nl* Done when: five (test)" "### T6 · Six · todo · S · agent$nl- **Done when:** six (test)" \
+  "### T7 · Seven · todo · S · agent$nl  - Done when: seven (test)"
+rg_stage; out="$(rg_commit --no-verify -m "items with fields written another way")"
+sed -e 's/four (test)/four, changed (test)/' -e 's/five (test)/five, changed (test)/' -e 's/six (test)/six, changed (test)/' \
+  -e 's/seven (test)/seven, changed (test)/' "$_ra/TASKS.md" > "$work/records-t" && cp "$work/records-t" "$_ra/TASKS.md"
+rg_refused "a changed Done when written another way" "^  TASKS\.md: \+ -  Done when: four, changed" "^  TASKS\.md: \+ \* Done when: five, changed" \
+  "^  TASKS\.md: \+ - \*\*Done when:\*\* six, changed" "^  TASKS\.md: \+   - Done when: seven, changed"
+rg_reset
+_rg_base; rg_stage; out="$(rg_commit --no-verify -m "back to the base items")"
+# Item headings in other forms are items, judged as not proposed; a heading like B2B pricing isn't one.
+_rg_tasks "T13 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "## T9 · Level two · todo · S · agent" "### T10 - Hyphen · todo · S · agent" \
+  "### T11: Colon" "### T12 ·Tight · todo · S · agent"
+rg_refused "item headings in other forms" "^  TASKS\.md: \+ ## T9 · Level two" "^  TASKS\.md: \+ ### T10 - Hyphen" "^  TASKS\.md: \+ ### T11: Colon$" "^  TASKS\.md: \+ ### T12 ·Tight"
+_rg_tasks "T4 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### B2B pricing$nl- Done when: we sell to companies (test)"
+rg_free "a heading that starts like a bug ID but isn't one (B2B pricing)"
+# Headings as Markdown renders them: indented by up to three spaces, or setext (a line of - or = under the text).
+_rg_tasks "T17 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3$nl ### T14 · Pay twice · todo · S · agent" "## Notes$nl$nl   ### T15 · Pay thrice · todo · S · agent" \
+  "T16 · Setext · todo · S · agent$nl---"
+rg_refused "indented and setext item headings" "^  TASKS\.md: \+  ### T14 · Pay twice · todo · S · agent$" "^  TASKS\.md: \+    ### T15 · Pay thrice" \
+  "^  TASKS\.md: \+ T16 · Setext · todo · S · agent$"
+# A line with no indent straight after a field continues it.
+_rg_tasks "T4 · B1 · R1" "${_rg_t1/saved (test)/saved (test)${nl}and refunds are issued (test)}" "$_rg_t2" "$_rg_t3"
+rg_refused "a line with no indent under Done when" "^  TASKS\.md: \+ and refunds are issued \(test\)$" "a changed .Done when."
+# Inside an item: an indented line with a colon continues the field above it; a deeper heading doesn't end the item.
+_rg_tasks "T4 · B1 · R1" "${_rg_t1/saved (test)/saved (test)$nl  Also: refunds work (test)}" "$_rg_t2" "$_rg_t3"
+rg_refused "an indented continuation with a colon under Done when" "^  TASKS\.md: \+   Also: refunds work \(test\)$" "a changed .Done when."
+_rg_tasks "T4 · B1 · R1" "$_rg_t1$nl#### Notes$nl- Done when: and a receipt (test)" "$_rg_t2" "$_rg_t3"
+rg_refused "a Done when under a deeper heading inside an item" "^  TASKS\.md: \+ - Done when: and a receipt \(test\)$"
+rg_reset
+# The older form, ID · title · size · status: a done item prunes, a todo item removed is refused, a proposed one is free.
+_rg_tasks "T23 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### T20 · Old done · XS · done${nl}Touches: src/" "### T21 · Old todo · S · todo${nl}Done when: it works"
+rg_stage; out="$(rg_commit --no-verify -m "items in the older form")"
+_rg_tasks "T23 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### T21 · Old todo · S · todo${nl}Done when: it works" "### T22 · Old idea · S · proposed${nl}Done when: maybe"
+rg_free "the older form: a done item pruned, a proposed item added"
+_rg_tasks "T23 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### T20 · Old done · XS · done${nl}Touches: src/"
+rg_refused "the older form: a todo item removed" "^  TASKS\.md: - ### T21 · Old todo · S · todo$" "an item removed that isn't .done."
+rg_reset; _rg_base; rg_stage; out="$(rg_commit --no-verify -m "back to the base items")"
+
+# 13. The bugs setting, with a bug that cites a brief heading, one that cites a confirmed story and one that cites nothing.
+_rg_bugs() {
+  _rg_tasks "T4 · B4 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" \
+    "### B1 · A card payment is saved twice · todo · S · agent · high$nl- Repro: pay → one payment / two$nl- Brief: Core Flows › Paying$nl- Stories: -" \
+    "### B2 · The pay button is hidden · todo · S · agent · med$nl- Repro: open → a button / none$nl- Brief: -$nl- Stories: US-1" \
+    "### B3 · Something looks off · todo · S · agent · low$nl- Repro: look → fine / off$nl- Brief: -$nl- Stories: -"
+}
+_rg_bugs; rg_refused "bugs = cited: the bug that cites nothing" "^  TASKS\.md: \+ ### B3 · "
+expect_no_output "  and frees the bugs that cite a brief heading and a confirmed story" "TASKS\.md: \+ ### B[12] " "$out"
+rg_reset
+# Citations that don't free a bug: Open Questions and a heading under it, the title, a heading that isn't there, a path
+# whose parts aren't each under the one before, a story ID that only starts like a confirmed one, an unconfirmed story.
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n\n## Open questions\n\n### Reminders\n\n- Who sends them?\n' > "$_ra/product/brief.md"
+_rg_fb() { printf '### B%s · Cites %s · todo · S · agent · low\n- Repro: a → b / c\n- Brief: %s\n- Stories: %s' "$1" "$2" "$3" "$4"; }
+_rg_tasks "T4 · B12 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "$(_rg_fb 4 oq 'Open questions' -)" "$(_rg_fb 5 oqsub 'Open questions › Reminders' -)" \
+  "$(_rg_fb 6 title Brief -)" "$(_rg_fb 7 pitch Pitch -)" "$(_rg_fb 8 nonsense 'Nonsense › Paying' -)" "$(_rg_fb 9 order 'Paying › Core Flows' -)" \
+  "$(_rg_fb 10 us10 - US-10)" "$(_rg_fb 11 us2 - US-2)" "$(_rg_fb 1 path 'Core Flows › Paying' -)"
+rg_refused "bugs = cited: false citations" "^  TASKS\.md: \+ ### B4 · Cites oq " "^  TASKS\.md: \+ ### B5 · Cites oqsub " "^  TASKS\.md: \+ ### B6 · Cites title " \
+  "^  TASKS\.md: \+ ### B7 · Cites pitch " "^  TASKS\.md: \+ ### B8 · Cites nonsense " "^  TASKS\.md: \+ ### B9 · Cites order " \
+  "^  TASKS\.md: \+ ### B10 · Cites us10 " "^  TASKS\.md: \+ ### B11 · Cites us2 "
+expect_no_output "  and the path whose parts are each under the one before frees its bug" "TASKS\.md: \+ ### B1 · " "$out"
+rg_reset
+# A changed Repro on a todo bug and a changed Question on a todo research item.
+_rg_rq() { _rg_tasks "T4 · B2 · R2" "$_rg_t1" "$_rg_t2" "$_rg_t3" "### B1 · Paid twice · todo · S · agent · high$nl- Repro: $1" \
+  "### R1 · Which card provider · todo · S · agent$nl- Question: $2"; }
+_rg_rq "pay → one / two" "Which provider is cheapest?"; rg_stage; out="$(rg_commit --no-verify -m "a bug and a research item")"
+_rg_rq "pay twice → one / two" "Which provider is cheapest?"
+rg_refused "a changed Repro" "^  TASKS\.md: \+ - Repro: pay twice → one / two$" "^  TASKS\.md: - - Repro: pay → one / two$"
+_rg_rq "pay → one / two" "Which provider is cheapest in Sweden?"
+rg_refused "a changed Question" "^  TASKS\.md: \+ - Question: Which provider is cheapest in Sweden\?$" "^  TASKS\.md: - - Question: Which provider is cheapest\?$"
+rg_reset; _rg_base; rg_stage; out="$(rg_commit --no-verify -m "back to the base items")"
+printf '[project]\nstack = none\n\n[records]\n; which bugs are free\nbugs = all\n' > "$_ra/tools/check.cfg"
+rg_refused "a [records] setting changed" "^  tools/check\.cfg: \+ bugs = all$" "^  tools/check\.cfg: - bugs = cited$" "\(a \[records\] setting\)"
+out="$(rg_commit --no-verify -m "the human sets bugs = all")"
+_rg_bugs; rg_free "bugs = all: every bug"
+rg_reset
+printf '[project]\nstack = none\n\n[records]\nbugs = none\n' > "$_ra/tools/check.cfg"; rg_stage; out="$(rg_commit --no-verify -m "bugs = none")"
+_rg_bugs; rg_refused "bugs = none: every bug" "^  TASKS\.md: \+ ### B1 · " "^  TASKS\.md: \+ ### B2 · " "^  TASKS\.md: \+ ### B3 · "
+rg_reset
+printf '[project]\nstack = none\n\n[records]\nbugs = cited\n' > "$_ra/tools/check.cfg"; rg_stage; out="$(rg_commit --no-verify -m "bugs = cited")"
+printf '[project]\nstack = python\n\n[records]\nbugs = cited\n' > "$_ra/tools/check.cfg"; rg_free "a change outside [records] and [approval]"
+rg_reset
+printf '[project]\nstack = none\n\n[records]\nbugs = cited\n\n[approval]\nwords = ok\n' > "$_ra/tools/check.cfg"
+rg_refused "an [approval] setting added" "^  tools/check\.cfg: \+ words = ok$" "\(a \[approval\] setting\)"
+rg_reset
+# A section header with a comment reads the same to the settings and to the judge.
+printf '[project]\nstack = none\n\n[records] ; the gate\nbugs = cited\n' > "$_ra/tools/check.cfg"; rg_stage; out="$(rg_commit --no-verify -m "a commented header")"
+printf '[project]\nstack = none\n\n[records] ; the gate\nbugs = cited\ntasks = work.md\n' > "$_ra/tools/check.cfg"
+rg_refused "a setting under a section header with a comment" "^  tools/check\.cfg: \+ tasks = work\.md$" "\(a \[records\] setting\)"
+rg_reset
+# Paths written another way still name the file: a leading ./, a backslash, a trailing slash.
+printf '[project]\nstack = none\n\n[records]\nbugs = cited\nbrief = ./product/brief.md/\ndecisions = product\\decisions.md\n' > "$_ra/tools/check.cfg"
+rg_stage; out="$(rg_commit --no-verify -m "paths written another way")"
+printf '%s\n' "$_rg_dec2" >> "$_ra/product/decisions.md"; printf 'Members also pay by invoice.\n' >> "$_ra/product/brief.md"
+rg_refused "record paths with ./, a backslash and a trailing slash" "^  product/decisions\.md: \+ - 2026-11-12" "^  product/brief\.md: \+ Members also pay by invoice\.$"
+rg_reset
+printf '[project]\nstack = none\n\n[records]\nbugs = cited\n' > "$_ra/tools/check.cfg"; rg_stage; out="$(rg_commit --no-verify -m "bugs = cited")"
+
+# 14. Paths from [records] (and the defaults above): a record file's first commit isn't judged, its next one is, and the
+# default file stops counting. A tools/check.cfg with CRLF line endings reads the same.
+printf '[records]\r\nbugs = cited\r\ndecisions = docs/decisions.md\r\ntasks = work.md\r\n' > "$_ra/tools/check.cfg"
+rg_stage; out="$(rg_commit --no-verify -m "the human moves the records")"
+mkdir -p "$_ra/docs" && printf '# Decisions\n\n%s\n' "$_rg_dec2" > "$_ra/docs/decisions.md"
+cp "$_ra/TASKS.md" "$_ra/work.md"
+rg_free "a record file that isn't at HEAD yet (CRLF settings)"
+out="$(rg_commit -m "first commit of the records")"; expect_status "and its first commit is made" 0 $? "$out"
+printf '%s\n' "$_rg_dec1" >> "$_ra/docs/decisions.md"; printf '%s\n' "$_rg_dec1" >> "$_ra/product/decisions.md"
+_rg_tasks "T5 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "$_rg_t4"
+rg_refused "the decisions path from [records] (CRLF settings)" "^  docs/decisions\.md: \+ "
+expect_no_output "  and the default path no longer counts" "product/decisions\.md:" "$out"
+expect_no_output "  nor the default tasks file" "^  TASKS\.md:" "$out"
+rg_reset; cp "$_ra/TASKS.md" "$_ra/work.md"
+printf '\n%s\n' "$_rg_t4" >> "$_ra/work.md"
+rg_refused "the tasks path from [records] (CRLF settings)" "^  work\.md: \+ $_rg_t4h$"
+rg_reset
+printf '[project]\nstack = none\n\n[records]\nbugs = cited\n' > "$_ra/tools/check.cfg"; rg_stage; out="$(rg_commit --no-verify -m "back to the defaults")"
+
+# 15. The working tree: an unstaged decision line is reported there, and the staged check doesn't see it.
+printf '%s\n' "$_rg_dec2" >> "$_ra/product/decisions.md"
+out="$(rg check --worktree)"; expect_status "check --worktree reports an unstaged decision line" 1 $? "$out"
+out="$(rg check)"; expect_status "and the staged check doesn't see it" 0 $? "$out"
+rg_reset
+
+# 16. Lines are placed by the heading above them in the brief: a line moved under another heading is a removal and an
+# addition, and a line moved under the same heading is free.
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n\n## Open Questions\n\n- Members may pay by invoice.\n- Who sends the reminders?\n' > "$_ra/product/brief.md"
+rg_stage; out="$(rg_commit --no-verify -m "open questions")"
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n- Members may pay by invoice.\n\n## Open Questions\n\n- Who sends the reminders?\n' > "$_ra/product/brief.md"
+rg_refused "an open question moved into a flow" "^  product/brief\.md: \+ - Members may pay by invoice\.$" "^  product/brief\.md: - - Members may pay by invoice\.$" \
+  "\(brief text under .# Brief › ## Core Flows › ### Paying.\)" "\(brief text under .# Brief › ## Open Questions.\)"
+rg_register "## product/brief.md" "- - Members may pay by invoice." "+ - Members may pay by invoice."
+out="$(rg approve "$rg_id" --hook --word ok --by prompt)"
+out="$(rg check)"; expect_status "  and passes with a summary of the - and the + line" 0 $? "$out"
+out="$(rg withdraw)"
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n\n## Open Questions\n\n- Who sends the reminders?\n- Members may pay by invoice.\n' > "$_ra/product/brief.md"
+rg_free "a line moved under the same heading"
+rg_reset
+# The path of headings places a line: two headings of the same name in different sections are different places. A
+# renamed heading changes only its own line; a line moved out of a section that still exists is a move.
+_rg_b2() { printf '# Brief\n\n## Core Flows\n\n### %s\n\nMembers pay by card.\nMembers get a receipt.\n%s\n## Open Questions\n\n### Payments\n\n%s' "$1" "$2" "$3" > "$_ra/product/brief.md"; }
+_rg_b2 Payments "" "- By invoice?$nl"; rg_stage; out="$(rg_commit --no-verify -m "two Payments headings")"
+_rg_b2 Payments "- By invoice?$nl" ""
+rg_refused "a line moved between two headings of the same name" "^  product/brief\.md: \+ - By invoice\?$" "^  product/brief\.md: - - By invoice\?$" \
+  "under .# Brief › ## Core Flows › ### Payments." "under .# Brief › ## Open Questions › ### Payments."
+_rg_b2 "Paying money" "" "- By invoice?$nl"
+rg_refused "a renamed heading" "^  product/brief\.md: \+ ### Paying money$" "^  product/brief\.md: - ### Payments$"
+expect_no_output "  needs only its own two lines, not the lines under it" "Members pay by card|Members get a receipt" "$out"
+printf '# Brief\n\n## Core Flows\n\nMembers get a receipt.\n\n### Payments\n\nMembers pay by card.\n\n## Open Questions\n\n### Payments\n\n- By invoice?\n' > "$_ra/product/brief.md"
+rg_refused "a line moved out of a section that still exists" "^  product/brief\.md: - Members get a receipt\.$" "^  product/brief\.md: \+ Members get a receipt\.$"
+rg_reset
+# A rename in the same commit as a move out of the renamed section still names the moved line; a heading added above
+# existing lines names those lines.
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n\n## Open Questions\n\n- By invoice?\n- Who sends reminders?\n' > "$_ra/product/brief.md"
+rg_stage; out="$(rg_commit --no-verify -m "an open question to move")"
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n- By invoice?\n\n## Open questions\n\n- Who sends reminders?\n' > "$_ra/product/brief.md"
+rg_refused "a rename with a move out of the renamed section" "^  product/brief\.md: - - By invoice\?$" "^  product/brief\.md: \+ - By invoice\?$" \
+  "^  product/brief\.md: \+ ## Open questions$"
+expect_no_output "  but not the line that stays under the renamed heading" "Who sends reminders" "$out"
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\n#### Cards\n\nMembers pay by card.\n\n## Open Questions\n\n- By invoice?\n- Who sends reminders?\n' > "$_ra/product/brief.md"
+rg_refused "a heading added above existing lines" "^  product/brief\.md: \+ #### Cards$" "^  product/brief\.md: - Members pay by card\.$" \
+  "^  product/brief\.md: \+ Members pay by card\.$"
+rg_reset
+
+# 17. Used by its effect: an approval whose lines were committed without the Approved: line (the commit-msg hook absent)
+# covers nothing more. The same text registered and approved again covers a later commit.
+_rg_hooks="$(git -C "$_ra" rev-parse --absolute-git-dir)/hooks"
+_rg_dec3="- 2026-11-14 · members get a receipt"
+printf '%s\n' "$_rg_dec3" >> "$_ra/product/decisions.md"
+rg_register "## product/decisions.md" "+ $_rg_dec3"; out="$(rg approve "$rg_id" --hook --word ok --by prompt)"; _rg_s="$rg_id"
+mv "$_rg_hooks/commit-msg" "$_rg_hooks/commit-msg.off"
+rg_stage; out="$(rg_commit -m "a decision without the Approved: line")"; expect_status "a commit without the commit-msg hook is made" 0 $? "$out"
+mv "$_rg_hooks/commit-msg.off" "$_rg_hooks/commit-msg"
+printf '%s\n' "$_rg_dec3" >> "$_ra/product/decisions.md"
+rg_refused "the same line again, after its approval's lines were committed" "$_rg_s is already used: its lines are already committed"
+out="$(rg approve "$_rg_s" --hook --word ok --by prompt)"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "its lines are already committed"; } \
+  && ok "  and it can't be approved again" || bad "an approval whose lines are committed can't be approved again (exit $status)" "$out"
+rg_reset
+_rg_cfg() { printf '[project]\nstack = none\n\n[records]\nbugs = %s\n' "$1" > "$_ra/tools/check.cfg"; }
+_rg_set() { # _rg_set <from> <to>: registers and approves the change, stages it, and commits it with the Approved: line
+  _rg_cfg "$2"; rg_register "## tools/check.cfg" "- bugs = $1" "+ bugs = $2"
+  out="$(rg approve "$rg_id" --hook --word ok --by prompt)"; rg_stage
+  out="$(rg_commit -m "bugs = $2" -m "$(rg trailer)")"
+}
+_rg_set cited all; expect_status "bugs set to all, with an approval" 0 $? "$out"
+_rg_set all cited; expect_status "  set back, with another" 0 $? "$out"
+_rg_set cited all; expect_status "  and set again with the same text registered and approved again" 0 $? "$out"
+_rg_cfg cited; rg_stage; out="$(rg_commit --no-verify -m "bugs = cited")"
+
+# 18. An approval covers its summary whole, one line each: a commit that applies part of it is refused, naming what's
+# missing, and a line added twice needs two summary lines.
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\nMembers pay by invoice.\n' > "$_ra/product/brief.md"
+rg_stage; out="$(rg_commit --no-verify -m "two ways to pay")"
+rg_register "## product/brief.md" "- Members pay by invoice." "+ Members pay by bank transfer."
+out="$(rg approve "$rg_id" --hook --word ok --by prompt)"; _rg_s="$rg_id"
+printf 'Members pay by bank transfer.\n' >> "$_ra/product/brief.md"
+rg_refused "a commit that applies only part of a summary" "the commit applies only part of summary $_rg_s" "^  product/brief\.md: - Members pay by invoice\.$"
+out="$(rg withdraw)"; rg_reset
+_rg_dec4="- 2026-11-15 · the same line, twice"
+printf '%s\n%s\n' "$_rg_dec4" "$_rg_dec4" >> "$_ra/product/decisions.md"
+rg_register "## product/decisions.md" "+ $_rg_dec4"; out="$(rg approve "$rg_id" --hook --word ok --by prompt)"
+rg_refused "a line added twice, with one summary line" "^  product/decisions\.md: \+ - 2026-11-15 · the same line, twice$"
+rg_register "## product/decisions.md" "+ $_rg_dec4" "+ $_rg_dec4"; out="$(rg approve "$rg_id" --hook --word ok --by prompt)"
+out="$(rg check)"; expect_status "  and passes with two" 0 $? "$out"
+rg_reset; out="$(rg withdraw)"
+
+# 19. report <since> over a range that holds an approval.
+_rg_since="$(git -C "$_ra" rev-parse HEAD~3)"
+out="$(rg report "$_rg_since")"
+expect_output "report <since> lists the approvals used in the range" "^  [0-9a-f]+ bugs = all: Approved: S[0-9]+ [0-9-]+ \"ok\" [0-9a-f]{12}$" "$out"
+
+# 19b. Overlapping approvals apply whole, the largest first: S1 = {+a, +b} and S2 = {+a} with a commit that adds a and b
+# pass, naming S1 only, and S2 stays open.
+_rg_da="- 2026-11-17 · line a"; _rg_db="- 2026-11-17 · line b"
+printf '%s\n%s\n' "$_rg_da" "$_rg_db" >> "$_ra/product/decisions.md"
+rg_register "## product/decisions.md" "+ $_rg_da" "+ $_rg_db"; out="$(rg approve "$rg_id" --hook --word ok --by prompt)"; _rg_sab="$rg_id"
+rg_register "## product/decisions.md" "+ $_rg_da"; out="$(rg approve "$rg_id" --hook --word ok --by prompt)"; _rg_sa="$rg_id"
+rg_stage; out="$(rg check)"; expect_status "overlapping approvals: the larger one applies whole and the commit passes" 0 $? "$out"
+out="$(rg trailer)"
+expect_output "  the trailer names the larger one" "^Approved: $_rg_sab " "$out"
+expect_no_output "  and not the smaller one" "^Approved: $_rg_sa " "$out"
+out="$(rg status)"; expect_output "  the smaller one stays open" "^$_rg_sa [0-9a-f]{12} approved " "$out"
+out="$(rg_commit -m "lines a and b" -m "$(rg trailer)")"; expect_status "  and the commit is made" 0 $? "$out"
+out="$(rg withdraw)"
+
+# 19c. Used only through the Approved: line: a summary whose + line is already at HEAD (a duplicate decision line) is
+# registered with effect=0, so committed lines can't show it used. It covers its commit, and once that commit names it,
+# the same line again is refused as already used in commit.
+printf '%s\n' "$_rg_da" >> "$_ra/product/decisions.md"
+rg_register "## product/decisions.md" "+ $_rg_da"; _rg_s="$rg_id"
+grep -qx 'effect=0' "$_ra/.app-director/state/records/$_rg_s.meta" && ok "a summary whose lines are already at HEAD is registered with effect=0" \
+  || bad "a summary whose lines are already at HEAD is registered with effect=0" "$(cat "$_ra/.app-director/state/records/$_rg_s.meta")"
+out="$(rg approve "$_rg_s" --hook --word ok --by prompt)"
+rg_stage; out="$(rg check)"; expect_status "  it covers the duplicate line though the line is already at HEAD" 0 $? "$out"
+out="$(rg_commit -m "line a again" -m "$(rg trailer)")"; expect_status "  and the commit naming it is made" 0 $? "$out"
+printf '%s\n' "$_rg_da" >> "$_ra/product/decisions.md"
+rg_refused "the line a third time, once the commit named the approval" "$_rg_s is already used in commit [0-9a-f]+"
+rg_reset
+
+# 20. A deleted tools/records.sh: refused while the install manifest lists it, not judged for an app installed before.
+printf 'abc123\ttools/records.sh\n' > "$_ra/.app-director/manifest"
+git -C "$_ra" rm -q tools/records.sh
+out="$(rg_commit -m "no gate")"; status=$?
+{ [ "$status" -eq 1 ] && printf '%s' "$out" | grep -q "git checkout HEAD -- tools/records.sh"; } \
+  && ok "a commit that deletes tools/records.sh is refused, and says how to restore it" || bad "a commit that deletes tools/records.sh is refused (exit $status)" "$out"
+printf 'x\n' > "$work/records-msg"
+out="$(cd "$_ra" && bash .githooks/commit-msg "$work/records-msg" 2>&1)"; expect_status "  and so does the commit-msg hook" 1 $? "$out"
+rm -f "$_ra/.app-director/manifest"
+out="$(cd "$_ra" && bash .githooks/commit-msg "$work/records-msg" 2>&1)"; expect_status "  without the manifest line, nothing is judged" 0 $? "$out"
+git -C "$_ra" reset -q HEAD -- tools/records.sh; git -C "$_ra" checkout -q -- tools/records.sh
+
+# 21. A merge: the lines a parent already has pass; a line added during the open merge that neither parent has is
+# refused, passes with an approval, and the merge commit names it.
+git -C "$_ra" branch side
+git -C "$_ra" checkout -q side && printf '%s\n' "$_rg_dec2" >> "$_ra/product/decisions.md" && rg_stage \
+  && out="$(rg_commit --no-verify -m "a decision on a branch")" && git -C "$_ra" checkout -q main
+printf 'more\n' >> "$_ra/README.md"; rg_stage; out="$(rg_commit -m "a readme line")"
+git -C "$_ra" merge -q --no-commit --no-ff side >/dev/null 2>&1
+out="$(rg check)"; expect_status "a merge that brings a parent's committed decision line passes" 0 $? "$out"
+_rg_dec5="- 2026-11-16 · a line added during the merge"
+printf '%s\n' "$_rg_dec5" >> "$_ra/product/decisions.md"
+rg_refused "a line added during an open merge that neither parent has" "^  product/decisions\.md: \+ - 2026-11-16 · a line added during the merge$"
+expect_no_output "  but not the line the merge brings" "a second decision" "$out"
+rg_register "## product/decisions.md" "+ $_rg_dec5"; out="$(rg approve "$rg_id" --hook --word ok --by prompt)"
+out="$(rg check)"; expect_status "  and passes with an approval" 0 $? "$out"
+out="$(rg_commit -m "merge side")"; expect_status "  and the merge commit must name the approval" 1 $? "$out"
+out="$(rg_commit -m "merge side" -m "$(rg trailer)")"; expect_status "the merge commit that names it is made" 0 $? "$out"
+# A parent that never had a line isn't one that removed it: a decision main added after the fork, deleted during the
+# merge, is refused; so is a line main removed that the branch still has, put back by hand.
+_rg_fork() { # _rg_fork <branch>: a branch from main with one commit of its own (a readme line)
+  git -C "$_ra" branch "$1" && git -C "$_ra" checkout -q "$1" && printf '%s\n' "$1" >> "$_ra/README.md" && rg_stage \
+    && out="$(rg_commit --no-verify -m "a readme line on $1")" && git -C "$_ra" checkout -q main
+}
+_rg_dec7="- 2026-11-18 · decision seven"
+_rg_fork fork7
+printf '%s\n' "$_rg_dec7" >> "$_ra/product/decisions.md"; rg_stage; out="$(rg_commit --no-verify -m "decision seven")"
+git -C "$_ra" merge -q --no-commit --no-ff fork7 >/dev/null 2>&1
+grep -vxF -- "$_rg_dec7" "$_ra/product/decisions.md" > "$work/records-dec" && cp "$work/records-dec" "$_ra/product/decisions.md"
+rg_refused "a merge that deletes a line main added after the fork" "^  product/decisions\.md: - - 2026-11-18 · decision seven$"
+git -C "$_ra" merge --abort
+_rg_fork fork8
+grep -vxF -- "$_rg_dec7" "$_ra/product/decisions.md" > "$work/records-dec" && cp "$work/records-dec" "$_ra/product/decisions.md"
+rg_stage; out="$(rg_commit --no-verify -m "decision seven removed")"
+git -C "$_ra" merge -q --no-commit --no-ff fork8 >/dev/null 2>&1
+printf '%s\n' "$_rg_dec7" >> "$_ra/product/decisions.md"
+rg_refused "a merge that puts back by hand a line main removed and the branch still has" "^  product/decisions\.md: \+ - 2026-11-18 · decision seven$"
+git -C "$_ra" merge --abort
+# A merge git merge completes itself (only commit-msg runs) with a branch's committed record lines is made, with no
+# Approved: line asked for; so is one of two branches at once.
+git -C "$_ra" branch fork9 && git -C "$_ra" checkout -q fork9 && printf '%s\n' "- 2026-11-19 · on fork9" >> "$_ra/product/decisions.md" \
+  && rg_stage && out="$(rg_commit --no-verify -m "a decision on fork9")" && git -C "$_ra" checkout -q main
+printf 'main\n' >> "$_ra/README.md"; rg_stage; out="$(rg_commit --no-verify -m "a readme line on main")"
+out="$(cd "$_ra" && git_q merge -q --no-edit fork9 2>&1)"; expect_status "a merge git merge completes, carrying a branch's decision line" 0 $? "$out"
+git -C "$_ra" branch fork10a && git -C "$_ra" checkout -q fork10a && printf '%s\n' "- 2026-11-20 · on fork10a" >> "$_ra/product/decisions.md" \
+  && rg_stage && out="$(rg_commit --no-verify -m "a decision on fork10a")" && git -C "$_ra" checkout -q main
+git -C "$_ra" branch fork10b && git -C "$_ra" checkout -q fork10b && printf 'Members pay by voucher.\n' >> "$_ra/product/brief.md" \
+  && rg_stage && out="$(rg_commit --no-verify -m "brief text on fork10b")" && git -C "$_ra" checkout -q main
+printf 'main again\n' >> "$_ra/README.md"; rg_stage; out="$(rg_commit --no-verify -m "another readme line on main")"
+out="$(cd "$_ra" && git_q merge -q --no-edit fork10a fork10b 2>&1)"; expect_status "a merge of two branches at once, each with committed record lines" 0 $? "$out"
+# What a branch brought is compared by file, sign and text: a line it added under a heading main renamed passes. A
+# removed item is compared by its ID: a todo item the branch removed, which main moved to in-progress, passes removed.
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n' > "$_ra/product/brief.md"; rg_stage; out="$(rg_commit --no-verify -m "the brief")"
+git -C "$_ra" branch fork11 && git -C "$_ra" checkout -q fork11 && printf 'Members pay by cheque.\n' >> "$_ra/product/brief.md" \
+  && rg_stage && out="$(rg_commit --no-verify -m "cheques on fork11")" && git -C "$_ra" checkout -q main
+printf '# Brief\n\n## Core Flows\n\n### Payments\n\nMembers pay by card.\n' > "$_ra/product/brief.md"; rg_stage; out="$(rg_commit --no-verify -m "Paying renamed")"
+git -C "$_ra" merge -q --no-commit --no-ff fork11 >/dev/null 2>&1
+printf '# Brief\n\n## Core Flows\n\n### Payments\n\nMembers pay by card.\nMembers pay by cheque.\n' > "$_ra/product/brief.md"
+rg_free "a merge: a line the branch added under a heading main renamed"
+git -C "$_ra" merge --abort
+_rg_t30() { printf '### T30 · Receipts · %s · S · agent\n- Done when: a receipt is sent (test)' "$1"; }
+_rg_tasks "T31 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "$(_rg_t30 todo)"; rg_stage; out="$(rg_commit --no-verify -m "T30")"
+git -C "$_ra" branch fork12 && git -C "$_ra" checkout -q fork12 && _rg_tasks "T31 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" \
+  && rg_stage && out="$(rg_commit --no-verify -m "T30 removed on fork12")" && git -C "$_ra" checkout -q main
+_rg_tasks "T31 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3" "$(_rg_t30 "in-progress 2026-11-20")"; rg_stage; out="$(rg_commit --no-verify -m "T30 claimed")"
+git -C "$_ra" merge -q --no-commit --no-ff fork12 >/dev/null 2>&1
+_rg_tasks "T31 · B1 · R1" "$_rg_t1" "$_rg_t2" "$_rg_t3"
+rg_free "a merge: a todo item the branch removed, which main moved to in-progress"
+git -C "$_ra" merge --abort; git -C "$_ra" reset -q --hard
+_rg_pw="$work/records-app-proto-try"
+git -C "$_ra" worktree add -q -b proto/try "$_rg_pw" main >/dev/null 2>&1 && printf '# Prototype: try\n' > "$_rg_pw/PROTOTYPE.md"
+printf '%s\n' "- 2026-11-13 · tried in a prototype" >> "$_rg_pw/product/decisions.md"
+out="$(cd "$_rg_pw" && git add product/decisions.md && git_q commit -qm "a prototype's decision" 2>&1)"
+expect_status "a prototype's commit isn't judged" 0 $? "$out"
+_rg_new="$work/records-new"; mkdir -p "$_rg_new/tools" && (cd "$_rg_new" && git init -q) && cp "$src/framework/tools/records.sh" "$_rg_new/tools/"
+printf '# Decisions\n- a line\n' > "$_rg_new/decisions.md"
+out="$(cd "$_rg_new" && bash tools/records.sh check 2>&1)"; expect_status "a repository with no commit has nothing to judge" 0 $? "$out"
+}
+
+part_approvals() {
+# --- approval hooks -------------------------------------------------------------------------------
+echo "approval hooks"
+# The Claude Code hooks that record the human's approval and guard the records (Director-Driven-Development T334), driven
+# with the JSON Claude Code sends, in a scratch app with records.sh, the git hooks and the .claude hooks. tools/records.sh
+# there logs each run (to tell that a hook started none) and then runs the real one, tools/records-real.sh.
+_ap_gl="$work/approvals-gl"; mkdir -p "$_ap_gl"
+printf '#!/usr/bin/env bash\ncase "$1" in version) printf "v8.18.0\\n";; esac; exit 0\n' > "$_ap_gl/gitleaks"
+chmod +x "$_ap_gl/gitleaks"
+PATH="$_ap_gl:$PATH"
+_ap="$work/approvals-app"; _ap_log="$work/approvals-calls"; : > "$_ap_log"
+new_repo "$_ap"
+mkdir -p "$_ap/tools" "$_ap/.githooks" "$_ap/product" "$_ap/.claude" "$_ap/src" "$_ap/.app-director/state"
+cp "$src/framework/tools/prototype.sh" "$src/framework/tools/setup-clone.sh" "$_ap/tools/"
+cp "$src/framework/tools/records.sh" "$_ap/tools/records-real.sh"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\nexec bash "${0%%/*}/records-real.sh" "$@"\n' "$_ap_log" > "$_ap/tools/records.sh"
+cp "$src/framework/.githooks/pre-commit" "$src/framework/.githooks/commit-msg" "$_ap/.githooks/"
+cp -R "$src/framework/.claude/hooks" "$_ap/.claude/hooks"
+cp "$src/project/tools/check.cfg" "$_ap/tools/check.cfg"
+printf '.app-director/state/\n' > "$_ap/.gitignore"
+printf '# Brief\n\n## Core Flows\n\n### Paying\n\nMembers pay by card.\n' > "$_ap/product/brief.md"
+printf "# Decisions\n\n- 2026-11-01 · members sign in by email · the director's call\n" > "$_ap/product/decisions.md"
+printf '# Tasks\n\n**Next IDs:** T2 · B1 · R1\n\n## Queue\n\n### T1 · Members pay by card · done · S · agent\n- Done when: a card payment is saved (test)\n' > "$_ap/TASKS.md"
+printf 'export const x = 1;\n' > "$_ap/src/app.ts"
+(cd "$_ap" && git branch -M main && git add -A && git_q commit -qm "the records") >/dev/null 2>&1
+out="$(cd "$_ap" && bash tools/setup-clone.sh 2>&1)"
+_ap_rs="$_ap/.app-director/state/records"
+_ap_dec2="- 2026-11-11 · members can pay by invoice · the director's call"
+_ap_dec3="- 2026-11-11 · invoices are due in 30 days · the director's call"
+
+ap_hook() { # ap_hook <hook> <mode> <JSON>: runs the hook as Claude Code does; sets out (stdout and stderr), ap_out (stdout) and st
+  local f="$work/approvals-err"
+  ap_out="$(printf '%s' "$3" | OSTYPE="${AP_OSTYPE:-$OSTYPE}" CLAUDE_PROJECT_DIR="${AP_ROOT:-$_ap}" bash "$_ap/.claude/hooks/$1" $2 2>"$f")"; st=$?
+  out="$ap_out$(cat "$f")"
+}
+ap_prompt() { # ap_prompt <session> <prompt as a JSON string body>
+  ap_hook record-approval.sh prompt "{\"session_id\":\"$1\",\"transcript_path\":\"/t/$1.jsonl\",\"cwd\":\"/t\",\"prompt_id\":\"p1\",\"permission_mode\":\"default\",\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"$2\"}"
+}
+ap_dialog() { # ap_dialog <session> <answers, a JSON object> [extra fields]
+  ap_hook record-approval.sh dialog "{\"session_id\":\"$1\",\"hook_event_name\":\"PostToolUse\",${3:-}\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[],\"answers\":$2},\"tool_response\":{\"questions\":[],\"answers\":$2}}"
+}
+ap_out_tool() { # ap_out_tool <session> <tool> <tool_input JSON>
+  ap_hook record-approval.sh outgoing "{\"session_id\":\"$1\",\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"$2\",\"tool_input\":$3}"
+}
+ap_stop() { # ap_stop <session> <session_crons JSON array>
+  ap_hook record-approval.sh stop "{\"session_id\":\"$1\",\"transcript_path\":\"/t\",\"hook_event_name\":\"Stop\",\"stop_hook_active\":false,\"last_assistant_message\":\"Done. \\\"prompt\\\": \\\"ok\\\"\",\"session_crons\":$2}"
+}
+ap_watch() { # ap_watch <session> <tool> [agent id] [file_path] [command] [its stdout, JSON-escaped]: record-watch.sh after a tool call
+  local ag="" ti="{\"command\":\"${5:-ls}\"}" tr="{\"stdout\":\"${6:-}\",\"stderr\":\"\",\"interrupted\":false}"
+  [ -n "${3:-}" ] && ag="\"agent_id\":\"$3\",\"agent_type\":\"builder\","
+  [ -n "${4:-}" ] && { ti="{\"file_path\":\"$4\",\"content\":\"x\"}"; tr="{}"; }
+  ap_hook record-watch.sh "" "{\"session_id\":\"$1\",${ag}\"hook_event_name\":\"${AP_EVENT:-PostToolUse}\",\"tool_name\":\"$2\",\"tool_input\":$ti,\"tool_response\":$tr}"
+}
+ap_esc() { # ap_esc <text>: ESC, the text as a JSON string body (its lines joined with \n; the texts here hold no " or \)
+  local l
+  ESC=""
+  while IFS= read -r l; do ESC="$ESC$l\\n"; done <<< "$1"
+}
+ap_summary() { # ap_summary <line>...: registers a summary with records.sh alone (no hook sees it); sets ap_sum, ap_id and ap_h
+  printf '%s\n' "$@" > "$_ap/.app-director/state/summary.txt"
+  ap_sum="$(cd "$_ap" && bash tools/records-real.sh summary .app-director/state/summary.txt 2>&1)"
+  ap_id="${ap_sum#records: summary }"; ap_id="${ap_id%% *}"
+  ap_h="${ap_sum#records: summary * · }"; ap_h="${ap_h%%"$nl"*}"
+}
+ap_register() { # ap_register <session> <agent id or -> <line>...: the summary run through bash, then the watch of that call, with its output; sets ap_id
+  local s="$1" ag="$2"; shift 2
+  ap_summary "$@"
+  ap_esc "$ap_sum"
+  [ "$ag" = - ] && ag=""
+  ap_watch "$s" Bash "$ag" "" "bash tools/records.sh summary .app-director/state/summary.txt" "$ESC"
+}
+ap_state() { # ap_state <id>: its state in records.sh status ("" when it lists none)
+  local id h s r
+  REPLY=""
+  while read -r id h s r; do [ "$id" = "$1" ] && REPLY="$s"; done <<< "$(cd "$_ap" && bash tools/records-real.sh status 2>&1)"
+}
+ap_expect_state() { ap_state "$2"; [ "$REPLY" = "$3" ] && ok "$1" || bad "$1 ($2 is '$REPLY', expected '$3')"; }
+ap_calls() { REPLY="$(cat "$_ap_log")"; : > "$_ap_log"; }
+ap_fresh() { # no summary, no approval, the record files as committed
+  rm -rf "$_ap_rs"; git -C "$_ap" reset -q --hard; git -C "$_ap" clean -qfd -e .app-director >/dev/null; : > "$_ap_log"
+}
+
+# 1. Typed messages. With no summary at all, a message prints nothing and starts no records.sh, and so does a bare "yes".
+_ap_bs='\'   # a JSON \u escape is built from it, so this file holds no \u sequence of its own
+ap_prompt sA 'Why does the list jump when I add an item?'
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "with no summary waiting, a message prints nothing" || bad "with no summary waiting, a message prints nothing (exit $st)" "$out"
+ap_calls; [ -z "$REPLY" ] && ok "  and starts no records.sh" || bad "  and starts no records.sh" "$REPLY"
+ap_prompt sA 'yes'; ap_calls
+{ [ "$st" -eq 0 ] && [ -z "$out" ] && [ -z "$REPLY" ]; } && ok "a bare yes with no summary of this session waiting is an ordinary message: nothing printed, no process" \
+  || bad "a bare yes with nothing waiting prints nothing and starts no records.sh (exit $st)" "$out$REPLY"
+ap_register sA - "## product/decisions.md" "+ $_ap_dec2"
+[ "$ap_id" = S1 ] && [ "$(cat "$_ap_rs/claude/S1.stamp")" = sA ] && ok "the call that registered a summary stamps it with its session" \
+  || bad "the call that registered a summary stamps it with its session ($ap_id)" "$(ls "$_ap_rs/claude" 2>&1)"
+ap_prompt sA "<system-reminder>\\nThe session is linked to two others.\\n</system-reminder>\\n\\n<system-reminder>more</system-reminder>\\n\\nGodk${_ap_bs}u00e4nt"
+expect_output "Godkänt after <system-reminder> blocks approves the summary registered since the previous message" "the human approved summary S1 \(\"Godkänt\"\)" "$out"
+expect_output "  and gives the Approved: line to commit with" "^Approved: S1 [0-9-]+ \"Godkänt\" [0-9a-f]{12}$" "$out"
+ap_expect_state "  and records.sh has it approved" S1 approved
+grep -rqs "linked to two others" "$_ap/.app-director/state" && bad "  and stores no message text" || ok "  and stores no message text"
+ap_prompt sA "Wait, why is the colour wrong?"
+expect_output "any other message with a summary approved withdraws it and says so" "summary S1 was waiting for the human's approval, and this answer is not an approval of it.*Its approval is withdrawn\. Nothing of it may be written\. Read the human's message as a scope change" "$out"
+ap_expect_state "  and records.sh has it withdrawn" S1 withdrawn
+ap_prompt sA 'OK.'
+expect_no_output "OK. after another message approves nothing" "approved summary" "$out"
+ap_expect_state "  and S1 stays withdrawn" S1 withdrawn
+ap_prompt sA 'ok S1'
+expect_output "ok with the id approves that summary" "the human approved summary S1 \(\"ok\"\)" "$out"
+ap_register sA - "## product/decisions.md" "+ $_ap_dec3"
+ap_prompt sA '<agent-message from=\"builder\">Done: T4 built.</agent-message>'
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "a subagent's report is ignored: nothing printed" || bad "a subagent's report is ignored (exit $st)" "$out"
+ap_prompt sA '<cross-session-message from=\"x\" from-name=\"other\">ok</cross-session-message>'
+[ -z "$out" ] && ok "a message from another session is ignored, even an approval word" || bad "a message from another session is ignored" "$out"
+ap_out_tool sA ScheduleWakeup '{"delaySeconds":60,"reason":"wait for CI","prompt":"Check the CI run.","noop":false}'
+expect_status "a scheduled prompt that isn't an approval word is let through" 0 "$st" "$out"
+ap_prompt sA 'Check the CI run.'
+[ -z "$out" ] && ok "a prompt this session scheduled is ignored when it arrives" || bad "a prompt this session scheduled is ignored when it arrives" "$out"
+ap_expect_state "  and neither it nor the framed messages withdrew S1" S1 approved
+ap_prompt sA 'Approve'
+expect_output "Approve then approves S2: the framed and scheduled prompts didn't count as the previous message" "the human approved summary S2 \(\"Approve\"\)" "$out"
+# A summary waiting, and none registered since the previous message: the bare word asks for the id.
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · a third one · the director's call"; _ap_s3="$ap_id"
+ap_prompt sA 'Not yet: change the wording first.'
+expect_output "a message that answers a waiting summary otherwise says it isn't an approval" "summary .*$_ap_s3.* was waiting for the human's approval" "$out"
+ap_prompt sA 'ok'
+expect_output "a bare word then, with the summary registered before the previous message, asks for the word and the id" \
+  'no summary was registered in this session since their previous message.*answer with the word and its id \("ok S<n>"\)' "$out"
+ap_expect_state "  and approves nothing" "$_ap_s3" registered
+
+# Another session's summary, and a subagent's. Only the call that registered a summary stamps it.
+ap_register sB - "## product/decisions.md" "+ - 2026-11-11 · from the other session · the director's call"; _ap_sb="$ap_id"
+ap_prompt sA "ok $_ap_sb"
+expect_output "an id of a summary another session registered approves nothing, and says why" "registered in another session, and an approval counts only in the session that registered its summary" "$out"
+ap_expect_state "  and it stays registered" "$_ap_sb" registered
+ap_register sA builder-1 "## product/decisions.md" "+ - 2026-11-11 · from a subagent · the director's call"; _ap_sub="$ap_id"
+ap_esc "$ap_sum"
+ap_watch sA Bash "" "" "bash tools/records.sh summary .app-director/state/summary.txt" "$ESC"
+[ "$(cat "$_ap_rs/claude/$_ap_sub.stamp")" = "sA agent" ] && ok "a summary a subagent's call registered is stamped as the subagent's, and a later main-session call doesn't restamp it" \
+  || bad "a subagent's summary is stamped as one" "$(cat "$_ap_rs/claude/$_ap_sub.stamp")"
+ap_prompt sA 'ok'
+ap_expect_state "  a bare word then approves nothing: the subagent's summary" "$_ap_sub" registered
+ap_expect_state "  nor the other session's" "$_ap_sb" registered
+ap_prompt sA "Godk${_ap_bs}u00e4nt $_ap_sub"
+expect_output "  and an approval of it by id is refused, saying why" "registered by a subagent, and a subagent never writes records" "$out"
+ap_expect_state "  and it stays registered" "$_ap_sub" registered
+# Two sessions, each registering one: each bare word approves only its own.
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · session A's · the director's call"; _ap_sa1="$ap_id"
+ap_register sB - "## product/decisions.md" "+ - 2026-11-11 · session B's · the director's call"; _ap_sb1="$ap_id"
+ap_prompt sA 'ok'
+expect_output "two sessions: A's bare word approves A's summary" "the human approved summary $_ap_sa1 " "$out"
+ap_expect_state "  and B's stays registered" "$_ap_sb1" registered
+ap_prompt sB 'ok'
+expect_output "  and B's bare word approves B's" "the human approved summary $_ap_sb1 " "$out"
+# A long pasted message, full of quotes and backslashes, after a summary: it ends well inside the hook's time limit, is no
+# approval, withdraws, and moves the mark, so a later bare word approves nothing.
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · approved before a long message · the director's call"; _ap_long1="$ap_id"
+ap_prompt sA 'ok'
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · registered before a long message · the director's call"; _ap_long2="$ap_id"
+_ap_long='a pasted log line with \"quotes\" and \\\\ backslashes and C:\\\\path\\\\x, '
+while [ "${#_ap_long}" -lt 300000 ]; do _ap_long="$_ap_long$_ap_long"; done
+_ap_t0=$SECONDS
+ap_prompt sA "<system-reminder>linked</system-reminder>\\n\\n$_ap_long"
+_ap_el=$((SECONDS - _ap_t0))
+# The hook reads no more than 64 KB and decodes none of it; the bound is for the records.sh withdraw it starts, which takes
+# seconds on Windows while the other parts of this selftest run beside it.
+[ "$_ap_el" -lt 10 ] && ok "a ${#_ap_long}-byte message is read in ${_ap_el} s (under 10)" || bad "a ${#_ap_long}-byte message took ${_ap_el} s"
+expect_output "  is no approval, and withdraws the approval it answers" " $_ap_long1, $_ap_long2 was waiting.*Its approval is withdrawn" "$out"
+ap_expect_state "  so the approved one is withdrawn" "$_ap_long1" withdrawn
+ap_prompt sA 'ok'
+ap_expect_state "  and it moves the mark: a bare word after it approves nothing" "$_ap_long2" registered
+# A summary turned down, another approved: a later bare yes to another question is an ordinary message. No hint about the
+# one turned down (two messages passed it over: it is forgotten), and the approval not yet committed is withdrawn.
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · turned down · the director's call"; _ap_td="$ap_id"
+ap_prompt sA 'Not yet.'
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · approved next · the director's call"; _ap_an="$ap_id"
+ap_prompt sA 'ok'
+expect_output "a summary turned down, then another approved with ok" "the human approved summary $_ap_an " "$out"
+ap_prompt sA 'yes'
+expect_no_output "  a later yes gets no hint about the one turned down" "answer with the word and its id" "$out"
+ap_expect_state "  and withdraws the approval not yet committed" "$_ap_an" withdrawn
+ap_expect_state "  and approves nothing" "$_ap_td" registered
+# A summary, a question from the human about it, then ok: the hint, and nothing approved; a further ok: nothing at all.
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · asked about · the director's call"; _ap_aq="$ap_id"
+ap_prompt sA 'What does this change for members who already paid?'
+ap_prompt sA 'ok'
+expect_output "a question about a summary, then ok: the hint, that it approves nothing" "nothing was approved.*answer with the word and its id" "$out"
+ap_expect_state "  and nothing is approved" "$_ap_aq" registered
+ap_prompt sA 'ok'
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "  a further ok prints nothing: the summary is forgotten" || bad "  a further ok prints nothing (exit $st)" "$out"
+# A typed ok while a prompt "ok, continue the run" is scheduled is the human's.
+ap_out_tool sA ScheduleWakeup '{"delaySeconds":60,"reason":"r","prompt":"ok, continue the run","noop":false}'
+expect_status "a scheduled prompt ok, continue the run is let through" 0 "$st" "$out"
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · while a prompt is scheduled · the director's call"
+ap_prompt sA 'ok'
+expect_output "  and a typed ok is the human's: it approves the summary" "the human approved summary $ap_id " "$out"
+# A long prompt whose session_id comes last can't be tied to a session: every open approval is withdrawn.
+ap_hook record-approval.sh prompt "{\"transcript_path\":\"/t\",\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"$_ap_long\",\"session_id\":\"sA\"}"
+ap_expect_state "a long prompt whose session_id is past the first 64 KB withdraws every open approval" "$ap_id" withdrawn
+
+# Two summary runs at the same moment get different ids (records.sh claims an id with mkdir).
+_ap_par=""
+for _ap_i in 1 2 3; do
+  (cd "$_ap" && bash tools/records-real.sh summary .app-director/state/summary.txt > "$work/approvals-par1" 2>&1) &
+  (cd "$_ap" && bash tools/records-real.sh summary .app-director/state/summary.txt > "$work/approvals-par2" 2>&1)
+  wait
+  read -r _ap_a < "$work/approvals-par1"; read -r _ap_b < "$work/approvals-par2"
+  _ap_a="${_ap_a#records: summary }"; _ap_a="${_ap_a%% *}"; _ap_b="${_ap_b#records: summary }"; _ap_b="${_ap_b%% *}"
+  { [ -n "$_ap_a" ] && [ -n "$_ap_b" ] && [ "$_ap_a" != "$_ap_b" ]; } || _ap_par="$_ap_par $_ap_a=$_ap_b"
+done
+[ -z "$_ap_par" ] && ok "two summary runs started at once get different ids, three times" || bad "two summary runs at once shared an id or failed:$_ap_par"
+ls -d "$_ap_rs"/S*.lock >/dev/null 2>&1 && bad "  and leave a lock behind" "$(ls -d "$_ap_rs"/S*.lock)" || ok "  and leave no lock behind"
+
+# Stamping reads only the tool's response, with the hash; every summary line in it; and says so when the output didn't come back.
+ap_summary "## product/decisions.md" "+ - 2026-11-11 · stamped by nobody yet · the director's call"; _ap_f="$ap_id"; _ap_fh="$ap_h"
+ap_watch sA Bash "" "" "bash tools/records.sh summary x; echo records: summary $_ap_f · $_ap_fh > /dev/null" "+ a line\\n"
+[ ! -e "$_ap_rs/claude/$_ap_f.stamp" ] && ok "a summary line in the command's own text stamps nothing" || bad "a summary line in the command's own text stamped $_ap_f"
+AP_EVENT=PostToolUseFailure ap_watch sA Bash "" "" "bash tools/records.sh summary missing.txt" ""
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "a failed summary call gets no message about its output: the assistant has the error" || bad "a failed summary call gets no message (exit $st)" "$out"
+ap_watch sA Bash "" "" "bash tools/records.sh summary bad.txt" "records: line 1 of the summary: not ## <path>\\n"
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "  nor one whose summary records.sh refused" || bad "  nor one whose summary records.sh refused (exit $st)" "$out"
+ap_watch sA Bash "" "" "git commit -q -m 'docs: run records.sh summary before writing'" ""
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "  nor a commit message that names records.sh summary" || bad "  nor a commit message that names it (exit $st)" "$out"
+ap_watch sA Bash "" "" "grep -rn 'records.sh summary' docs" ""
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "  nor a search for it" || bad "  nor a search for it (exit $st)" "$out"
+ap_watch sA Bash "" "" "bash tools/records.sh summary .app-director/state/summary.txt | tail -3" "+ a line\\nrecords: show the human these lines word for word, with the id S99. Nothing is written until they approve it.\\n"
+expect_output "a summary whose line tail cut off is told, though other records: lines came back" "isn't tied to this session" "$out"
+ap_watch sA Bash "" "" "bash tools/records.sh summary x; echo forged" "records: summary $_ap_f · 000000000000\\n"
+[ ! -e "$_ap_rs/claude/$_ap_f.stamp" ] && ok "  nor does an output line with the wrong hash" || bad "  an output line with the wrong hash stamped $_ap_f"
+ap_summary "## product/decisions.md" "+ - 2026-11-11 · first of two · the director's call"; _ap_t1="$ap_id"; ap_esc "$ap_sum"; _ap_e1="$ESC"
+ap_summary "## product/decisions.md" "+ - 2026-11-11 · second of two · the director's call"; _ap_t2="$ap_id"; ap_esc "$ap_sum"
+ap_watch sB Bash "" "" "bash tools/records.sh summary a.txt && bash tools/records.sh summary b.txt" "$_ap_e1$ESC"
+{ [ "$(cat "$_ap_rs/claude/$_ap_t1.stamp" 2>&1)" = sB ] && [ "$(cat "$_ap_rs/claude/$_ap_t2.stamp" 2>&1)" = sB ]; } \
+  && ok "two summaries in one command are both stamped" || bad "two summaries in one command are both stamped" "$(ls "$_ap_rs/claude")"
+ap_summary "## product/decisions.md" "+ - 2026-11-11 · redirected · the director's call"; _ap_rd="$ap_id"
+ap_watch sA Bash "" "" "bash tools/records.sh summary .app-director/state/summary.txt > out.txt" ""
+expect_status "a summary whose output was redirected stamps nothing, and the hook says so" 2 "$st" "$out"
+expect_output "  and to run it again without redirecting" "isn't tied to this session.*again without redirecting or cutting its output" "$out"
+[ ! -e "$_ap_rs/claude/$_ap_rd.stamp" ] && ok "  and no stamp is written" || bad "  a redirected summary was stamped"
+# A stale lock left in the state folder: the next summary takes the next id.
+read -r _ap_c < "$_ap_rs/counter"; _ap_n=$((_ap_c + 1))
+mkdir "$_ap_rs/S$_ap_n.lock"
+ap_summary "## product/decisions.md" "+ - 2026-11-11 · past a stale lock · the director's call"
+[ "$ap_id" = "S$((_ap_n + 1))" ] && ok "a stale S$_ap_n.lock: the next summary takes S$((_ap_n + 1))" || bad "a stale lock: the next summary took $ap_id" "$ap_sum"
+rmdir "$_ap_rs/S$_ap_n.lock"
+# The mark never moves back: a counter read lower than it (another run mid-write) leaves it.
+read -r _ap_m _ap_m0 < "$_ap_rs/claude/sA.mark"; read -r _ap_c < "$_ap_rs/counter"
+printf '1\n' > "$_ap_rs/counter"
+ap_prompt sA 'Something else entirely.'
+read -r _ap_m2 _ap_m3 < "$_ap_rs/claude/sA.mark"
+printf '%s\n' "$_ap_c" > "$_ap_rs/counter"
+[ "$_ap_m2" -ge "$_ap_m" ] && ok "a counter read lower than the mark leaves the mark ($_ap_m2, was $_ap_m)" || bad "the mark moved back from $_ap_m to $_ap_m2"
+# Two summaries registered in one session before a bare word: the newest is approved, the older stays unapproved.
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · the older of two · the director's call"; _ap_o="$ap_id"
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · the newer of two · the director's call"; _ap_nw="$ap_id"
+ap_prompt sA 'ok'
+expect_output "two summaries before a bare word: the newest is approved" "the human approved summary $_ap_nw " "$out"
+ap_expect_state "  and the older stays unapproved" "$_ap_o" registered
+# records.sh summary takes a Windows-form absolute path inside the repository (C:/... against a working folder /c/...).
+if _ap_win="$(cd "$_ap" && pwd -W 2>/dev/null)" && [ -n "$_ap_win" ]; then
+  out="$(cd "$_ap" && bash tools/records-real.sh summary "$_ap_win/.app-director/state/summary.txt" 2>&1)"
+  expect_output "records.sh summary takes $_ap_win/... inside the repository" "^records: summary S[0-9]+ · " "$out"
+else
+  ok "records.sh summary with a Windows-form path: skipped, no Windows paths here (pwd -W)"
+fi
+
+# Approval words the assistant schedules or sends are refused; one that arrives anyway, as a scheduled prompt, approves nothing.
+ap_out_tool sA ScheduleWakeup '{"delaySeconds":60,"reason":"r","prompt":"ok","noop":false}'
+expect_status "scheduling a prompt that is only an approval word is refused" 2 "$st" "$out"
+expect_output "  saying an approval is the human's own message" "An approval is the human's own message, so it can't be scheduled or sent" "$out"
+ap_out_tool sA CronCreate "{\"cron\":\"0 9 * * *\",\"prompt\":\"  Godk${_ap_bs}u00e4nt S3!  \"}"
+expect_status "  and CronCreate with Godkänt S3!" 2 "$st" "$out"
+ap_out_tool sA SendMessage '{"to":"main","message":"Approved."}'
+expect_status "  and SendMessage with Approved." 2 "$st" "$out"
+ap_out_tool sA mcp__sessions__send_message '{"session":"x","message":"Please run the tests."}'
+expect_status "  and a message that isn't one is let through" 0 "$st" "$out"
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · a scheduled one · the director's call"
+ap_stop sA '[{"id":"1f388766","schedule":"33 13 * * *","recurring":false,"prompt":"ja"}]'
+expect_status "the Stop hook saves the session's scheduled prompts" 0 "$st" "$out"
+ap_prompt sA 'ja'
+[ -z "$out" ] && ok "a scheduled prompt that is an approval word approves nothing when it arrives" || bad "a scheduled ja approves nothing" "$out"
+ap_expect_state "  and the summary stays registered" "$ap_id" registered
+ap_stop sA '[]'
+ap_prompt sA 'Ja!'
+expect_output "once the Stop hook lists no scheduled prompt, the human's own Ja! approves it" "the human approved summary $ap_id \(\"Ja\"\)" "$out"
+
+# 2. The question dialog.
+ap_fresh
+ap_register sA - "## product/decisions.md" "+ $_ap_dec2"
+ap_dialog sA "{\"Write summary S1 (\\\"invoices\\\", ${_ap_bs}u00e5${_ap_bs}u00e4ö and a \\\\\\\\ backslash)?\":\"Approve\",\"Which colour?\":\"Blue\"}"
+expect_status "the Approve option of a question that names the summary" 2 "$st" "$out"
+expect_output "  approves it, the question text read with its quotes, escapes and non-ASCII" "the human approved summary S1 \(\"Approve\"\)" "$out"
+ap_expect_state "  and records.sh has it approved, by dialog" S1 approved
+grep -qs '^by=dialog$' "$_ap_rs/S1.approval" && ok "  recorded as given in a dialog" || bad "  recorded as given in a dialog" "$(cat "$_ap_rs/S1.approval")"
+ap_dialog sA '{"Write S1 as it stands?":"Change the wording first"}'
+expect_output "another option withdraws it" "summary S1 was waiting.*Its approval is withdrawn" "$out"
+ap_expect_state "  and records.sh has it withdrawn" S1 withdrawn
+ap_register sA - "## product/decisions.md" "+ $_ap_dec3"
+ap_dialog sA '{"Approve S2?":"[User did not answer this question; they sent a message instead. Treat that message as their response]"}'
+expect_output "the text of a dialog left unanswered approves nothing, and says so" "didn't answer the question about summary S2: that is no approval" "$out"
+ap_expect_state "  and S2 stays registered" S2 registered
+ap_dialog sA '{"Approve S2?":"Approve"}' '"agent_id":"a1","agent_type":"builder",'
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "a dialog inside a subagent is ignored" || bad "a dialog inside a subagent is ignored (exit $st)" "$out"
+ap_dialog sA '{"Which colour should the button be?":"Blue"}'
+expect_output "an answer to a dialog that names no summary is the human's message: S2, waiting, is passed over" "summary S2 was waiting for the human's approval" "$out"
+ap_prompt sA 'ok'
+expect_output "  and moves the mark: a bare word after it approves nothing, and asks for the id" "answer with the word and its id" "$out"
+ap_expect_state "  and S2 stays registered" S2 registered
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · a dialog's · the director's call"
+ap_dialog sA '{"Approve S2 and S3?":"Approve"}'
+ap_expect_state "a question that names two summaries approves neither" S3 registered
+ap_expect_state "  nor S2" S2 registered
+ap_dialog sA '{"Approve XS3 or S3b?":"Approve"}'
+ap_expect_state "a question naming XS3 or S3b names no summary, and approves nothing" S3 registered
+ap_register sA - "## product/decisions.md" "+ - 2026-11-11 · approved in a dialog · the director's call"; _ap_dl="$ap_id"
+ap_dialog sA "{\"Write $_ap_dl?\":\"Approve\"}"
+ap_expect_state "a summary approved in a dialog" "$_ap_dl" approved
+ap_prompt sA 'ok'
+ap_expect_state "  then a bare word, with nothing registered since, withdraws it" "$_ap_dl" withdrawn
+ap_fresh
+ap_dialog sA '{"Which colour should the button be?":"Blue"}'; ap_calls
+{ [ "$st" -eq 0 ] && [ -z "$out" ] && [ -z "$REPLY" ]; } && ok "with nothing registered, a dialog's answer prints nothing and starts no records.sh" \
+  || bad "with nothing registered, a dialog's answer is silent (exit $st)" "$out$REPLY"
+
+# 3. The file guard.
+ap_fresh
+ap_guard() { # ap_guard <expected exit> <what> <tool> <file_path> [agent id]
+  local ag=""
+  [ -n "${5:-}" ] && ag="\"agent_id\":\"$5\",\"agent_type\":\"builder\","
+  ap_hook guard-protected.sh "" "{\"session_id\":\"sA\",${ag}\"tool_name\":\"$3\",\"tool_input\":{\"file_path\":\"$4\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+  expect_status "$2" "$1" "$st" "$out"
+}
+ap_guard 2 "the file guard refuses the decisions without an open approval" Edit product/decisions.md
+expect_output "  saying to register a summary and wait for the approval" "no approval of the human's covers a change to product/decisions.md.*bash tools/records.sh summary <file>" "$out"
+ap_guard 2 "  and the brief, by its absolute path" Write "$_ap/product/brief.md"
+ap_guard 2 "  and the brief through MultiEdit, as ./product/../product/brief.md" MultiEdit ./product/../product/brief.md
+ap_register sA - "## product/decisions.md" "+ $_ap_dec2"
+ap_prompt sA 'ok'
+ap_guard 0 "with an open approval for the decisions, Edit may change them" Edit product/decisions.md
+ap_guard 2 "  but not from a subagent" Edit product/decisions.md builder-1
+expect_output "  which reports the text instead" "a subagent never writes product/decisions.md" "$out"
+ap_guard 2 "  and the brief still needs its own" Write product/brief.md
+ap_guard 2 "the approvals' state is never written" Write .app-director/state/records/S1.approval
+ap_guard 2 "  nor through an absolute path" Edit "$_ap/.app-director/state/records/claude/S1.stamp"
+: > "$_ap_log"
+ap_guard 0 "another file is let through" Write src/app.ts
+ap_calls; [ -z "$REPLY" ] && ok "  and starts no records.sh" || bad "  and starts no records.sh" "$REPLY"
+ap_hook guard-protected.sh "" '{"session_id":"sA","tool_name":"NotebookEdit","tool_input":{"notebook_path":"product/brief.md","new_source":"x"}}'
+expect_status "NotebookEdit's notebook_path on the brief is refused too" 2 "$st" "$out"
+# Path forms, read as the watch reads them (record-paths.sh): case on Windows and macOS, a trailing dot, a \\?\ prefix.
+AP_OSTYPE=darwin22 ap_guard 2 "Product/Brief.md is the brief on macOS" Write Product/Brief.md
+AP_OSTYPE=msys ap_guard 2 "  and on Windows" Write Product/Brief.md
+AP_OSTYPE=linux-gnu ap_guard 0 "  but another file on Linux" Write Product/Brief.md
+AP_OSTYPE=msys ap_guard 2 "product/brief.md. (a trailing dot) is the brief on Windows" Write 'product/brief.md.'
+AP_OSTYPE=msys AP_ROOT='C:\git\Proj' ap_guard 2 "the \\\\?\\ form of the brief is the brief (a subagent's write, refused before any records.sh)" Write '\\\\?\\C:\\git\\Proj\\product\\brief.md' builder-1
+AP_OSTYPE=msys AP_ROOT='C:\git\Proj' ap_guard 0 "  and the \\\\?\\ form of another file isn't" Write '\\\\?\\C:\\git\\Proj\\src\\x.ts' builder-1
+# The defaults are guarded always: tools/check.cfg changed where the watch didn't see it doesn't unguard them.
+ap_fresh
+sed -i.bak 's|^brief = product/brief.md$|brief = docs/brief.md|' "$_ap/tools/check.cfg" && rm -f "$_ap/tools/check.cfg.bak"
+ap_guard 2 "with brief moved in tools/check.cfg behind the watch's back, product/brief.md (the default) is still refused" Edit product/brief.md
+# A project whose committed brief is docs/brief.md: tools/check.cfg moving it again keeps the last commit's path guarded
+# (the gate reads it), after a file tool or a command.
+mkdir -p "$_ap/docs" && printf '# Brief\n' > "$_ap/docs/brief.md"
+(cd "$_ap" && git add -A && git_q commit -qm "brief in docs" --no-verify) >/dev/null 2>&1
+sed -i.bak 's|^brief = docs/brief.md$|brief = docs/other.md|' "$_ap/tools/check.cfg" && rm -f "$_ap/tools/check.cfg.bak"
+ap_watch sA Edit "" tools/check.cfg
+ap_guard 2 "after an Edit of tools/check.cfg moved brief, an Edit of the committed docs/brief.md is still refused" Edit docs/brief.md
+ap_guard 2 "  and the new path too" Edit docs/other.md
+git -C "$_ap" checkout -q -- tools/check.cfg; ap_watch sA Bash
+[ ! -e "$_ap_rs/claude/head-check.cfg" ] && ok "  once tools/check.cfg matches the last commit again, the saved paths are gone" || bad "  the saved paths are gone once tools/check.cfg matches again"
+(cd "$_ap" && sed -i.bak 's|^brief = docs/brief.md$|brief = docs/other.md|' tools/check.cfg && rm -f tools/check.cfg.bak)
+ap_watch sA Bash
+ap_guard 2 "after a shell command moved brief in tools/check.cfg, an Edit of docs/brief.md is still refused" Edit docs/brief.md
+git -C "$_ap" reset -q --hard HEAD~1
+ap_fresh
+# On Windows a stream or an 8.3 short name is refused whatever it names; under WSL a Windows drive ignores case.
+AP_OSTYPE=msys ap_guard 2 "a stream, product\\\\decisions.md::\$DATA, is refused on Windows" Write 'product\\decisions.md::$DATA'
+expect_output "  saying to write the plain form" "write a path in its plain form" "$out"
+AP_OSTYPE=msys ap_guard 2 "  and an 8.3 short name, PRODUC~1\\\\DECISI~1.MD" Write 'PRODUC~1\\DECISI~1.MD'
+AP_OSTYPE=linux-gnu AP_ROOT=/mnt/c/git/Proj ap_guard 2 "under WSL, /mnt/c/.../Product/Brief.md is the brief (a subagent's write)" Write /mnt/c/git/Proj/Product/Brief.md builder-1
+AP_OSTYPE=linux-gnu AP_ROOT=/mnt/c/git/Proj ap_guard 2 "  and /mnt/C/... in upper case is compared without regard to case" Write /mnt/C/git/Proj/product/brief.md builder-1
+AP_OSTYPE=msys AP_ROOT='C:\git\Proj' ap_guard 0 "a path outside the project in 8.3 form (a temp folder) passes on Windows" Write 'C:\\Users\\FIRSTN~1\\AppData\\Local\\Temp\\x.txt'
+AP_OSTYPE=linux-gnu ap_guard 0 "a file name with ~1 passes on Linux" Write 'notes/a~1.md'
+AP_OSTYPE=linux-gnu ap_guard 0 "  and one with a colon" Write 'notes/a:b.md'
+AP_OSTYPE=darwin22 ap_guard 0 "  and both on macOS" Write 'notes/a~1:b.md'
+# A large Write whose path comes after its content: read on to the path, refused in a few seconds.
+_ap_t0=$SECONDS
+ap_hook guard-protected.sh "" "{\"session_id\":\"sA\",\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"$_ap_long\",\"file_path\":\"product/brief.md\"}}"
+_ap_el=$((SECONDS - _ap_t0))
+expect_status "a ${#_ap_long}-byte Write to the brief, its path after the content, is refused" 2 "$st" "$out"
+[ "$_ap_el" -lt 10 ] && ok "  in ${_ap_el} s (under 10)" || bad "  in ${_ap_el} s"
+
+# 4. The watch: lines no approval covers, whatever wrote them, reported once each.
+ap_fresh
+ap_watch sA Bash; ap_calls
+{ [ "$st" -eq 0 ] && [ -z "$out" ] && [ -z "$REPLY" ]; } && ok "with no record file changed, the watch prints nothing and runs no records.sh" || bad "with no record file changed, the watch is silent and runs no records.sh (exit $st)" "$out$REPLY"
+ap_watch sA Edit "" src/app.ts; ap_calls
+{ [ "$st" -eq 0 ] && [ -z "$REPLY" ]; } && ok "  nor after a file tool that wrote another file" || bad "  nor after a file tool that wrote another file" "$out$REPLY"
+(cd "$_ap" && sed -i.bak 's/sign in by email/sign in by phone/' product/decisions.md && rm -f product/decisions.md.bak)
+ap_watch sA Bash
+expect_status "a decision line sed -i wrote is reported at once" 2 "$st" "$out"
+expect_output "  naming the line" "^  product/decisions\.md: \+ - 2026-11-01 · members sign in by phone" "$out"
+expect_output "  that a commit with it will be refused" "^A commit with them will be refused\.$" "$out"
+expect_output "  and what to do if the assistant wrote them" "If you wrote these lines, take them out again, or register them as a summary with .bash tools/records\.sh summary <file>.* wait for their approval" "$out"
+expect_output "  and if the human did" "If the human wrote them, leave them and tell the human: they commit an edit of their own after running .bash tools/records\.sh approve --staged. in their own terminal" "$out"
+ap_watch sA Bash
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "  and not again on the next call" || bad "  and not again on the next call (exit $st)" "$out"
+_ap_brief_line="Members pay by invoice too."
+if command -v node >/dev/null 2>&1; then
+  (cd "$_ap" && node -e "require('fs').appendFileSync('product/brief.md', '\n$_ap_brief_line\n')"); _ap_by="node -e"
+elif command -v python3 >/dev/null 2>&1; then
+  (cd "$_ap" && python3 -c "open('product/brief.md', 'a').write('\n$_ap_brief_line\n')"); _ap_by="python3 -c"
+else
+  printf '\n%s\n' "$_ap_brief_line" >> "$_ap/product/brief.md"; _ap_by="a shell redirect (no node or python3 here)"
+fi
+ap_watch sA PowerShell
+expect_output "brief text written by $_ap_by is reported" "^  product/brief\.md: \+ $_ap_brief_line$" "$out"
+ap_watch sA Bash
+[ -z "$out" ] && ok "  and not again" || bad "  and not again" "$out"
+printf '\n### T2 · Invoices · todo · L · agent\n- Done when: an invoice is sent (test)\n' >> "$_ap/TASKS.md"
+ap_watch sA Bash
+expect_output "a todo item appended by a shell redirect is reported" "^  TASKS\.md: \+ ### T2 · Invoices · todo · L · agent$" "$out"
+ap_watch sA Bash builder-1
+expect_output "a subagent is told too, that it never writes records" "You are a subagent, and a subagent never writes records" "$out"
+ap_watch sA Edit "" "$_ap/product/decisions.md"
+[ -z "$out" ] && ok "the same lines after a file tool aren't reported again" || bad "the same lines after a file tool aren't reported again" "$out"
+printf '%s\n' "$_ap_dec3" >> "$_ap/product/decisions.md"
+ap_watch sA Edit "" ./product/../product/decisions.md
+expect_output "the watch reads a file tool's path as the guard does: ./product/../product/decisions.md is the decisions" "^  product/decisions\.md: \+ - 2026-11-11 · invoices are due" "$out"
+printf '%s\n' "- 2026-11-11 · a third line · the director's call" >> "$_ap/product/decisions.md"
+AP_OSTYPE=msys ap_watch sA Edit "" 'Product/Decisions.md.'
+expect_output "  and Product/Decisions.md. on Windows" "a third line" "$out"
+printf '%s\n' "- 2026-11-11 · a fourth line · the director's call" >> "$_ap/product/decisions.md"
+AP_OSTYPE=msys ap_watch sA Edit "" 'PRODUC~1/DECISI~1.MD'
+expect_output "  and an 8.3 short name on Windows goes on to the git test, and is reported" "a fourth line" "$out"
+ap_fresh
+ap_register sA - "## product/decisions.md" "+ $_ap_dec2"
+ap_prompt sA 'ok'
+printf '%s\n' "$_ap_dec2" >> "$_ap/product/decisions.md"
+ap_watch sA Edit "" product/decisions.md
+{ [ "$st" -eq 0 ] && [ -z "$out" ]; } && ok "a line an approval covers isn't reported" || bad "a line an approval covers isn't reported (exit $st)" "$out"
+
+# 5. The 2026-11-11 sequence, replayed: a summary registered, a dialog about it left unanswered, a complaint with a
+# screenshot, then a decision line, brief text and a todo item, and a commit. It ends with no approval and a refused commit.
+ap_fresh
+ap_register sA - "## product/decisions.md" "+ $_ap_dec2" "## product/brief.md" "+ $_ap_brief_line"
+ap_dialog sA '{"Shall I record S1 as shown?":"[User did not answer this question; they sent a message instead. Treat that message as their response]"}'
+expect_output "replay: the dialog about S1 left unanswered is no approval, and the hook says so" "didn't answer the question about summary S1: that is no approval" "$out"
+ap_expect_state "replay:   and S1 stays registered" S1 registered
+ap_prompt sA '<system-reminder>linked</system-reminder>\n\nThis is wrong, the button is cut off. [Image #1]'
+expect_output "replay: the complaint is no approval of S1, and says nothing of it may be written" "summary S1 was waiting.*Nothing of it may be written" "$out"
+ap_prompt sA 'ok'
+ap_expect_state "replay:   so S1 is passed over: a later bare word approves nothing" S1 registered
+ap_guard 2 "replay: an Edit of the decisions is refused" Edit product/decisions.md
+printf '%s\n' "$_ap_dec2" >> "$_ap/product/decisions.md"
+printf '\n%s\n' "$_ap_brief_line" >> "$_ap/product/brief.md"
+printf '\n### T2 · Invoices · todo · L · agent\n- Done when: an invoice is sent (test)\n' >> "$_ap/TASKS.md"
+ap_watch sA Bash
+expect_output "replay: the watch names the decision line" "^  product/decisions\.md: \+ - 2026-11-11 · members can pay by invoice" "$out"
+expect_output "replay: the brief text" "^  product/brief\.md: \+ $_ap_brief_line$" "$out"
+expect_output "replay: and the todo item" "^  TASKS\.md: \+ ### T2 · Invoices · todo · L · agent$" "$out"
+out="$(cd "$_ap" && git add -A && git_q commit -qm "invoices" 2>&1)"; expect_status "replay: the commit is refused" 1 $? "$out"
+{ ! ls "$_ap_rs"/S*.approval >/dev/null 2>&1; } && ok "replay: and no approval is recorded anywhere" || bad "replay: no approval is recorded" "$(ls "$_ap_rs")"
+
+# 6. The wiring, and forms bash 3.2 and BSD tools lack.
+wiring="$(awk '/^    "[A-Za-z]+": \[/ { ev = $1; gsub(/[":]/, "", ev) } /"matcher"/ { split($0, a, "\""); m = a[4] }
+  /record-approval\.sh|record-watch\.sh|guard-protected\.sh/ { n = split($0, b, "/"); c = b[n]; gsub(/[",]/, "", c); gsub(/\\/, "", c); print ev ";" m ";" c }' "$src/framework/.claude/settings.json")"
+grep -q 'record-paths\.sh' "$src/framework/.claude/settings.json" && bad "settings.json runs record-paths.sh, which is sourced, not a hook" || ok "record-paths.sh is sourced by the hooks, not wired as one"
+_ap_want="UserPromptSubmit;;record-approval.sh prompt
+Stop;;record-approval.sh stop
+PreToolUse;Edit;guard-protected.sh
+PreToolUse;Write;guard-protected.sh
+PreToolUse;MultiEdit|NotebookEdit;guard-protected.sh
+PreToolUse;ScheduleWakeup|CronCreate|CronUpdate|SendMessage|RemoteTrigger|mcp__.*(send_message|scheduled_task).*;record-approval.sh outgoing
+PostToolUse;Edit|Write|MultiEdit|NotebookEdit;record-watch.sh
+PostToolUse;Bash|PowerShell;record-watch.sh
+PostToolUse;AskUserQuestion;record-approval.sh dialog
+PostToolUseFailure;Bash|PowerShell;record-watch.sh"
+[ "$wiring" = "$_ap_want" ] && ok "settings.json wires the approval hook, the watch and the file guard to their events" \
+  || bad "settings.json wires the approval hook, the watch and the file guard to their events" "$wiring"
+grep -qF '"Bash(bash tools/records.sh approve*)"' "$src/framework/.claude/settings.json" && grep -qF '"PowerShell(bash tools/records.sh approve*)"' "$src/framework/.claude/settings.json" \
+  && ok "settings.json denies records.sh approve in Bash and PowerShell" || bad "settings.json denies records.sh approve in Bash and PowerShell"
+bash4=$(grep -nE '^[^#]*(\$\{[A-Za-z_0-9]+(\[[^]]*\])?(,,|\^\^)\}|(declare|local|typeset) +-[a-zA-Z]*A|(^|[;&| ])(mapfile|readarray) +|(^|[;&| ])coproc +[A-Za-z]|[[:space:]]\|&[[:space:]]|\$\{[A-Za-z_0-9@*]+(\[[^]]*\])?: -[0-9]|stat +-c|date +-d|sed +-i|readlink +-f|-printf|-delete|EPOCHSECONDS|%\(|\bjq\b|python|node )' \
+  "$src/framework/.claude/hooks/record-approval.sh" "$src/framework/.claude/hooks/record-watch.sh" "$src/framework/.claude/hooks/guard-protected.sh" \
+  "$src/framework/.claude/hooks/record-paths.sh" || true)
+[ -z "$bash4" ] && ok "the approval hook, the watch and the file guard use no bash 4 form, no GNU-only flag and no jq, Python or Node" \
+  || bad "the approval hook, the watch and the file guard use no bash 4 form, no GNU-only flag and no jq, Python or Node" "$bash4"
+}
+
 part_ui_design() {
 # --- /ui-design -----------------------------------------------------------------------------------
 echo "ui-design"
@@ -6823,6 +8064,8 @@ fi
 part framework 1-framework
 part release 1b-release
 part orphans 1c-orphans
+part records 7c-records
+part approvals 7d-approvals
 gitleaks_setup
 part installer 2b-installer
 part snapshot 2b-snapshot
@@ -6836,13 +8079,13 @@ part main 2-installer
 wait
 passed=0; failed=0
 stopped=""
-for name in framework release orphans main installer snapshot check1 check2 check3 check4 check5 check_ts guard hooks session commit ui_design security stories prototype protospace; do
+for name in framework release orphans main installer snapshot check1 check2 check3 check4 check5 check_ts guard hooks session commit ui_design security stories prototype protospace records approvals; do
   if [ -f "$seg/count-$name" ]; then read -r p f status < "$seg/count-$name"; else p=0; f=1; status="no count"; fi
   passed=$((passed + p)); failed=$((failed + f))
   [ "$status" = 0 ] || { failed=$((failed + 1)); stopped="$stopped$nl  FAIL  the $name part stopped early ($status)"; }
 done
 cat "$seg"/1-framework "$seg"/1b-release "$seg"/1c-orphans "$seg"/2-installer "$seg"/2b-installer "$seg"/2b-snapshot \
   "$seg"/2c-check1 "$seg"/2d-check2 "$seg"/2e-check3 "$seg"/2f-check4 "$seg"/2f2-check5 "$seg"/2g-check-ts "$seg"/3-guard "$seg"/4a-hooks "$seg"/4b-session "$seg"/4b-precommit \
-  "$seg"/5-ui-design "$seg"/6-security "$seg"/6b-stories "$seg"/7-prototype "$seg"/7b-protospace
+  "$seg"/5-ui-design "$seg"/6-security "$seg"/6b-stories "$seg"/7-prototype "$seg"/7b-protospace "$seg"/7c-records "$seg"/7d-approvals
 [ -z "$stopped" ] || printf '%s\n' "${stopped#"$nl"}"
 finish

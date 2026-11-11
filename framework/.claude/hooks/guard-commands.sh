@@ -14,6 +14,15 @@
 # section "git: flags that write a file" below. And a `bash` or `sh` command whose script path under
 # tools/ leaves it with `..`, because `bash tools/stacks/*.sh*` would match `tools/stacks/../../x.sh`.
 #
+# The records (T334): where records.sh is the command being run, in the forms the guard can read (its words, quotes
+# removed; a heredoc body a shell runs too), only the subcommands an assistant runs pass (summary, check, trailer, status,
+# report, word, open, withdraw), and only written out literally (no $, backtick or glob in its words); a word that is a
+# path into .app-director/state/records is blocked; an approval is the human's own message (record-approval.sh records
+# it). git cherry-pick, revert, rebase and am are blocked where git is the command being run, since they make commits
+# without the pre-commit hook, so the record gate never sees them. Not read: those four run through xargs
+# (... | xargs git rebase) or after timeout with an option that takes a value (timeout -s KILL 60 git rebase). See
+# "Records: the approvals' state" and the rules after the bash script path.
+#
 # Also blocks shell commands, Bash or PowerShell, that read credential files directly (.env and .env.<suffix>,
 # *.pem, *.key, ~/.ssh, git's credentials files, the gh CLI's hosts.yml) and the commands that print a stored
 # credential (gh auth token, gh auth status -t, git credential fill or get). This is a guardrail, not a
@@ -1966,6 +1975,43 @@ if [[ $bare =~ $wrap_gate || ( -n $bare2 && $bare2 =~ $wrap_gate ) ]] || { ((${v
 fi
 shopt -u nocasematch
 
+# --- Records: the approvals' state (Director-Driven-Development T334) ------------------------------
+# The approvals' state (.app-director/state/records) is never needed in a command (bash tools/records.sh status says what
+# it holds), so a word that is a path into it is blocked. The words are read from hst (no body nothing runs) with a quoted
+# string that holds a space as one word of text (a message, a title), quotes removed, a backslash as a /, /./ and repeated
+# slashes collapsed, in any case, in each view of the command. In a search (grep, egrep, fgrep, rg, git grep) only the
+# last word is read as a path: the others are its pattern and flags, so grep -rn ".app-director/state/records" . passes.
+# A quick test (app-director in the text, quotes, slashes and dots removed) skips the rest for a command that can't name it.
+rec_st='app-director/state/(records|[^/[:space:]]*[*?[])|app-director/[^/[:space:]]*[*?[][^/[:space:]]*/records'
+st_q="${hst//[\"\'\\\/.]/}"
+shopt -s nocasematch
+if [[ $st_q == *app-director* ]]; then
+  st_t="$hst"
+  while [[ $st_t =~ \"[^\"]*[[:space:]][^\"]*\" ]]; do st_t="${st_t/"${BASH_REMATCH[0]}"/ Q }"; done
+  while [[ $st_t =~ \'[^\']*[[:space:]][^\']*\' ]]; do st_t="${st_t/"${BASH_REMATCH[0]}"/ Q }"; done
+  st_t="${st_t//[\"\']/}"; st_t="${st_t//\\//}"; st_t="${st_t//$nl/;}"
+  while [[ $st_t == */./* ]]; do str_swap "$st_t" /./ /; st_t="$SW"; done
+  while [[ $st_t == *//* ]]; do str_swap "$st_t" // /; st_t="$SW"; done
+  IFS=';&|' read -r -d '' -a st_segs <<<"$st_t" || true
+  for st_s in "${st_segs[@]}"; do
+    read -ra st_w <<<"${st_s//[()]/ }"
+    st_n=${#st_w[@]}; k=0
+    while ((k < st_n)) && [[ ${st_w[k]} =~ ^([A-Za-z_][A-Za-z0-9_]*=.*|env|time|nohup|exec|command|sudo|timeout|xargs|-.*|[0-9]+(\.[0-9]+)?[smhd]?)$ ]]; do ((k++)); done
+    st_last=0
+    case "${st_w[k]##*/}" in grep|egrep|fgrep|rg|grep.exe|rg.exe) st_last=1 ;; esac
+    if [[ ${st_w[k]##*/} =~ ^git(\.exe)?$ ]]; then
+      for ((j = k + 1; j < st_n; j++)); do
+        case ${st_w[j]} in -C|-c) ((j++)) ;; -*) ;; grep) st_last=1; break ;; *) break ;; esac
+      done
+    fi
+    for ((j = k; j < st_n; j++)); do
+      ((st_last && j < st_n - 1)) && continue
+      [[ ${st_w[j]} =~ $rec_st ]] && block "the approvals' state in .app-director/state/records is the human's and no command reads or writes it; 'bash tools/records.sh status' says what it holds"
+    done
+  done
+fi
+shopt -u nocasematch
+
 # --- git-specific rules --------------------------------------------------------------------------
 # A substitution's brackets are read as blanks, so $(echo git) counts as a git command (B32).
 # The git name is read as the shell reads it, quotes removed, so "git", 'git' and g"it" are git (B39).
@@ -1980,6 +2026,9 @@ isbash=0; [[ $bare_g =~ (^|[^[:alnum:]_.-])([Bb][Aa])?[Ss][Hh]([[:space:]]|$) ]]
 [[ $gp_g =~ (^|[^[:alnum:]_.-])([Bb][Aa])?[Ss][Hh](\.[Ee][Xx][Ee])?([[:space:]]|$) ]] && isbash=1   # T294: behind a Windows path, with .exe
 # A gh command (quotes removed, as the shell reads it) is read for the gh auth token rule too (B39).
 gh_pre=0; [[ ${real//[\"\'\\]/} =~ (^|[^[:alnum:]_.-])gh[[:space:]] ]] && gh_pre=1
+# T334: a command that names records.sh (quotes removed, in any case) is read for the records.sh rule below, whatever runs it
+# (./tools/records.sh approve has no bash in front).
+isrec=0; [[ $bare_g =~ [Rr][Ee][Cc][Oo][Rr][Dd][Ss]\.[Ss][Hh] ]] && isrec=1
 # B45: a variable as a command's name runs what it holds, so a command that has one is read too (cname_judge, mode 0). The text is
 # hst, the command without the bodies nothing runs (B50), and in PowerShell without the bodies of its here-strings (above), so a file
 # written from a heredoc or a here-string (a GDScript file of $Node.method() lines) costs no walk of every character.
@@ -2007,7 +2056,7 @@ if ((!isgit)) && [[ $real == *'$('* || ( $tool != PowerShell && ( $real == *'`'*
 fi
 
 # B49: a view of a substitution in a command that isn't git's (vhang) is read by the hang rules only; no rule below judges it.
-((${vhang[vi]:-0} == 0)) && ((isgit || isbash || gh_pre || cnv)) || continue
+((${vhang[vi]:-0} == 0)) && ((isgit || isbash || gh_pre || cnv || isrec)) || continue
 
 seg='[^;&|]*'   # the destructive git rules are below the decoding of the command (B33)
 
@@ -2340,8 +2389,9 @@ if [[ ${hdc//[\"\'\\]/} =~ push|reset|clean|checkout|switch|restore|stash|branch
 dcode="$gcode;$bcode"
 # B39: the bodies a shell runs (hnm: any heredoc but a commit's or tag's message) that name git are read by the file-writing,
 # file-reading and program flags and by the words of a git command (fcode). A message isn't, so it passes as it did.
+# T334: a body a shell runs that names records.sh is read too, so the records.sh rule judges bash <<'EOF' with one inside.
 ncode=""
-if [[ ${hnm//[\"\'\\]/} =~ [Gg][Ii][Tt] ]]; then bdecode "$hnm"; ncode="$dec"; fi
+if [[ ${hnm//[\"\'\\]/} =~ [Gg][Ii][Tt]|[Rr][Ee][Cc][Oo][Rr][Dd][Ss]\.[Ss][Hh] ]]; then bdecode "$hnm"; ncode="$dec"; fi
 fcode="$gcode;$ncode"
 # B39: the credential-print rules read the command's decoded words, with the quotes removed as the shell removes them, and the bodies
 # a shell runs. They read hst, so a commit's, tag's or gh message, and a cat or tee body nothing runs, is text that may name gh auth
@@ -2442,8 +2492,65 @@ for gs in "${gsegs[@]}"; do
       # B45: a variable in a script path under tools/ can hold .., which the rule below can't see (the allow rule matches the text too).
       [[ ${w[k]} =~ ^(\./)?tools/ && ${w[k]} == *'$'* ]] && block "$MSG_SHPATH"
       [[ ${w[k]} =~ ^(\./)?tools/ && ${w[k]} =~ $dotsre ]] && block "a bash script path with a .. segment can run a script outside the allowed ones"
+      # T334: a glob in a script path under tools/ (tools/rec*.sh) runs a script the guard can't name.
+      [[ ${w[k]} =~ ^(\./)?tools/ ]] && [[ ${w[k]} == *'*'* || ${w[k]} == *'?'* || ${w[k]} == *'['* ]] &&
+        block "a glob in a bash script path under tools/ runs a script the guard can't name; write the script's path out"
       break
     done
+  fi
+  # T334: records.sh. An approval of a record summary is the human's own message, which the approval hook
+  # (record-approval.sh) records. In a segment that has a word ending in records.sh (in any case), whatever runs it
+  # (bash, sh, zsh, env, nice, timeout, xargs, ./), the word after it must be one of the subcommands an assistant runs:
+  # summary, check, trailer, status, report, word, open, withdraw. Anything else (approve), and no word at all
+  # (... | xargs bash tools/records.sh), is blocked, and so is a $, a backtick, a substitution or a glob (* ? [) in the
+  # segment's words, since the guard can't read the word it makes: a records.sh command is written out literally. A
+  # segment whose command reads or copies files (cat, head, tail, less, grep, egrep, fgrep, rg, git, diff, chmod, ls, wc,
+  # awk, cp, sed -n, and bash -n or sh -n, the syntax check) only names records.sh, and passes. Words are read as the shell
+  # reads them (quotes removed, and a quoted string with a space in it one word that is text), so a message or a title
+  # that names records.sh approve is no records.sh command.
+  if ((isrec)); then
+    for ((j = 0; j < n; j++)); do lower "${w[j]}"; [[ $LC == *records.sh ]] && break; done
+    if ((j < n)); then
+      k=0
+      while ((k < n)) && [[ ${w[k]} =~ ^[A-Za-z_][A-Za-z0-9_]*=.*$ ]]; do ((k++)); done
+      lower "${w[k]:-}"; c="${LC##*[/\\]}"; c="${c%.exe}"
+      rdr=0
+      case $c in
+        cat|head|tail|less|grep|egrep|fgrep|rg|git|diff|chmod|ls|wc|awk|cp) rdr=1 ;;
+        sed) for ((j2 = k + 1; j2 < n; j2++)); do [[ ${w[j2]} == -n ]] && rdr=1; done ;;
+        bash|sh) [[ ${w[k+1]:-} == -n ]] && rdr=1 ;;
+      esac
+      if ((!rdr)); then
+        for ((j2 = 0; j2 < n; j2++)); do
+          a="${w[j2]}"
+          [[ $a == *'$'* || $a == *'`'* || $a == *$'\x1a'* || $a == *'*'* || $a == *'?'* || $a == *'['* ]] &&
+            block "a records.sh command is written out literally, and this one has a \$, a backtick, a substitution or a glob in its words, so the guard can't read what it runs"
+        done
+        lower "${w[j+1]:-}"
+        case $LC in
+          summary|check|trailer|status|report|word|open|withdraw) ;;
+          *) block "records.sh runs only summary, check, trailer, status, report, word, open and withdraw here; an approval of a record summary is the human's own message, which the approval hook records" ;;
+        esac
+      fi
+    fi
+  fi
+  # T334: git cherry-pick, revert, rebase and am make commits without the pre-commit hook, so the record gate never judges
+  # them. They are blocked where git is the command the segment runs (after VAR=x, env, command, time, nohup, exec, sudo
+  # and timeout with their options, by its name in any case, after a path and with .exe, past git's own options such as -C
+  # and -c), never where the words are another command's arguments.
+  k=0
+  while ((k < n)) && [[ ${w[k]} =~ ^([A-Za-z_][A-Za-z0-9_]*=.*|env|time|nohup|exec|command|sudo|timeout|-.*|[0-9]+(\.[0-9]+)?[smhd]?)$ ]]; do ((k++)); done
+  if ((k < n)) && [[ ${w[k]} =~ $gitw_re ]]; then
+    for ((k++; k < n; )); do
+      case ${w[k]} in
+        -C|-c|--git-dir|--work-tree|--namespace|--config-env|--attr-source|--super-prefix) ((k += 2)) ;;
+        -*) ((k++)) ;;
+        *) break ;;
+      esac
+    done
+    case ${w[k]:-} in
+      cherry-pick|revert|rebase|am) block "git ${w[k]} makes commits that the record gate never sees (no pre-commit hook runs), so the human runs it" ;;
+    esac
   fi
   k=0
   # git is found by its name in any case, after a path and with .exe (/usr/bin/git and GIT.EXE are git, as they are for the shell).

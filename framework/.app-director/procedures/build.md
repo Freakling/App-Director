@@ -1,7 +1,7 @@
 <!-- App Director · framework-owned: replaced on upgrade. -->
 # Build one item
 
-Build one TASKS.md item that has already been claimed, and report back briefly. Until you've written the report, don't pick items, don't edit TASKS.md, AGENTS.md or `product/`, and don't commit. Whoever handed you the item does that; if that's you, carry on with `next-task.md` afterwards.
+Build one TASKS.md item that has already been claimed, and report back briefly. Until you've written the report, don't pick items, don't edit TASKS.md, AGENTS.md or `product/`, and don't commit. Whoever handed you the item does that; if that's you, carry on with `next-task.md` afterwards. You report record text and never write it: not the brief, the decisions, a confirmed story or an item. Your `Found:` lines and the report carry it, and whoever handed you the item files it.
 
 Shell commands follow `.app-director/rules.md` › Shell commands. Write files with the file tools (Write or Edit in Claude Code), never with a shell heredoc or an `echo` or `printf` redirect of multi-line content, since a heredoc can hang the shell; write a multi-line script to a file and run it from there. Keep every shell call one short command that finishes well inside the tool's timeout; only the check, a build and a host start run long, with an explicit long timeout.
 

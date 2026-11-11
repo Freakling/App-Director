@@ -25,7 +25,7 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 
 ## Install
 
-**Start here: write your product brief.** Before you install, describe your app in your own words in a copy of the [product brief template](https://raw.githubusercontent.com/Freakling/App-Director/v1.15.0/project/product/director-brief.md), saved as `product/director-brief.md` in your app. Fill in what you know and leave the rest blank. Then install: onboarding reads your brief and asks only what you left open.
+**Start here: write your product brief.** Before you install, describe your app in your own words in a copy of the [product brief template](https://raw.githubusercontent.com/Freakling/App-Director/v1.16.0/project/product/director-brief.md), saved as `product/director-brief.md` in your app. Fill in what you know and leave the rest blank. Then install: onboarding reads your brief and asks only what you left open.
 
 > You've read this far, so App Director may be what you're looking for. It's free and open source, and if it helps you build your app, a tip on Ko-fi or a sponsorship on GitHub helps me keep building it. I greatly appreciate your support.
 >
@@ -151,17 +151,20 @@ your-app/
 ├── tools/security.sh           the security assessment's tools: dependency audit, secrets scan, Semgrep; and whether one is due
 ├── tools/stories.sh            whether the user stories are due for validation
 ├── tools/prototype.sh          a prototype's git steps: its worktree, branch and notes; list, harvest, remove
-├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit and pre-push hooks
+├── tools/records.sh            the records gate: a summary's exact lines, the human's approval of them, and the commit check
+├── tools/setup-clone.sh        per clone: checks toolchain, installs the pre-commit, pre-push and commit-msg hooks
 ├── tools/stacks/               typescript.sh · flutter.sh · python.sh · none.sh
 ├── tools/ui_capture.sh, tools/ui/  screen capture, element map, layout lint, drawing reader, compare and verify (Node and Playwright)
-├── .githooks/pre-commit        runs the check before commits that touch code (the full tier when it's due, else the fast one; not in a prototype), and the secrets scan on every commit (no gitleaks, no commit)
+├── .githooks/pre-commit        refuses record lines (brief, decisions, confirmed stories, items) no approval of yours covers; runs the check before commits that touch code (the full tier when it's due, else the fast one; not in a prototype), and the secrets scan on every commit (no gitleaks, no commit)
+├── .githooks/commit-msg        asks a commit that carries approved record lines to name the approval (Approved: ...)
 ├── .githooks/pre-push          runs the full tier before a push; refuses to push a prototype's proto/ branch, or its commits under another name
 │
 │  App Director's, Claude Code adapter: updated on upgrade
 ├── .claude/skills/             /next-task and the rest: each points to its procedure
 ├── .claude/agents/             builder (builds each item in a fresh context) · reviewer and researcher (read-only)
 ├── .claude/hooks/              runs the fast tier before a turn ends, for a session that changed code;
-│                               blocks risky git commands; says at session start when the
+│                               records your approval of a summary and blocks the assistant from
+│                               recording one; blocks risky git commands; says at session start when the
 │                               project is behind the latest release, and lists the processes
 │                               an ended session left behind
 └── .claude/settings.json       permissions, hooks, timeouts
@@ -171,6 +174,7 @@ Machine-local and gitignored: `.app-director/state/` (check cache) and `.claude/
 ### The rules, briefly
 The full rules are in `.app-director/rules.md`, and the assistant reads them every session.
 - **You decide design.** The assistant offers options and a recommendation. It never picks values (new values are marked `PLACEHOLDER`), and never answers an open question itself.
+- **You approve what the records say.** Before the brief, the decisions, a confirmed story or an item is written, the assistant shows you a summary of exactly those lines, with an id, and you answer with an approval word. The approval is tied to those lines, and the commit refuses record lines no approval covers.
 - **Areas you own are never generated.** Onboarding asks who owns visual design, assets, copy and infrastructure. Human-owned areas get an agreed placeholder instead of generated content. `director/` is an optional protected workspace: the AI reads it for context but never creates, modifies or deletes anything inside it.
 - **Each fact lives in one place,** and is updated in the same change that makes it untrue.
 - **Logic lives in the logic layer, not the UI.** Screens display state and call services. They never fetch data directly or hold business logic. The check fails when they do.

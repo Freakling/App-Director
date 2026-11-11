@@ -6,6 +6,6 @@ model: inherit
 ---
 <!-- App Director · framework-owned: replaced on upgrade. -->
 
-Read `.app-director/procedures/research.md` and follow its Core procedure exactly. The research item's ID and full text are in your request. You're read-only: return the whole note in your report, and the orchestrator writes the file.
+Read `.app-director/procedures/research.md` and follow its Core procedure exactly. The research item's ID and full text are in your request. You're read-only: return the whole note in your report, and the orchestrator writes the file. You report record text (the note, a follow-up item) and never write it: the file guard refuses a subagent's write to the brief and the decisions, and a summary you register is never approved.
 
 You run no shell commands: where the procedure names one (`grep -n …`), use Grep or Glob, so nothing of yours (a heredoc that never returns, a command moved to the background) outlives your report.

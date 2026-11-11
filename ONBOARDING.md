@@ -22,7 +22,7 @@ The human makes every design and ownership decision; you gather, propose and wri
    > - **Full**: does everything fast does, then re-checks all project files against the current standards (same thoroughness as a fresh install). Choose this after many versions have accumulated, for a new machine or contributor, or when you want a complete review.
 
    Then:
-   1. Read the entries in `$ADIR/CHANGELOG.md` newer than the old version. Carry out each **Upgrade steps** section in order.
+   1. Read the entries in `$ADIR/CHANGELOG.md` newer than the old version. Carry out each **Upgrade steps** section in order. A change to the brief, the decisions, the items or the `[records]` and `[approval]` settings made during an upgrade is a record change like any other: it goes through an approved summary (`.app-director/procedures/design.md` › Summary and approval). In Claude Code the hook wiring is read when a session starts, so the approval hook works from the next session after the upgrade; until then the human approves with `bash tools/records.sh approve <id>` in their own terminal.
    2. If full, carry out steps 3-8 below.
    3. Run step 2 only if `bash tools/check.sh` exits 3 (a fast upgrade) or run it again now (a full upgrade).
    4. **Screens.** If the app has a web UI, ask for the address of its dev server on this machine and write it to `tools/ui_capture.cfg` › `[web] base_url` (and `start_command`, if capture should start it). With Node available, run `bash tools/ui_capture.sh --missing` (the Screens checks of `.app-director/procedures/align.md`) and tell the human which screens the catalog doesn't cover yet. It lists them; it never fails the upgrade. Offer to add the entries now or leave them for the next item that touches a screen. An upgrade keeps the app's own `AGENTS.md` and `tools/check.cfg`; the layout lint never runs in the check.
@@ -43,7 +43,7 @@ Run `bash "$ADIR/install.sh" .`. Then read its report.
 
 ## 3. Toolchain check
 
-Run `bash tools/setup-clone.sh`. It checks that the configured stack tool is available (node, flutter, python), verifies gitleaks is installed at the minimum version, and installs the pre-commit and pre-push hooks. Report what it printed. If gitleaks is missing, stop and tell the human which install command to use for their OS (macOS: `brew install gitleaks`; Linux: download binary from the releases page; Windows: `winget install gitleaks`).
+Run `bash tools/setup-clone.sh`. It checks that the configured stack tool is available (node, flutter, python), verifies gitleaks is installed at the minimum version, and installs the pre-commit, pre-push and commit-msg hooks. Report what it printed. If gitleaks is missing, stop and tell the human which install command to use for their OS (macOS: `brew install gitleaks`; Linux: download binary from the releases page; Windows: `winget install gitleaks`).
 
 **For existing apps only (git history scan):** run a one-time full scan of the commit history:
 ```
@@ -110,7 +110,9 @@ Draft each of these in the conversation; what they produce joins the summary bel
 At the end of the interview (fresh start), or when the records are drafted from the code and the human's documents (existing app), show one summary of everything this section will write, and wait. Nothing is written before the human approves it.
 1. **List it.** For each file, what it gets, as it will read: the `product/brief.md` text; each line for `product/decisions.md`, word for word; the Open Questions; the user stories with their IDs and their Confirmed dates, or `unconfirmed`, and the Last validated line; the TASKS.md items in full; and for an existing app the AGENTS.md › Architecture rows. Mark what came from the human's brief `(from your brief)` and what you inferred `(inferred, please confirm)`.
 2. **Ask:** "Approve this summary, or tell me what to change?"
-3. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options. Then write all of it; it goes into the install commit (section 10).
+3. Write nothing until the human approves a summary of all of it (`design.md` › Summary and approval); a chat message or an "Other" answer before then re-opens the options. Then write all of it; it goes into the install commit (section 10). The first commit of a record file isn't judged by the records gate, so onboarding itself needs no registered summary.
+
+Tell the human once how approving works: they are shown the lines of a summary with an id, and they answer with an approval word (`approve`, `yes`, `ok` and the others in `tools/check.cfg` › `[approval] words`; the seed lists them). Ask whether they want other words as well, in their own language say, and write the answer to `[approval] words`; the first commit of the settings isn't judged either.
 
 ## 6. Choose stack
 
@@ -192,10 +194,10 @@ If the flows aren't decided yet, leave the placeholders and add an agent item "F
 4. List every file created, changed or deleted (`git status`).
 5. **Commit it all in one commit, after the human approves.**
    - Stage the files: `git add` only the files created or changed.
-   - Mark scripts executable: `git add --chmod=+x -- tools/*.sh .githooks/pre-commit .githooks/pre-push .claude/hooks/*.sh`.
+   - Mark scripts executable: `git add --chmod=+x -- tools/*.sh .githooks/pre-commit .githooks/pre-push .githooks/commit-msg .claude/hooks/*.sh`.
    - Use the message `chore: install App Director <version>` (or `upgrade to`).
 6. **The pre-commit hook.**
-   - If the check passes, run `bash tools/setup-clone.sh`, which installs it and the pre-push hook.
+   - If the check passes, run `bash tools/setup-clone.sh`, which installs it, the pre-push hook and the commit-msg hook.
    - If the check fails, leave the hook off and add an item: "Install the pre-commit hook once the check passes (`bash tools/setup-clone.sh`)".
 7. **Tell the human:**
    - what needs their confirmation (inferred decisions, open questions);

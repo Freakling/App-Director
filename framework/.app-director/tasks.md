@@ -52,4 +52,4 @@ Read this before adding or editing an item.
     - `L`: an architecture, security or requirements comparison across several areas, with sources to reconcile.
     - `XL`: several linked areas that feed more than one decision, such as a stack choice with security, cost and migration. Split it when you can.
 - **`Note:`** (optional). An item paused partway through gets `- Note: <where it stands, what's next>`. Delete the note when the item is done.
-- **Merge conflicts.** On a merge conflict in TASKS.md, keep both sides' items, give any duplicate ID a new number from `Next IDs`, and fix references to it.
+- **Merge conflicts.** On a merge conflict in TASKS.md, keep both sides' items, give any duplicate ID a new number from `Next IDs`, and fix references to it. The renumbered item is a record change: it goes through an approved summary (`procedures/design.md` › Summary and approval), like any item you add.
