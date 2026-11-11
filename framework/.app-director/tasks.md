@@ -13,7 +13,8 @@ Read this before adding or editing an item.
 ```
 
 - **Heading.** It reads `ID · title · status · size · owner`, and a bug adds `· high|med|low`. New IDs (`T<n>`, `B<n>`, `R<n>`) come from the `Next IDs` line, which you then bump. If the line has no `R` counter yet, add `· R1`. IDs are never reused.
-- **Status.** `todo`, `in-progress YYYY-MM-DD` (the claim date) or `done`. "Ready" isn't stored: a `todo` item is ready when everything in `Depends on` is `done`.
+- **Status.** `proposed`, `todo`, `in-progress YYYY-MM-DD` (the claim date) or `done`. "Ready" isn't stored: a `todo` item is ready when everything in `Depends on` is `done`.
+  - `proposed` is an item the assistant filed by itself. No procedure picks, claims or builds it, an item that depends on it waits, and it counts as not built. It becomes `todo` when the human approves it in a summary (`procedures/design.md` › Summary and approval). `rules.md` › Doing the work says which items are filed `proposed`.
 - **Size.**
   - `XS`: a single value, label, copy change, or config line. No logic change and no new tests.
   - `S`: 1-2 files, a clear bug fix, or a small feature following an existing pattern.

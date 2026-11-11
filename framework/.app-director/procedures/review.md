@@ -26,4 +26,6 @@ Check, most important first:
 6. **Records.** AGENTS.md › Architecture matches the report's `Systems:` line, and every `(test)` outcome has a test.
 7. **Simpler.** Code that could be deleted beats adding a safeguard.
 
+You file no items. The session that asked for the review files what the builder can't fix, as `proposed` (or a `todo` bug where the bugs rule in `rules.md` › Doing the work allows it).
+
 Report findings most severe first. Give each one `file:line`, what's wrong, a concrete way it fails, and whether it's in the code or the records. Skip style remarks while correctness problems remain. If there's nothing to report, say "no findings". If the item was clearly sized wrong, say so.

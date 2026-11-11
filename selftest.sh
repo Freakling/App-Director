@@ -486,6 +486,25 @@ grep -q 'product/user-stories\.md' "$src/README.md" && grep -q 'tools/stories\.s
 [ -z "$wired" ] && ok "the user stories seed has its header and sections, and Stories:, the cadence, the rules, the procedures, the settings and the docs name them" \
   || bad "the user stories aren't wired into:$wired"
 
+# Proposed items and the records rules: the status exists, nothing picks it, the bugs rule and the message rules
+# are in rules.md once, and the check.cfg seed and onboarding carry [records] bugs.
+wired=""
+grep -q '^- \*\*Status\.\*\* `proposed`, `todo`, `in-progress YYYY-MM-DD`' "$adir/tasks.md" && grep -q 'an item that depends on it waits' "$adir/tasks.md" || wired="$wired tasks.md"
+grep -q '^- \*\*The bugs rule\.\*\*' "$adir/rules.md" && grep -q '`\[records\] bugs`' "$adir/rules.md" \
+  && grep -q '^- \*\*A message is not an approval\.\*\*' "$adir/rules.md" && grep -q 'left unanswered is no answer' "$adir/rules.md" \
+  && grep -q 'Neither ever authorises writing a decision' "$adir/rules.md" && grep -q 'An item you file yourself is `proposed`' "$adir/rules.md" || wired="$wired rules.md"
+[ "$(grep -c 'The bugs rule\.' "$adir/rules.md")" -eq 1 ] || wired="$wired rules.md(bugs rule more than once)"
+grep -q 'A `proposed` item is never a candidate' "$adir/procedures/next-task.md" && grep -q 'filed `proposed`' "$adir/procedures/next-task.md" \
+  && grep -q 'every `proposed` item the run filed' "$adir/procedures/next-task.md" || wired="$wired next-task.md"
+grep -q 'rules\.md` › The human decides' "$adir/procedures/design.md" && grep -q 'a `proposed` item becomes `todo`' "$adir/procedures/design.md" || wired="$wired design.md"
+grep -q 'as `proposed`' "$adir/procedures/review.md" || wired="$wired review.md"
+grep -q '`proposed`' "$adir/procedures/research.md" || wired="$wired research.md"
+grep -q 'These items are `todo` because' "$adir/procedures/security.md" || wired="$wired security.md"
+sed -n '/^\[records\]$/,/^\[/p' "$src/project/tools/check.cfg" | grep -q '^bugs = cited$' || wired="$wired project/tools/check.cfg"
+grep -q '`\[records\] bugs`' "$src/ONBOARDING.md" || wired="$wired ONBOARDING.md"
+[ -z "$wired" ] && ok "the proposed status, the bugs rule, the message rules and the [records] bugs setting are wired into the rules, the procedures, the seed and onboarding" \
+  || bad "the proposed status and the records rules aren't wired into:$wired"
+
 # Prototypes: the procedure, the skill and tools/prototype.sh exist and are wired in. rules.md routes the
 # procedure and says a prototype session is outside the loop and reaches main only through the harvest, the
 # item format has Prototype:, the design procedure harvests one and files nothing without the human, the
@@ -1648,6 +1667,12 @@ cp tools/check.cfg "$work/saved-cfg"
 printf '[project]\nstack = nonexistent\n[gitleaks]\nmin-version = 8.18.0\n' > tools/check.cfg
 out="$(bash tools/check.sh 2>&1)"
 expect_status "exits 3 when the stack script is missing" 3 $? "$out"
+cp "$work/saved-cfg" tools/check.cfg
+
+# A [records] section, which the check never reads, is harmless: the check still runs and passes.
+printf '[project]\nstack = none\n[records]\nbugs = none\n[gitleaks]\nmin-version = 8.18.0\n' > tools/check.cfg
+out="$(bash tools/check.sh 2>&1)"
+expect_status "an unknown [records] section in check.cfg doesn't upset the check" 0 $? "$out"
 cp "$work/saved-cfg" tools/check.cfg
 
 # A test run past [tests] timeout exits 3 and says so; a failure seen before it still exits 1.
