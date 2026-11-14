@@ -6300,7 +6300,8 @@ git checkout -- src/ui/TodoList.ts
 # worktree beside the project, the branch from main with no upstream and the committed PROTOTYPE.md, and refuses
 # an existing name or an invalid one. Only a prototype (a linked worktree on a proto/ branch with PROTOTYPE.md at
 # its root) skips the check: the pre-commit hook still blocks a staged secret there and a commit without gitleaks,
-# and runs the check everywhere else, the Stop hook likewise, and the pre-push hook refuses a proto/ branch.
+# and runs the check everywhere else, the Stop hook likewise, and the pre-push hook refuses a proto/ branch and a
+# push of commits from a prototype's checkout.
 # harvest prints what the harvest reads and changes nothing; remove never forces and keeps the branch. The stub
 # check always fails, so a commit of a source file that goes through shows the check was skipped; asked which staged
 # paths are source (--unignored), it answers with the framework's check, as a working one does, so a commit of no
@@ -6512,7 +6513,8 @@ out="$(_stop_in "$_pa")"; expect_status "the Stop hook runs the check on main, a
 rm -f "$_pa/wip.ts"
 
 # The pre-push hook refuses a proto/ branch, from the prototype or to the remote, and any push that carries a
-# prototype's commits under another name, and lets main through.
+# prototype's commits under another name, and refuses a push of commits from a prototype's checkout, whatever the
+# ref (B76: the check there would read the prototype's files). A push that only deletes a ref goes through.
 _push_refused() { # _push_refused <what> <folder> <refspec> <reason pattern>
   out="$(cd "$2" && PATH="$_stop_path" git push -q origin "$3" 2>&1)"; status=$?
   { [ "$status" -ne 0 ] && printf '%s' "$out" | grep -q "a prototype is never pushed; push blocked" && printf '%s' "$out" | grep -q "$4"; } \
@@ -6526,18 +6528,28 @@ _push_refused "proto/quick-add~0 under another name" "$_pa" "proto/quick-add~0:r
 git -C "$_pa" branch from-proto proto/quick-add >/dev/null 2>&1
 _push_refused "a branch made from a prototype's commit" "$_pa" from-proto "carries a prototype's commits"
 (cd "$_pa" && printf '# app\n\nA note.\n' > README.md && git add README.md && PATH="$_stop_path" git commit -qm "docs: a note") >/dev/null 2>&1
-# The refusal lets main through. Outside a prototype the push then runs the project check, whose stub fails here; in a
-# prototype it doesn't.
+# Outside a prototype the push of main runs the project check, whose stub fails here.
 out="$(cd "$_pa" && PATH="$_stop_path" git push -q origin main 2>&1)"; status=$?
 [ "$status" -ne 0 ] && ok "pre-push runs the check for main outside a prototype, and blocks the push when it fails" \
   || bad "pre-push runs the check for main outside a prototype, and blocks the push when it fails (exit $status)" "$out"
 expect_output "with the check's own output" "^stub check: fails$" "$out"
 expect_output "and says the full check fails" "^pre-push: the full check fails, so nothing was pushed\." "$out"
-out="$(cd "$_pw" && PATH="$_stop_path" git push -q origin main 2>&1)"
-expect_status "pre-push lets main through from a prototype, where the check doesn't run" 0 $? "$out"
-expect_no_output "and doesn't run the check there" "running the project check|stub check" "$out"
-[ "$(git --git-dir="$_po" for-each-ref --format='%(refname)')" = "refs/heads/main" ] \
-  && ok "the origin has main and nothing else" || bad "a refused push reached the origin" "$(git --git-dir="$_po" for-each-ref)"
+# A prototype's push of main is refused, with why and what to do: nothing reaches the origin, and no check runs there.
+_main_before_proto="$(git --git-dir="$_po" rev-parse main)"
+out="$(cd "$_pw" && PATH="$_stop_path" git push -q origin main 2>&1)"; status=$?
+{ [ "$status" -ne 0 ] && printf '%s' "$out" | grep -q "pre-push: a push from a prototype is refused; nothing was pushed\." \
+  && printf '%s' "$out" | grep -q "Push from the main checkout, where the check reads the files the push sends\."; } \
+  && ok "pre-push refuses main from a prototype, and says why and what to do" \
+  || bad "pre-push refuses main from a prototype, and says why and what to do (exit $status)" "$out"
+expect_no_output "and runs no check there" "running the project check|stub check" "$out"
+[ "$(git --git-dir="$_po" rev-parse main)" = "$_main_before_proto" ] && [ "$(git --git-dir="$_po" for-each-ref --format='%(refname)')" = "refs/heads/main" ] \
+  && ok "the origin has main and nothing else, unmoved by the refused push" || bad "a refused push reached the origin" "$(git --git-dir="$_po" for-each-ref)"
+# A push from the prototype that only deletes a ref goes through: it sends no commit, so there is nothing to check.
+git --git-dir="$_po" update-ref refs/heads/gone "$_main_before_proto"
+out="$(cd "$_pw" && PATH="$_stop_path" git push -q origin :refs/heads/gone 2>&1)"; status=$?
+expect_status "pre-push lets a prototype's push that only deletes a ref through" 0 "$status" "$out"
+[ -z "$(git --git-dir="$_po" for-each-ref refs/heads/gone)" ] && ok "and the deleted ref is gone from the origin" \
+  || bad "the deleted ref is still on the origin" "$(git --git-dir="$_po" for-each-ref)"
 
 # harvest prints the prototype's commits, files, the diff command, uncommitted changes and notes, and writes nothing.
 _pa_state() { git -C "$_pa" status --porcelain; git -C "$_pa" rev-parse HEAD proto/quick-add; git -C "$_pa" for-each-ref; cksum < "$_pa/TASKS.md"; }

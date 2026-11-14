@@ -8,10 +8,14 @@
 # made from a prototype's commit. Deleting a ref on the remote is allowed. Git gives one line per ref on
 # stdin: <local ref> <local sha> <remote ref> <remote sha>.
 #
+# A push that sends commits from a prototype's checkout is refused too, whatever the ref: the check reads the
+# working tree, which there is the prototype's files, not the commits the push sends. A push that only deletes
+# refs goes through. Push from the main checkout.
+#
 # Then a push gets the full tier of the project check (bash tools/check.sh --full --if-changed, so a full pass
-# of these files is reused), unless every ref it sends is a deletion, the checkout is a prototype or there's
-# no tools/check.sh. A failure, or a check that can't run, blocks the push. The check reads the working tree,
-# and its stdin is /dev/null: git's ref list is this hook's, read below.
+# of these files is reused), unless every ref it sends is a deletion or there's no tools/check.sh. A failure, or
+# a check that can't run, blocks the push. The check reads the working tree, and its stdin is /dev/null: git's
+# ref list is this hook's, read below.
 
 # The prototypes' own commits, once per push: reachable from a proto/ branch and not from main.
 proto_only=""
@@ -44,11 +48,18 @@ if [ -n "$refused" ]; then
   exit 1
 fi
 
+# A prototype's checkout sends no commits from there (tools/prototype.sh says what one is): the check would read its
+# files, not the commits this push sends, so the push is refused, unchecked, and nothing reaches the remote.
+if [ "$sends" -eq 1 ] && [ -f tools/prototype.sh ] && bash tools/prototype.sh here >/dev/null 2>&1; then
+  echo "pre-push: a push from a prototype is refused; nothing was pushed."
+  echo "          This checkout is a prototype: the check reads its files, not the commits this push sends."
+  echo "          Push from the main checkout, where the check reads the files the push sends."
+  exit 1
+fi
+
 # --- the full check ---------------------------------------------------------------------------------
 [ "$sends" -eq 1 ] || exit 0
 [ -f tools/check.sh ] || exit 0
-# A prototype is tried outside the loop: the check gates nothing there. tools/prototype.sh says what one is.
-[ -f tools/prototype.sh ] && bash tools/prototype.sh here >/dev/null 2>&1 && exit 0
 
 echo "pre-push: running the project check, full tier: a push gets the full check"
 CHECK_CALLER=pre-push bash tools/check.sh --full --if-changed </dev/null

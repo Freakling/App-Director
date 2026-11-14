@@ -25,7 +25,7 @@ AI writes app code fast. Without structure, that speed goes wrong in familiar wa
 
 ## Install
 
-**Start here: write your product brief.** Before you install, describe your app in your own words in a copy of the [product brief template](https://raw.githubusercontent.com/Freakling/App-Director/v1.16.0/project/product/director-brief.md), saved as `product/director-brief.md` in your app. Fill in what you know and leave the rest blank. Then install: onboarding reads your brief and asks only what you left open.
+**Start here: write your product brief.** Before you install, describe your app in your own words in a copy of the [product brief template](https://raw.githubusercontent.com/Freakling/App-Director/v1.16.1/project/product/director-brief.md), saved as `product/director-brief.md` in your app. Fill in what you know and leave the rest blank. Then install: onboarding reads your brief and asks only what you left open.
 
 > You've read this far, so App Director may be what you're looking for. It's free and open source, and if it helps you build your app, a tip on Ko-fi or a sponsorship on GitHub helps me keep building it. I greatly appreciate your support.
 >
@@ -157,7 +157,7 @@ your-app/
 ├── tools/ui_capture.sh, tools/ui/  screen capture, element map, layout lint, drawing reader, compare and verify (Node and Playwright)
 ├── .githooks/pre-commit        refuses record lines (brief, decisions, confirmed stories, items) no approval of yours covers; runs the check before commits that touch code (the full tier when it's due, else the fast one; not in a prototype), and the secrets scan on every commit (no gitleaks, no commit)
 ├── .githooks/commit-msg        asks a commit that carries approved record lines to name the approval (Approved: ...)
-├── .githooks/pre-push          runs the full tier before a push; refuses to push a prototype's proto/ branch, or its commits under another name
+├── .githooks/pre-push          runs the full tier before a push; refuses a push of commits from a prototype's checkout, and a prototype's proto/ branch, or its commits under another name
 │
 │  App Director's, Claude Code adapter: updated on upgrade
 ├── .claude/skills/             /next-task and the rest: each points to its procedure
