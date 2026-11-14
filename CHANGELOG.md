@@ -2,7 +2,7 @@
 
 Each entry lists what changed. **Upgrade steps** at the end of an entry cover both framework fixes and app-owned file updates (AGENTS.md, TASKS.md, product/brief.md), so every project reaches the same capability level after upgrading. Onboarding carries them out; the fast upgrade mode runs only these steps, and the full mode also re-checks everything as if newly installed.
 
-## Unreleased
+## 1.16.1 (2026-11-14)
 
 - **A push from a prototype's checkout is refused, not left unchecked.** A prototype's pre-push hook skipped the check, and the check reads the working tree, which there holds the prototype's files, not the commits the push sends. So a push of `main` from a prototype worktree went out with no check, even when `main` had a failing check. Now a push that sends commits from a prototype's checkout is refused, with the reason and the way out: push from the main checkout, where the check runs on the files the push sends. A push that only deletes refs still goes through, and a prototype's own branch and commits are refused as before. A checkout that isn't a prototype is unchanged.
   - **Upgrade steps:** none; the hook and `tools/prototype.sh` are framework-owned and arrive with the upgrade.
