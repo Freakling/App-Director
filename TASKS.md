@@ -4,9 +4,15 @@ This is App Director's own work queue, for developing the framework itself. It i
 
 Item format: `framework/.app-director/tasks.md`. Queue order is priority; reorder by moving items.
 
-**Next IDs:** T60 · B8 · R1
+**Next IDs:** T60 · B9 · R1
 
 ## Queue
+
+### B8 · A push of main from a prototype worktree runs no check · done · S · agent · low
+- Touches: framework/.githooks/pre-push, framework/tools/prototype.sh, framework/.app-director/procedures/prototype.md, README.md, selftest.sh, CHANGELOG.md, TASKS.md
+- Repro: in an app with a failing check committed on `main`, `bash tools/prototype.sh start try`, then `git push origin main` in the prototype's worktree → expected: the push is checked like one from the main checkout, or refused there / actual: `main` holds no prototype commits, so the refusal doesn't apply, and the hook skips the check because the checkout is a prototype, so `main` is pushed unchecked
+- Source: Director-Driven-Development B76
+- Brief: -
 
 ### T59 · The procedures write records through the approved summary · done · M · agent
 - Touches: framework/.app-director/rules.md, framework/.app-director/procedures/design.md, next-task.md, build.md, acceptance.md, align.md, research.md, ui-design.md, drift-reset.md, security.md, prune.md, prototype.md, framework/.claude/agents/builder.md, reviewer.md, researcher.md, README.md, ONBOARDING.md, selftest.sh, CHANGELOG.md, TASKS.md
